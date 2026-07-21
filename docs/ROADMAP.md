@@ -1,0 +1,35 @@
+# Roadmap
+
+## Phase 1: Desktop MVP
+
+- Host room creation
+- Viewer room join
+- Hardware port discovery
+- Motion send and receive
+- Manual emergency stop
+- Local relay for development
+
+## Phase 2: Production Relay
+
+- Hosted relay service
+- Authenticated streamer accounts
+- Room password hashing
+- Approval queue
+- Viewer kick and ban
+- Per-room rate limits
+
+## Phase 3: Hardware SDK Split
+
+- `@haptic-relay/protocol`
+- `@haptic-relay/hardware-serial`
+- `@haptic-relay/desktop`
+- Hardware simulator for QA
+- Device certification fixtures
+
+## Phase 4: Distribution
+
+- Windows installer
+- macOS notarized build
+- Auto-update channel
+- Crash reporting
+- Consent and safety onboarding
