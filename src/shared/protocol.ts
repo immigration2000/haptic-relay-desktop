@@ -1,0 +1,21 @@
+export type EntryMode = 'open' | 'request';
+
+export type RoomSettings = {
+  roomName: string;
+  password?: string;
+  entryMode: EntryMode;
+};
+
+export type MotionFrame = {
+  intensity: number;
+  position: number;
+  timestamp: number;
+};
+
+export type PortInfo = {
+  path: string;
+  manufacturer?: string;
+  serialNumber?: string;
+  vendorId?: string;
+  productId?: string;
+};
