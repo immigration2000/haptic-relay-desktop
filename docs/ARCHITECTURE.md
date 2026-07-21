@@ -2,13 +2,14 @@
 
 ## Boundary
 
-Haptic Relay Desktop extracts hardware control from the live-streaming website. The live video platform remains responsible only for video, chat, and room promotion. This app owns room identity, access control, hardware connection, and motion-frame relay.
+Haptic Relay extracts hardware control from the live-streaming website. The live video platform remains responsible only for video, chat, and room promotion. The desktop app owns hardware connection and user workflows. The relay server owns room identity, access control, and motion-frame relay.
 
 ## Components
 
 - `electron/main.ts`: native desktop shell, IPC registration, app lifecycle.
 - `electron/services/hardware-controller.ts`: serial hardware access and normalized motion output.
-- `electron/services/room-host.ts`: Socket.IO room host for the streamer.
+- `electron/services/relay-client.ts`: Socket.IO client used by the desktop app.
+- `server/src/relay-server.ts`: standalone Socket.IO relay server for rooms and motion frames.
 - `src/App.tsx`: renderer UI for host and viewer workflows.
 - `src/shared/protocol.ts`: shared room and motion protocol types.
 
@@ -20,10 +21,19 @@ Haptic Relay Desktop extracts hardware control from the live-streaming website. 
 ## MVP Data Flow
 
 ```text
-Host hardware -> HardwareController -> host:motion -> RoomHost -> viewer:motion -> viewer hardware
+Host hardware -> Desktop app -> Relay server -> Viewer desktop app -> Viewer hardware
 ```
 
-For local testing, the room host can run inside the streamer's desktop app. For public internet rooms, replace `RoomHost` with a hosted relay service and keep the same motion protocol.
+For local testing, run the relay server on `localhost:4174`. For production, deploy this relay server separately from the website's low-latency in-site hardware sync backend.
+
+## Server Split Rationale
+
+The website hardware feature and the external-platform desktop app should not share the same realtime path.
+
+- Website path: optimized for lowest possible latency, tight platform integration, controlled environment.
+- Desktop app path: optimized for compatibility across PandaTV and other platforms, easier onboarding, separate scaling and rate limits.
+- Shared protocol: motion frame shape and hardware adapters can stay compatible across both products.
+- Separate infrastructure: latency budgets, relay geography, logging, moderation, and cost controls can diverge without hurting the website experience.
 
 ## Access Modes
 
