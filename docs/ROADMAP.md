@@ -7,11 +7,12 @@
 - Hardware port discovery
 - Motion send and receive
 - Manual emergency stop
-- Local relay for development
+- Standalone relay server for development
 
 ## Phase 2: Production Relay
 
 - Hosted relay service
+- Website low-latency backend remains separate from app relay
 - Authenticated streamer accounts
 - Room password hashing
 - Approval queue

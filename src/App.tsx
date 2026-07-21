@@ -6,6 +6,8 @@ type Role = 'host' | 'viewer';
 
 export default function App() {
   const [role, setRole] = useState<Role>('host');
+  const [relayUrl, setRelayUrl] = useState(import.meta.env.VITE_RELAY_URL ?? 'http://localhost:4174');
+  const [displayName, setDisplayName] = useState('viewer-01');
   const [roomName, setRoomName] = useState('studio-main');
   const [password, setPassword] = useState('');
   const [entryMode, setEntryMode] = useState<EntryMode>('open');
@@ -35,12 +37,21 @@ export default function App() {
 
   async function createRoom() {
     if (!canHost) return;
-    const room = await window.hapticRelay.startHostRoom({
+    const room = await window.hapticRelay.startHostRoom(relayUrl.trim(), {
       roomName: roomName.trim(),
       password: password.trim() || undefined,
       entryMode
     });
     setStatus(`방 생성됨: ${room.roomName} / ${room.relayUrl}`);
+  }
+
+  async function joinRoom() {
+    await window.hapticRelay.joinRoom(relayUrl.trim(), {
+      displayName: displayName.trim(),
+      roomName: roomName.trim(),
+      password: password.trim() || undefined
+    });
+    setStatus(`방 입장됨: ${roomName}`);
   }
 
   async function sendMotion() {
@@ -63,6 +74,14 @@ export default function App() {
       </aside>
 
       <section className="workspace">
+        <section className="panel">
+          <h2>릴레이 서버</h2>
+          <label>
+            서버 URL
+            <input value={relayUrl} onChange={event => setRelayUrl(event.target.value)} />
+          </label>
+        </section>
+
         {role === 'host' ? (
           <>
             <section className="panel">
@@ -119,7 +138,7 @@ export default function App() {
             <div className="form-grid">
               <label>
                 표시 이름
-                <input placeholder="viewer-01" />
+                <input value={displayName} onChange={event => setDisplayName(event.target.value)} />
               </label>
               <label>
                 방 이름
@@ -130,7 +149,7 @@ export default function App() {
                 <input value={password} onChange={event => setPassword(event.target.value)} />
               </label>
             </div>
-            <button className="primary">입장 요청</button>
+            <button className="primary" onClick={joinRoom}>입장 요청</button>
           </section>
         )}
       </section>

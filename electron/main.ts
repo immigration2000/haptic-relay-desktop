@@ -2,13 +2,13 @@ import { app, BrowserWindow, ipcMain } from 'electron';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { HardwareController } from './services/hardware-controller.js';
-import { RoomHost } from './services/room-host.js';
+import { RelayClient } from './services/relay-client.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 let mainWindow: BrowserWindow | undefined;
 const hardware = new HardwareController();
-let roomHost: RoomHost | undefined;
+const relay = new RelayClient();
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -35,7 +35,7 @@ app.whenReady().then(createWindow);
 
 app.on('window-all-closed', () => {
   void hardware.disconnect();
-  void roomHost?.stop();
+  relay.disconnect();
   if (process.platform !== 'darwin') app.quit();
 });
 
@@ -46,11 +46,13 @@ app.on('activate', () => {
 ipcMain.handle('hardware:list', () => hardware.listPorts());
 ipcMain.handle('hardware:connect', (_event, pathName: string, baudRate: number) => hardware.connect(pathName, baudRate));
 ipcMain.handle('hardware:disconnect', () => hardware.disconnect());
-ipcMain.handle('hardware:send', (_event, intensity: number, position: number) => hardware.sendMotion({ intensity, position, timestamp: Date.now() }));
-
-ipcMain.handle('room:start-host', async (_event, settings) => {
-  roomHost = new RoomHost(settings);
-  return roomHost.start();
+ipcMain.handle('hardware:send', async (_event, intensity: number, position: number) => {
+  const frame = { intensity, position, timestamp: Date.now() };
+  const hardwareResult = await hardware.sendMotion(frame);
+  const relayResult = relay.publishMotion(frame);
+  return { hardware: hardwareResult, relay: relayResult };
 });
 
-ipcMain.handle('room:stop-host', () => roomHost?.stop());
+ipcMain.handle('room:start-host', (_event, relayUrl: string, settings) => relay.createRoom(relayUrl, settings));
+ipcMain.handle('room:join', (_event, relayUrl: string, request) => relay.joinRoom(relayUrl, request));
+ipcMain.handle('room:disconnect', () => relay.disconnect());
