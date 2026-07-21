@@ -1,0 +1,151 @@
+:root {
+  color: #182026;
+  background: #f4f6f8;
+  font-family: Inter, "Segoe UI", system-ui, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+button {
+  border: 1px solid #c9d2dc;
+  background: #ffffff;
+  border-radius: 6px;
+  padding: 10px 14px;
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.app-shell {
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  min-height: 100vh;
+}
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 32px;
+  background: #17212b;
+  color: #f9fbfc;
+}
+
+.eyebrow {
+  margin: 0 0 12px;
+  color: #8fd7c7;
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+h1,
+h2 {
+  margin: 0;
+  letter-spacing: 0;
+}
+
+h1 {
+  font-size: 30px;
+  line-height: 1.16;
+}
+
+h2 {
+  font-size: 20px;
+}
+
+.role-switch {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 28px;
+}
+
+.role-switch button.active,
+.primary {
+  border-color: #1c8a73;
+  background: #1c8a73;
+  color: #ffffff;
+}
+
+.status {
+  min-height: 48px;
+  margin: 0;
+  color: #c8d7e2;
+}
+
+.workspace {
+  display: grid;
+  gap: 20px;
+  align-content: start;
+  padding: 32px;
+}
+
+.panel {
+  display: grid;
+  gap: 18px;
+  max-width: 880px;
+  padding: 22px;
+  border: 1px solid #d7e0e7;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+label {
+  display: grid;
+  gap: 8px;
+  color: #465764;
+  font-size: 14px;
+}
+
+input,
+select {
+  min-width: 0;
+  border: 1px solid #cbd5de;
+  border-radius: 6px;
+  padding: 10px 12px;
+  color: #1e2933;
+  background: #ffffff;
+}
+
+.hardware-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 10px;
+}
+
+@media (max-width: 860px) {
+  .app-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .sidebar {
+    gap: 24px;
+  }
+
+  .form-grid,
+  .hardware-row {
+    grid-template-columns: 1fr;
+  }
+}
