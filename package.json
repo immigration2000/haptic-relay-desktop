@@ -1,0 +1,49 @@
+{
+  "name": "haptic-relay-desktop",
+  "version": "0.1.0",
+  "description": "Desktop haptic hardware relay for cross-platform live streaming rooms.",
+  "private": true,
+  "main": "dist-electron/main.js",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "tsc --noEmit && npm run build:electron && vite build",
+    "build:electron": "tsc -p tsconfig.electron.json",
+    "electron:dev": "npm run build:electron && concurrently -k \"vite --host 127.0.0.1\" \"wait-on tcp:5173 && cross-env VITE_DEV_SERVER_URL=http://127.0.0.1:5173 electron .\"",
+    "electron:build": "npm run build && electron-builder",
+    "lint": "tsc --noEmit"
+  },
+  "dependencies": {
+    "electron-is-dev": "^3.0.1",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "serialport": "^13.0.0",
+    "socket.io": "^4.8.1",
+    "socket.io-client": "^4.8.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^5.0.0",
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "concurrently": "^9.2.0",
+    "cross-env": "^10.0.0",
+    "electron": "^37.0.0",
+    "electron-builder": "^26.0.0",
+    "typescript": "^5.8.0",
+    "vite": "^7.0.0",
+    "wait-on": "^8.0.0"
+  },
+  "build": {
+    "appId": "com.hapticrelay.desktop",
+    "productName": "Haptic Relay",
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*",
+      "package.json"
+    ],
+    "directories": {
+      "output": "release"
+    }
+  }
+}
