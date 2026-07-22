@@ -22,6 +22,7 @@ type HostRoomRequest = {
 };
 
 const hostRoomsBySocket = new Map<string, string>();
+const pendingApprovals = new Map<string, { roomName: string; displayName: string }>();
 const port = Number(process.env.HAPTIC_RELAY_PORT ?? 4174);
 const corsOrigin = process.env.HAPTIC_RELAY_CORS_ORIGIN ?? '*';
 const publicRelayUrl = process.env.HAPTIC_PUBLIC_RELAY_URL ?? `http://localhost:${port}`;
@@ -60,6 +61,10 @@ io.on('connection', socket => {
     void handleViewerJoin(socket, request, ack);
   });
 
+  socket.on('viewer:approve', (request: { socketId: string; approved: boolean }, ack) => {
+    handleViewerApproval(socket, request, ack);
+  });
+
   socket.on('m', (payload: ArrayBuffer | Uint8Array | Buffer) => {
     const roomName = hostRoomsBySocket.get(socket.id);
     if (!roomName) return;
@@ -81,6 +86,7 @@ io.on('connection', socket => {
   socket.on('disconnect', () => {
     const roomName = hostRoomsBySocket.get(socket.id);
     if (roomName) activeRooms.delete(roomName);
+    pendingApprovals.delete(socket.id);
     hostRoomsBySocket.delete(socket.id);
     void roomRegistry.removeHostSocket(socket.id);
   });
@@ -130,17 +136,55 @@ async function handleViewerJoin(socket: Socket, request: JoinRequest, ack?: (res
   }
 
   if (room.entryMode === 'request') {
+    pendingApprovals.set(socket.id, {
+      roomName: token.roomName,
+      displayName: token.displayName ?? request.displayName
+    });
     if (room.hostSocketId) io.to(room.hostSocketId).emit('viewer:approval-requested', {
       socketId: socket.id,
       displayName: token.displayName ?? request.displayName,
       roomName: token.roomName
     });
-    ack?.({ ok: false, reason: 'approval-required' });
+    ack?.({ ok: false, reason: 'approval-required', requestId: socket.id });
     return;
   }
 
   socket.join(room.roomName);
   ack?.({ ok: true, roomName: room.roomName });
+}
+
+function handleViewerApproval(socket: Socket, request: { socketId: string; approved: boolean }, ack?: (response: unknown) => void) {
+  const roomName = hostRoomsBySocket.get(socket.id);
+  const pending = pendingApprovals.get(request.socketId);
+  if (!roomName || !pending || pending.roomName !== roomName) {
+    ack?.({ ok: false, reason: 'approval-not-found' });
+    return;
+  }
+
+  const viewerSocket = io.sockets.sockets.get(request.socketId);
+  if (!viewerSocket) {
+    pendingApprovals.delete(request.socketId);
+    ack?.({ ok: false, reason: 'viewer-disconnected' });
+    return;
+  }
+
+  pendingApprovals.delete(request.socketId);
+  if (!request.approved) {
+    viewerSocket.emit('viewer:rejected', { roomName });
+    ack?.({ ok: true, approved: false });
+    return;
+  }
+
+  const room = activeRooms.get(roomName);
+  if (!room || getConnectedCount(roomName).viewers >= getRoomCapacity(room)) {
+    viewerSocket.emit('viewer:rejected', { roomName, reason: 'room-full' });
+    ack?.({ ok: false, reason: 'room-full' });
+    return;
+  }
+
+  viewerSocket.join(roomName);
+  viewerSocket.emit('viewer:approved', { roomName });
+  ack?.({ ok: true, approved: true });
 }
 
 async function handleControlRequest(request: IncomingMessage, response: ServerResponse) {
@@ -171,6 +215,7 @@ async function handleControlRequest(request: IncomingMessage, response: ServerRe
           relayNodeId: room.relayNodeId,
           relayUrl: room.relayUrl,
           connected: getConnectedCount(room.roomName),
+          pendingApprovals: [...pendingApprovals.values()].filter(request => request.roomName === room.roomName).length,
           forwardedFrames: activeRoom.forwardedFrames,
           droppedFrames: activeRoom.droppedFrames,
           effectiveMaxHz: relayMaxHz
@@ -192,7 +237,7 @@ async function handleControlRequest(request: IncomingMessage, response: ServerRe
     sendJson(response, 201, {
       ok: true,
       roomName,
-      entryMode: settings.entryMode,
+      entryMode: room.entryMode,
       relayNodeId: room.relayNodeId,
       relayUrl: room.relayUrl,
       hostToken: createRelayToken({ role: 'host', roomName })

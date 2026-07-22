@@ -11,3 +11,9 @@ export type MotionFrame = {
   position: number;
   timestamp: number;
 };
+
+export type ApprovalRequest = {
+  socketId: string;
+  displayName: string;
+  roomName: string;
+};

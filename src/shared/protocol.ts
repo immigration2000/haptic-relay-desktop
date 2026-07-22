@@ -19,3 +19,9 @@ export type PortInfo = {
   vendorId?: string;
   productId?: string;
 };
+
+export type ApprovalRequest = {
+  socketId: string;
+  displayName: string;
+  roomName: string;
+};

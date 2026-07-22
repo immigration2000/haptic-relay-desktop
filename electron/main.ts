@@ -10,6 +10,10 @@ let mainWindow: BrowserWindow | undefined;
 const hardware = new HardwareController();
 const relay = new RelayClient(frame => {
   hardware.queueMotion(frame);
+}, request => {
+  mainWindow?.webContents.send('room:approval-requested', request);
+}, status => {
+  mainWindow?.webContents.send('room:viewer-status', status);
 });
 
 function createWindow() {
@@ -57,4 +61,5 @@ ipcMain.handle('hardware:send', async (_event, intensity: number, position: numb
 
 ipcMain.handle('room:start-host', (_event, relayUrl: string, settings) => relay.createRoom(relayUrl, settings));
 ipcMain.handle('room:join', (_event, relayUrl: string, request) => relay.joinRoom(relayUrl, request));
+ipcMain.handle('room:approve', (_event, socketId: string, approved: boolean) => relay.approveViewer(socketId, approved));
 ipcMain.handle('room:disconnect', () => relay.disconnect());
