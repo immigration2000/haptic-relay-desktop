@@ -7,6 +7,7 @@ export class RelayClient {
   private socket: Socket | undefined;
   private roomName = '';
   private relayUrl = '';
+  private hostToken = '';
   private latestFrame: MotionFrame | undefined;
   private flushTimer: NodeJS.Timeout | undefined;
   private readonly minIntervalMs = maxHzToInterval(RELAY_MAX_HZ);
@@ -30,30 +31,37 @@ export class RelayClient {
   }
 
   async createRoom(relayUrl: string, settings: RoomSettings) {
+    const room = await postJson<{ ok: true; roomName: string; relayUrl: string; hostToken: string; entryMode: string }>(`${relayUrl}/api/rooms`, settings);
     await this.connect(relayUrl);
 
-    const response = await this.emitWithAck('room:create', settings);
+    const response = await this.emitWithAck('room:create', { token: room.hostToken });
     if (!response.ok) {
       throw new Error(response.reason ?? 'room-create-failed');
     }
 
-    this.roomName = settings.roomName;
+    this.roomName = room.roomName;
+    this.hostToken = room.hostToken;
     return {
-      roomName: settings.roomName,
-      entryMode: settings.entryMode,
-      relayUrl
+      roomName: room.roomName,
+      entryMode: room.entryMode,
+      relayUrl: room.relayUrl
     };
   }
 
   async joinRoom(relayUrl: string, request: { displayName: string; roomName: string; password?: string }) {
+    const encodedRoomName = encodeURIComponent(request.roomName);
+    const join = await postJson<{ ok: true; roomName: string; relayUrl: string; viewerToken: string }>(`${relayUrl}/api/rooms/${encodedRoomName}/join`, request);
     await this.connect(relayUrl);
 
-    const response = await this.emitWithAck('viewer:join', request);
+    const response = await this.emitWithAck('viewer:join', {
+      displayName: request.displayName,
+      token: join.viewerToken
+    });
     if (!response.ok) {
       throw new Error(response.reason ?? 'room-join-failed');
     }
 
-    this.roomName = request.roomName;
+    this.roomName = join.roomName;
     return response;
   }
 
@@ -80,6 +88,7 @@ export class RelayClient {
     this.socket = undefined;
     this.roomName = '';
     this.relayUrl = '';
+    this.hostToken = '';
     this.latestFrame = undefined;
     return { connected: false };
   }
@@ -112,4 +121,17 @@ export class RelayClient {
       });
     });
   }
+}
+
+async function postJson<T>(url: string, body: unknown) {
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+  const payload = await response.json() as T & { ok?: boolean; reason?: string };
+  if (!response.ok || payload.ok === false) {
+    throw new Error(payload.reason ?? `request-failed:${response.status}`);
+  }
+  return payload as T;
 }
