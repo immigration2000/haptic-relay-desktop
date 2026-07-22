@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { ApprovalRequest, EntryMode, PortInfo } from './shared/protocol';
+import type { ApprovalRequest, EntryMode, PortInfo, ViewerSession } from './shared/protocol';
 import './styles.css';
 
 type Role = 'host' | 'viewer';
@@ -17,6 +17,7 @@ export default function App() {
   const [intensity, setIntensity] = useState(0.5);
   const [position, setPosition] = useState(0.5);
   const [approvalRequests, setApprovalRequests] = useState<ApprovalRequest[]>([]);
+  const [viewerSessions, setViewerSessions] = useState<ViewerSession[]>([]);
 
   const canHost = useMemo(() => roomName.trim().length >= 3, [roomName]);
 
@@ -37,12 +38,20 @@ export default function App() {
         setStatus(`방 입장 승인됨: ${nextStatus.roomName}`);
         return;
       }
+      if (nextStatus.status === 'removed') {
+        setStatus(`${nextStatus.reason === 'block' ? '차단' : '강퇴'}됨: ${nextStatus.roomName}`);
+        return;
+      }
       setStatus(`방 입장 거절됨: ${nextStatus.reason ?? nextStatus.roomName}`);
+    });
+    const removeViewerList = window.hapticRelay.onViewerList(viewers => {
+      setViewerSessions(viewers);
     });
 
     return () => {
       removeApprovalRequest();
       removeViewerStatus();
+      removeViewerList();
     };
   }, []);
 
@@ -65,6 +74,8 @@ export default function App() {
       password: password.trim() || undefined,
       entryMode
     });
+    setApprovalRequests([]);
+    setViewerSessions(await window.hapticRelay.listViewers());
     setStatus(`방 생성됨: ${room.roomName} / ${room.relayUrl}`);
   }
 
@@ -85,6 +96,12 @@ export default function App() {
     await window.hapticRelay.approveViewer(request.socketId, approved);
     setApprovalRequests(current => current.filter(item => item.socketId !== request.socketId));
     setStatus(`${request.displayName} ${approved ? '승인됨' : '거절됨'}`);
+  }
+
+  async function moderateViewer(viewer: ViewerSession, action: 'kick' | 'block') {
+    await window.hapticRelay.moderateViewer(viewer.socketId, action);
+    setViewerSessions(current => current.filter(item => item.socketId !== viewer.socketId));
+    setStatus(`${viewer.displayName} ${action === 'block' ? '차단됨' : '강퇴됨'}`);
   }
 
   async function sendMotion() {
@@ -177,6 +194,26 @@ export default function App() {
                 )}
               </section>
             ) : null}
+
+            <section className="panel">
+              <h2>접속자 관리</h2>
+              {viewerSessions.length === 0 ? (
+                <p className="muted">현재 접속한 시청자가 없습니다.</p>
+              ) : (
+                <div className="approval-list">
+                  {viewerSessions.map(viewer => (
+                    <div className="approval-row" key={viewer.socketId}>
+                      <div>
+                        <strong>{viewer.displayName}</strong>
+                        <span>{viewer.roomName}</span>
+                      </div>
+                      <button onClick={() => moderateViewer(viewer, 'kick')}>강퇴</button>
+                      <button onClick={() => moderateViewer(viewer, 'block')}>차단</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
 
             <section className="panel">
               <h2>모션 테스트</h2>

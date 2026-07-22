@@ -1,11 +1,11 @@
 import { io, Socket } from 'socket.io-client';
-import type { ApprovalRequest, MotionFrame, RoomSettings } from '../protocol.js';
+import type { ApprovalRequest, MotionFrame, RoomSettings, ViewerSession } from '../protocol.js';
 import { clamp01, maxHzToInterval, RELAY_MAX_HZ } from '../tuning.js';
 import { decodeMotionPacket, encodeMotionPacket } from '../motion-packet.js';
 
 type ViewerStatus = {
   roomName: string;
-  status: 'approved' | 'rejected';
+  status: 'approved' | 'rejected' | 'removed';
   reason?: string;
 };
 
@@ -21,7 +21,8 @@ export class RelayClient {
   constructor(
     private readonly onMotion?: (frame: MotionFrame) => void,
     private readonly onApprovalRequest?: (request: ApprovalRequest) => void,
-    private readonly onViewerStatus?: (status: ViewerStatus) => void
+    private readonly onViewerStatus?: (status: ViewerStatus) => void,
+    private readonly onViewerList?: (viewers: ViewerSession[]) => void
   ) {}
 
   async connect(relayUrl: string) {
@@ -51,6 +52,13 @@ export class RelayClient {
     this.socket.on('viewer:rejected', response => {
       this.onViewerStatus?.({ roomName: response.roomName, status: 'rejected', reason: response.reason });
     });
+    this.socket.on('viewer:removed', response => {
+      this.roomName = '';
+      this.onViewerStatus?.({ roomName: response.roomName, status: 'removed', reason: response.reason });
+    });
+    this.socket.on('room:viewers', viewers => {
+      this.onViewerList?.(viewers);
+    });
 
     await new Promise<void>((resolve, reject) => {
       this.socket?.once('connect', resolve);
@@ -69,6 +77,7 @@ export class RelayClient {
 
     this.roomName = room.roomName;
     this.hostToken = room.hostToken;
+    void this.refreshViewers();
     return {
       roomName: room.roomName,
       entryMode: room.entryMode,
@@ -99,6 +108,25 @@ export class RelayClient {
       throw new Error(response.reason ?? 'viewer-approval-failed');
     }
     return response;
+  }
+
+  async moderateViewer(socketId: string, action: 'kick' | 'block') {
+    const response = await this.emitWithAck('viewer:moderate', { socketId, action });
+    if (!response.ok) {
+      throw new Error(response.reason ?? 'viewer-moderation-failed');
+    }
+    return response;
+  }
+
+  async refreshViewers() {
+    if (!this.socket?.connected) return [];
+    const response = await this.emitWithAck('room:viewers', {});
+    if (!response.ok) {
+      throw new Error(response.reason ?? 'viewer-list-failed');
+    }
+    const viewers = Array.isArray(response.viewers) ? response.viewers as ViewerSession[] : [];
+    this.onViewerList?.(viewers);
+    return viewers;
   }
 
   publishMotion(frame: MotionFrame) {
