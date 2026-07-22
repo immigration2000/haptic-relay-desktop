@@ -31,10 +31,12 @@ Haptic Relay 서버 = 방 생성, 입장 제어, 모션 fanout
 7. 스트리머가 방 이름/비밀번호를 방송에 노출
 8. 시청자가 앱 설치 후 방 입장
 9. Control API가 viewer token 발급
-10. viewer 앱이 relay node에 연결
-11. 스트리머 하드웨어 모션을 4바이트 packet으로 relay
-12. viewer 앱이 packet을 decode
-13. viewer 앱이 수신 motion frame을 연결된 하드웨어에 T-Code로 출력
+10. 신청입장 방이면 viewer socket이 승인 대기 상태가 됨
+11. 스트리머 앱에서 입장 신청을 승인하거나 거절
+12. 승인된 viewer 앱이 relay node room에 참여
+13. 스트리머 하드웨어 모션을 4바이트 packet으로 relay
+14. viewer 앱이 packet을 decode
+15. viewer 앱이 수신 motion frame을 연결된 하드웨어에 T-Code로 출력
 ```
 
 ## 3. 주요 컴포넌트
@@ -47,7 +49,7 @@ electron/main.ts
   Electron main process. Renderer와 native 기능 사이 IPC 연결.
 
 electron/services/relay-client.ts
-  Control API 호출, Socket.IO relay 연결, motion packet 송신/수신.
+  Control API 호출, Socket.IO relay 연결, motion packet 송신/수신, 신청입장 승인 이벤트 처리.
 
 electron/services/hardware-controller.ts
   SerialPort 연결, 하드웨어 출력 queue, backpressure 처리.
@@ -182,6 +184,7 @@ Postgres, later
 ### `GET /metrics`
 
 방별 연결 수, forwarded frame, dropped frame, relay node 정보를 확인합니다.
+신청입장 방은 `pendingApprovals`로 승인 대기 viewer 수도 확인할 수 있습니다.
 
 ## 6. Relay Socket 흐름
 
@@ -198,6 +201,9 @@ Viewer:
   Control API에서 viewerToken 받음
   Socket.IO connect
   viewer:join { token: viewerToken }
+  request mode면 viewer:approval-requested가 host 앱으로 전달됨
+  host가 viewer:approve { socketId, approved } 송신
+  승인된 viewer만 room join 완료
   motion packet receive: "m"
   packet decode
   HardwareController.queueMotion()
@@ -516,7 +522,7 @@ electron/motion-packet.ts
   Electron main process용 binary packet encoder.
 
 electron/services/relay-client.ts
-  Control API 호출 후 배정된 relayUrl로 Socket.IO 연결, viewer motion packet 수신.
+  Control API 호출 후 배정된 relayUrl로 Socket.IO 연결, viewer motion packet 수신, 신청입장 승인 이벤트 처리.
 
 electron/services/hardware-controller.ts
   SerialPort 연결, latest frame queue, write drain 처리.
@@ -540,20 +546,21 @@ f55fda5 fix: emit t-code for serial hardware
 1ad1d68 feat: add control api relay tokens
 b82b897 feat: add relay node room assignment
 7327fe2 feat: add redis room registry
+74d1788 docs: add implementation guide
+dd0a0f7 feat: route viewer motion to hardware
 ```
 
 ## 19. 아직 남은 작업
 
-1. 신청입장 승인 queue 구현
-2. 강퇴/차단
-3. emergency stop
-4. adaptive Hz 자동 조절
-5. Redis live integration test
-6. Dockerfile / production deployment
-7. TLS termination / reverse proxy 설정
-8. Prometheus metrics 또는 structured logging
-9. Control API를 별도 서비스로 분리
-10. Postgres user/account/billing/moderation schema
+1. 강퇴/차단
+2. emergency stop
+3. adaptive Hz 자동 조절
+4. Redis live integration test
+5. Dockerfile / production deployment
+6. TLS termination / reverse proxy 설정
+7. Prometheus metrics 또는 structured logging
+8. Control API를 별도 서비스로 분리
+9. Postgres user/account/billing/moderation schema
 
 ## 20. 중요한 설계 원칙
 

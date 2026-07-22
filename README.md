@@ -16,6 +16,7 @@
 - Electron + React + TypeScript 데스크톱 앱 골격
 - 스트리머/시청자 역할 전환 UI
 - 방 생성 설정: 방 이름, 비밀번호, 자유입장/신청입장
+- 신청입장 승인/거절 대기 큐
 - SerialPort 기반 하드웨어 포트 검색, 연결, T-Code 프로토콜 송신
 - Socket.IO 기반 독립 릴레이 서버 골격
 - Control API 기반 방 생성/입장 토큰 발급
@@ -73,6 +74,7 @@ Desktop App -> Control API -> signed room token -> Relay Node -> Viewers
 - `POST /api/rooms/:roomName/join`: 비밀번호와 정원을 확인하고 viewer token을 발급합니다.
 - Control API 응답에는 `relayNodeId`, `relayUrl`이 포함됩니다.
 - Relay socket은 token 없이 `room:create` 또는 `viewer:join`을 허용하지 않습니다.
+- 신청입장 방에서는 viewer socket이 승인 대기 상태가 되고, 스트리머 앱의 승인 후에만 방 fanout에 참여합니다.
 - `GET /healthz`: 서버 생존 확인
 - `GET /metrics`: 방별 연결 수, forwarded/dropped frame 확인
 
@@ -156,7 +158,7 @@ L04200I16
 
 ## 다음 구현 순서
 
-1. 신청입장 승인 큐와 강퇴/차단
+1. 강퇴/차단
 2. 앱용 공용 릴레이 서버 배포
 3. 하드웨어별 어댑터 분리
 4. 긴급 정지, 속도 제한, 연령/동의 확인, 세션 로그

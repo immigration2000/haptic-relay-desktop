@@ -1,7 +1,13 @@
 import { io, Socket } from 'socket.io-client';
-import type { MotionFrame, RoomSettings } from '../protocol.js';
+import type { ApprovalRequest, MotionFrame, RoomSettings } from '../protocol.js';
 import { clamp01, maxHzToInterval, RELAY_MAX_HZ } from '../tuning.js';
 import { decodeMotionPacket, encodeMotionPacket } from '../motion-packet.js';
+
+type ViewerStatus = {
+  roomName: string;
+  status: 'approved' | 'rejected';
+  reason?: string;
+};
 
 export class RelayClient {
   private socket: Socket | undefined;
@@ -12,7 +18,11 @@ export class RelayClient {
   private flushTimer: NodeJS.Timeout | undefined;
   private readonly minIntervalMs = maxHzToInterval(RELAY_MAX_HZ);
 
-  constructor(private readonly onMotion?: (frame: MotionFrame) => void) {}
+  constructor(
+    private readonly onMotion?: (frame: MotionFrame) => void,
+    private readonly onApprovalRequest?: (request: ApprovalRequest) => void,
+    private readonly onViewerStatus?: (status: ViewerStatus) => void
+  ) {}
 
   async connect(relayUrl: string) {
     if (this.socket?.connected && this.relayUrl === relayUrl) return;
@@ -31,6 +41,15 @@ export class RelayClient {
       } catch (error) {
         console.error('invalid relay motion packet', error);
       }
+    });
+    this.socket.on('viewer:approval-requested', request => {
+      this.onApprovalRequest?.(request);
+    });
+    this.socket.on('viewer:approved', response => {
+      this.onViewerStatus?.({ roomName: response.roomName, status: 'approved' });
+    });
+    this.socket.on('viewer:rejected', response => {
+      this.onViewerStatus?.({ roomName: response.roomName, status: 'rejected', reason: response.reason });
     });
 
     await new Promise<void>((resolve, reject) => {
@@ -66,11 +85,19 @@ export class RelayClient {
       displayName: request.displayName,
       token: join.viewerToken
     });
-    if (!response.ok) {
+    if (!response.ok && response.reason !== 'approval-required') {
       throw new Error(response.reason ?? 'room-join-failed');
     }
 
     this.roomName = join.roomName;
+    return response;
+  }
+
+  async approveViewer(socketId: string, approved: boolean) {
+    const response = await this.emitWithAck('viewer:approve', { socketId, approved });
+    if (!response.ok) {
+      throw new Error(response.reason ?? 'viewer-approval-failed');
+    }
     return response;
   }
 

@@ -135,6 +135,32 @@ select {
   gap: 10px;
 }
 
+.approval-list {
+  display: grid;
+  gap: 10px;
+}
+
+.approval-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 10px;
+  align-items: center;
+  padding: 12px;
+  border: 1px solid #d7e0e7;
+  border-radius: 8px;
+}
+
+.approval-row div {
+  display: grid;
+  gap: 3px;
+}
+
+.approval-row span,
+.muted {
+  color: #647684;
+  font-size: 14px;
+}
+
 @media (max-width: 860px) {
   .app-shell {
     grid-template-columns: 1fr;
@@ -145,7 +171,8 @@ select {
   }
 
   .form-grid,
-  .hardware-row {
+  .hardware-row,
+  .approval-row {
     grid-template-columns: 1fr;
   }
 }

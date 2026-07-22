@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { EntryMode, PortInfo } from './shared/protocol';
+import type { ApprovalRequest, EntryMode, PortInfo } from './shared/protocol';
 import './styles.css';
 
 type Role = 'host' | 'viewer';
@@ -16,11 +16,34 @@ export default function App() {
   const [status, setStatus] = useState('대기 중');
   const [intensity, setIntensity] = useState(0.5);
   const [position, setPosition] = useState(0.5);
+  const [approvalRequests, setApprovalRequests] = useState<ApprovalRequest[]>([]);
 
   const canHost = useMemo(() => roomName.trim().length >= 3, [roomName]);
 
   useEffect(() => {
     void refreshPorts();
+  }, []);
+
+  useEffect(() => {
+    const removeApprovalRequest = window.hapticRelay.onApprovalRequest(request => {
+      setApprovalRequests(current => {
+        if (current.some(item => item.socketId === request.socketId)) return current;
+        return [...current, request];
+      });
+      setStatus(`입장 신청: ${request.displayName}`);
+    });
+    const removeViewerStatus = window.hapticRelay.onViewerStatus(nextStatus => {
+      if (nextStatus.status === 'approved') {
+        setStatus(`방 입장 승인됨: ${nextStatus.roomName}`);
+        return;
+      }
+      setStatus(`방 입장 거절됨: ${nextStatus.reason ?? nextStatus.roomName}`);
+    });
+
+    return () => {
+      removeApprovalRequest();
+      removeViewerStatus();
+    };
   }, []);
 
   async function refreshPorts() {
@@ -46,12 +69,22 @@ export default function App() {
   }
 
   async function joinRoom() {
-    await window.hapticRelay.joinRoom(relayUrl.trim(), {
+    const response = await window.hapticRelay.joinRoom(relayUrl.trim(), {
       displayName: displayName.trim(),
       roomName: roomName.trim(),
       password: password.trim() || undefined
     });
+    if (response.reason === 'approval-required') {
+      setStatus(`입장 승인 대기 중: ${roomName}`);
+      return;
+    }
     setStatus(`방 입장됨: ${roomName}`);
+  }
+
+  async function decideApproval(request: ApprovalRequest, approved: boolean) {
+    await window.hapticRelay.approveViewer(request.socketId, approved);
+    setApprovalRequests(current => current.filter(item => item.socketId !== request.socketId));
+    setStatus(`${request.displayName} ${approved ? '승인됨' : '거절됨'}`);
   }
 
   async function sendMotion() {
@@ -122,6 +155,28 @@ export default function App() {
             </section>
 
             {hardwarePanel}
+
+            {entryMode === 'request' ? (
+              <section className="panel">
+                <h2>입장 신청</h2>
+                {approvalRequests.length === 0 ? (
+                  <p className="muted">대기 중인 신청이 없습니다.</p>
+                ) : (
+                  <div className="approval-list">
+                    {approvalRequests.map(request => (
+                      <div className="approval-row" key={request.socketId}>
+                        <div>
+                          <strong>{request.displayName}</strong>
+                          <span>{request.roomName}</span>
+                        </div>
+                        <button onClick={() => decideApproval(request, false)}>거절</button>
+                        <button className="primary" onClick={() => decideApproval(request, true)}>승인</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
+            ) : null}
 
             <section className="panel">
               <h2>모션 테스트</h2>
