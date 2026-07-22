@@ -112,6 +112,8 @@ async function main() {
 
   console.log(JSON.stringify({
     relayUrl,
+    assignedRelayUrl: roomResponse.relayUrl,
+    relayNodeId: roomResponse.relayNodeId,
     viewers: viewerCount,
     hz,
     durationSec: Number(elapsedSec.toFixed(2)),
