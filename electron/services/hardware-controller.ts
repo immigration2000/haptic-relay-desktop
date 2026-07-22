@@ -63,6 +63,39 @@ export class HardwareController {
     return { queued: true };
   }
 
+  async emergencyStop() {
+    if (this.flushTimer) {
+      clearTimeout(this.flushTimer);
+      this.flushTimer = undefined;
+    }
+    this.latestFrame = undefined;
+
+    if (!this.port?.isOpen) {
+      return { stopped: false, reason: 'hardware-not-connected' };
+    }
+
+    const payload = encodeTCodeMotion({
+      intensity: 0,
+      position: 0,
+      timestamp: Date.now()
+    }, {
+      linearAxis: TCODE_LINEAR_AXIS,
+      vibrationAxis: TCODE_VIBRATION_AXIS,
+      intervalMs: 1
+    });
+
+    await new Promise<void>((resolve, reject) => {
+      const accepted = this.port?.write(payload, error => (error ? reject(error) : resolve()));
+      if (accepted === false) {
+        this.port?.once('drain', resolve);
+      }
+    }).catch(error => {
+      console.error('hardware emergency stop failed', error);
+    });
+
+    return { stopped: true };
+  }
+
   private scheduleFlush() {
     if (this.flushTimer || this.writing) return;
 

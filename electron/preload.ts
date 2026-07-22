@@ -7,16 +7,23 @@ type ViewerStatus = {
   reason?: string;
 };
 
+type StopSignal = {
+  roomName: string;
+  timestamp: number;
+};
+
 contextBridge.exposeInMainWorld('hapticRelay', {
   listPorts: () => ipcRenderer.invoke('hardware:list'),
   connectHardware: (pathName: string, baudRate: number) => ipcRenderer.invoke('hardware:connect', pathName, baudRate),
   disconnectHardware: () => ipcRenderer.invoke('hardware:disconnect'),
+  stopHardware: () => ipcRenderer.invoke('hardware:emergency-stop'),
   sendMotion: (intensity: number, position: number) => ipcRenderer.invoke('hardware:send', intensity, position),
   startHostRoom: (relayUrl: string, settings: RoomSettings) => ipcRenderer.invoke('room:start-host', relayUrl, settings),
   joinRoom: (relayUrl: string, request: { displayName: string; roomName: string; password?: string }) => ipcRenderer.invoke('room:join', relayUrl, request),
   approveViewer: (socketId: string, approved: boolean) => ipcRenderer.invoke('room:approve', socketId, approved),
   moderateViewer: (socketId: string, action: 'kick' | 'block') => ipcRenderer.invoke('room:moderate-viewer', socketId, action),
   listViewers: () => ipcRenderer.invoke('room:list-viewers'),
+  emergencyStop: () => ipcRenderer.invoke('room:emergency-stop'),
   onApprovalRequest: (listener: (request: ApprovalRequest) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, request: ApprovalRequest) => listener(request);
     ipcRenderer.on('room:approval-requested', handler);
@@ -31,6 +38,11 @@ contextBridge.exposeInMainWorld('hapticRelay', {
     const handler = (_event: Electron.IpcRendererEvent, viewers: ViewerSession[]) => listener(viewers);
     ipcRenderer.on('room:viewers', handler);
     return () => ipcRenderer.removeListener('room:viewers', handler);
+  },
+  onEmergencyStop: (listener: (signal: StopSignal) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, signal: StopSignal) => listener(signal);
+    ipcRenderer.on('room:emergency-stop', handler);
+    return () => ipcRenderer.removeListener('room:emergency-stop', handler);
   },
   disconnectRoom: () => ipcRenderer.invoke('room:disconnect')
 });

@@ -9,6 +9,11 @@ type ViewerStatus = {
   reason?: string;
 };
 
+type StopSignal = {
+  roomName: string;
+  timestamp: number;
+};
+
 export class RelayClient {
   private socket: Socket | undefined;
   private roomName = '';
@@ -22,7 +27,8 @@ export class RelayClient {
     private readonly onMotion?: (frame: MotionFrame) => void,
     private readonly onApprovalRequest?: (request: ApprovalRequest) => void,
     private readonly onViewerStatus?: (status: ViewerStatus) => void,
-    private readonly onViewerList?: (viewers: ViewerSession[]) => void
+    private readonly onViewerList?: (viewers: ViewerSession[]) => void,
+    private readonly onEmergencyStop?: (signal: StopSignal) => void
   ) {}
 
   async connect(relayUrl: string) {
@@ -58,6 +64,10 @@ export class RelayClient {
     });
     this.socket.on('room:viewers', viewers => {
       this.onViewerList?.(viewers);
+    });
+    this.socket.on('room:stop', signal => {
+      this.latestFrame = undefined;
+      this.onEmergencyStop?.(signal);
     });
 
     await new Promise<void>((resolve, reject) => {
@@ -127,6 +137,19 @@ export class RelayClient {
     const viewers = Array.isArray(response.viewers) ? response.viewers as ViewerSession[] : [];
     this.onViewerList?.(viewers);
     return viewers;
+  }
+
+  async emergencyStop() {
+    if (!this.socket?.connected || !this.roomName) {
+      return { sent: false, reason: 'relay-not-connected' };
+    }
+
+    const response = await this.emitWithAck('room:stop', {});
+    if (!response.ok) {
+      return { sent: false, reason: response.reason ?? 'room-stop-failed' };
+    }
+    this.latestFrame = undefined;
+    return { sent: true, roomName: response.roomName };
   }
 
   publishMotion(frame: MotionFrame) {
