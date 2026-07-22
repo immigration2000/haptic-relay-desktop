@@ -1,10 +1,14 @@
 import { createServer } from 'node:http';
 import { Server } from 'socket.io';
 import type { MotionFrame, RoomSettings } from '../../src/shared/protocol.js';
+import { clamp01, DEFAULT_RELAY_MAX_HZ, maxHzToInterval } from '../../src/shared/tuning.js';
 
 type RoomState = RoomSettings & {
   hostSocketId: string;
   createdAt: number;
+  lastMotionAt: number;
+  forwardedFrames: number;
+  droppedFrames: number;
 };
 
 type JoinRequest = {
@@ -20,11 +24,19 @@ type HostMotionFrame = MotionFrame & {
 const rooms = new Map<string, RoomState>();
 const port = Number(process.env.HAPTIC_RELAY_PORT ?? 4174);
 const corsOrigin = process.env.HAPTIC_RELAY_CORS_ORIGIN ?? '*';
+const relayMaxHz = Number(process.env.HAPTIC_RELAY_MAX_HZ ?? DEFAULT_RELAY_MAX_HZ);
+const minMotionIntervalMs = maxHzToInterval(relayMaxHz);
 
 const httpServer = createServer();
 const io = new Server(httpServer, {
   cors: { origin: corsOrigin },
-  transports: ['websocket']
+  transports: ['websocket'],
+  allowUpgrades: false,
+  perMessageDeflate: false,
+  httpCompression: false,
+  maxHttpBufferSize: 4096,
+  pingInterval: 10000,
+  pingTimeout: 5000
 });
 
 io.on('connection', socket => {
@@ -40,7 +52,10 @@ io.on('connection', socket => {
       roomName,
       password: settings.password?.trim() || undefined,
       hostSocketId: socket.id,
-      createdAt: Date.now()
+      createdAt: Date.now(),
+      lastMotionAt: 0,
+      forwardedFrames: 0,
+      droppedFrames: 0
     });
     socket.join(roomName);
     ack?.({ ok: true, roomName, entryMode: settings.entryMode });
@@ -76,7 +91,16 @@ io.on('connection', socket => {
     const room = rooms.get(frame.roomName);
     if (!room || room.hostSocketId !== socket.id) return;
 
-    socket.to(room.roomName).emit('viewer:motion', {
+    const now = Date.now();
+    if (now - room.lastMotionAt < minMotionIntervalMs) {
+      room.droppedFrames += 1;
+      return;
+    }
+
+    room.lastMotionAt = now;
+    room.forwardedFrames += 1;
+
+    socket.to(room.roomName).volatile.compress(false).emit('viewer:motion', {
       intensity: clamp01(frame.intensity),
       position: clamp01(frame.position),
       timestamp: Date.now()
@@ -91,9 +115,5 @@ io.on('connection', socket => {
 });
 
 httpServer.listen(port, () => {
-  console.log(`Haptic Relay server listening on ws://localhost:${port}`);
+  console.log(`Haptic Relay server listening on ws://localhost:${port} at ${relayMaxHz}Hz max`);
 });
-
-function clamp01(value: number) {
-  return Math.max(0, Math.min(1, value));
-}
