@@ -18,6 +18,7 @@
   },
   "dependencies": {
     "electron-is-dev": "^3.0.1",
+    "redis": "^5.0.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "serialport": "^13.0.0",

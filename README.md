@@ -90,6 +90,22 @@ HAPTIC_MAX_VIEWERS_PER_ROOM=500
 HAPTIC_RELAY_NODES=[{"id":"relay-seoul-1","url":"https://relay-seoul-1.example.com","maxViewers":500},{"id":"relay-seoul-2","url":"https://relay-seoul-2.example.com","maxViewers":500}]
 ```
 
+room registry driver:
+
+```text
+HAPTIC_ROOM_REGISTRY_DRIVER=memory
+```
+
+Redis-backed registry:
+
+```text
+HAPTIC_ROOM_REGISTRY_DRIVER=redis
+HAPTIC_REDIS_URL=redis://localhost:6379
+HAPTIC_ROOM_TTL_SECONDS=28800
+```
+
+Redis는 room metadata와 relay node assignment 저장에만 사용합니다. 고주파 motion fanout은 relay node의 active room cache에서 처리해서 Redis를 매 프레임 치지 않습니다.
+
 ## 릴레이 모션 프로토콜
 
 앱 내부에서는 정규화된 `MotionFrame`을 사용하지만, 네트워크 전송은 4바이트 바이너리 motion packet을 기본으로 사용합니다.

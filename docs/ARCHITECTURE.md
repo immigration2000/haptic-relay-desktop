@@ -52,11 +52,13 @@ Production should split the Control API from Relay Nodes once account auth, bill
 
 ## Room Assignment
 
-`room-registry.ts` currently uses an in-memory registry and least-room-count relay assignment. This is enough for a single process and local load testing. Production should replace the registry implementation with Redis/Postgres while keeping the Control API response shape stable.
+`room-registry.ts` supports in-memory and Redis-backed registries. Redis stores room metadata and relay assignment, while high-frequency motion state stays in the relay node's active room cache.
 
 ```text
 Room create -> RelayDirectory.chooseNode() -> RoomRecord(relayNodeId, relayUrl)
 ```
+
+Do not move motion frames through Redis. Redis is control-plane storage here, not a realtime media bus.
 
 ## Server Split Rationale
 
