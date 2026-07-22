@@ -12,6 +12,20 @@ export function encodeMotionPacket(frame: MotionFrame) {
   return packet;
 }
 
+export function decodeMotionPacket(payload: ArrayBuffer | Uint8Array | Buffer): MotionFrame {
+  const packet = payload instanceof Uint8Array ? payload : new Uint8Array(payload);
+  if (packet.byteLength !== PACKET_SIZE) {
+    throw new Error(`invalid-motion-packet-size:${packet.byteLength}`);
+  }
+
+  const view = new DataView(packet.buffer, packet.byteOffset, packet.byteLength);
+  return {
+    position: view.getUint16(0, false) / UINT16_SCALE,
+    intensity: view.getUint16(2, false) / UINT16_SCALE,
+    timestamp: Date.now()
+  };
+}
+
 function toUint16(value: number) {
   return Math.round(clamp01(value) * UINT16_SCALE);
 }
