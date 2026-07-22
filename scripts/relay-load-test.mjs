@@ -54,12 +54,16 @@ function emitWithAck(socket, eventName, payload) {
 }
 
 async function main() {
+  const roomResponse = await postJson(`${relayUrl}/api/rooms`, {
+    roomName,
+    entryMode: 'open'
+  });
+
   host = connectSocket();
   await waitForConnect(host);
 
   const createResponse = await emitWithAck(host, 'room:create', {
-    roomName,
-    entryMode: 'open'
+    token: roomResponse.hostToken
   });
   if (!createResponse?.ok) throw new Error(`room create failed: ${JSON.stringify(createResponse)}`);
 
@@ -69,9 +73,13 @@ async function main() {
       received += 1;
     });
     await waitForConnect(viewer);
-    const joinResponse = await emitWithAck(viewer, 'viewer:join', {
+    const tokenResponse = await postJson(`${relayUrl}/api/rooms/${encodeURIComponent(roomName)}/join`, {
       displayName: `viewer-${index}`,
       roomName
+    });
+    const joinResponse = await emitWithAck(viewer, 'viewer:join', {
+      displayName: `viewer-${index}`,
+      token: tokenResponse.viewerToken
     });
     if (!joinResponse?.ok) throw new Error(`viewer join failed: ${index} ${JSON.stringify(joinResponse)}`);
     viewers.push(viewer);
@@ -113,6 +121,19 @@ async function main() {
     receiveRate: Number(receiveRate.toFixed(4)),
     receivedPerSecond: Number((received / elapsedSec).toFixed(2))
   }, null, 2));
+}
+
+async function postJson(url, body) {
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+  const payload = await response.json();
+  if (!response.ok || payload.ok === false) {
+    throw new Error(payload.reason ?? `request-failed:${response.status}`);
+  }
+  return payload;
 }
 
 main()
