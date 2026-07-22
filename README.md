@@ -46,15 +46,16 @@ npm.cmd run electron:dev
 
 ## 릴레이 모션 프로토콜
 
-앱과 서버 사이의 릴레이 데이터는 정규화된 JSON motion frame입니다.
+앱 내부에서는 정규화된 `MotionFrame`을 사용하지만, 네트워크 전송은 4바이트 바이너리 motion packet을 기본으로 사용합니다.
 
-```json
-{"type":"motion","intensity":0.8,"position":0.42,"timestamp":1784630400000}
+```text
+byte 0-1: position uint16, big-endian, 0-65535
+byte 2-3: intensity uint16, big-endian, 0-65535
 ```
 
 - `intensity`: 0.0-1.0 강도
 - `position`: 0.0-1.0 정규화 위치
-- `timestamp`: 송신 기준 Unix timestamp ms
+- `timestamp`: 네트워크 payload에서는 제거하고 수신 시각으로 계산
 
 ## 하드웨어 출력 프로토콜
 
@@ -83,6 +84,7 @@ L04200I16
 
 - 릴레이 서버와 앱 클라이언트는 WebSocket 전용으로 연결합니다.
 - 모션 이벤트는 ack를 기다리지 않고 최신 프레임 위주로 전송합니다.
+- 모션 payload는 JSON 대신 4바이트 바이너리 packet으로 전송합니다.
 - 느린 네트워크나 클라이언트에는 오래된 모션 프레임을 쌓지 않도록 volatile 이벤트를 사용합니다.
 - 서버, 앱 릴레이, 하드웨어 출력은 각각 최대 Hz를 환경변수로 제한합니다.
 - SerialPort 출력은 backpressure를 고려해 최신 프레임만 큐에 남깁니다.
