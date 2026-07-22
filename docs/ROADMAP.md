@@ -6,6 +6,7 @@
 - Viewer room join
 - Hardware port discovery
 - Motion send and receive
+- Viewer hardware output from received motion
 - Manual emergency stop
 - Standalone relay server for development
 
