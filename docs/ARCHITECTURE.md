@@ -12,6 +12,7 @@ Haptic Relay extracts hardware control from the live-streaming website. The live
 - `electron/services/relay-client.ts`: Socket.IO client used by the desktop app.
 - `server/src/relay-server.ts`: standalone Socket.IO relay server for rooms and motion frames.
 - `server/src/control-token.ts`: HMAC signed token helper for host/viewer relay authorization.
+- `server/src/room-registry.ts`: room metadata registry and relay node assignment boundary.
 - `src/App.tsx`: renderer UI for host and viewer workflows.
 - `src/shared/protocol.ts`: shared room and motion protocol types.
 
@@ -35,11 +36,12 @@ The current Node process serves both the Control API and Relay Node so local dev
 ```text
 POST /api/rooms
   -> create room metadata
-  -> return hostToken + relayUrl
+  -> assign relay node
+  -> return hostToken + relayNodeId + relayUrl
 
 POST /api/rooms/:roomName/join
   -> validate password and room capacity
-  -> return viewerToken + relayUrl
+  -> return viewerToken + relayNodeId + relayUrl
 
 Socket.IO room:create/viewer:join
   -> verify signed token
@@ -47,6 +49,14 @@ Socket.IO room:create/viewer:join
 ```
 
 Production should split the Control API from Relay Nodes once account auth, billing, and moderation are added.
+
+## Room Assignment
+
+`room-registry.ts` currently uses an in-memory registry and least-room-count relay assignment. This is enough for a single process and local load testing. Production should replace the registry implementation with Redis/Postgres while keeping the Control API response shape stable.
+
+```text
+Room create -> RelayDirectory.chooseNode() -> RoomRecord(relayNodeId, relayUrl)
+```
 
 ## Server Split Rationale
 
