@@ -16,8 +16,9 @@
 - Electron + React + TypeScript 데스크톱 앱 골격
 - 스트리머/시청자 역할 전환 UI
 - 방 생성 설정: 방 이름, 비밀번호, 자유입장/신청입장
-- SerialPort 기반 하드웨어 포트 검색, 연결, JSON 라인 프로토콜 송신
+- SerialPort 기반 하드웨어 포트 검색, 연결, T-Code 프로토콜 송신
 - Socket.IO 기반 독립 릴레이 서버 골격
+- Control API 기반 방 생성/입장 토큰 발급
 - MVP 프로토콜 타입 정의
 
 ## 실행
@@ -59,6 +60,28 @@ Windows PowerShell:
 $env:VIEWERS=500; $env:HZ=30; $env:DURATION_MS=30000; npm.cmd run load:relay
 ```
 
+## 운영 서버 구조
+
+현재 서버 프로세스는 Control API와 Relay Node를 함께 실행합니다. 운영에서는 같은 API 계약을 유지한 채 Control API를 별도 서비스로 분리할 수 있습니다.
+
+```text
+Desktop App -> Control API -> signed room token -> Relay Node -> Viewers
+```
+
+- `POST /api/rooms`: 방을 만들고 host token을 발급합니다.
+- `POST /api/rooms/:roomName/join`: 비밀번호와 정원을 확인하고 viewer token을 발급합니다.
+- Relay socket은 token 없이 `room:create` 또는 `viewer:join`을 허용하지 않습니다.
+- `GET /healthz`: 서버 생존 확인
+- `GET /metrics`: 방별 연결 수, forwarded/dropped frame 확인
+
+운영 필수 환경변수:
+
+```text
+HAPTIC_PUBLIC_RELAY_URL=https://relay.example.com
+HAPTIC_CONTROL_TOKEN_SECRET=long-random-secret
+HAPTIC_MAX_VIEWERS_PER_ROOM=500
+```
+
 ## 릴레이 모션 프로토콜
 
 앱 내부에서는 정규화된 `MotionFrame`을 사용하지만, 네트워크 전송은 4바이트 바이너리 motion packet을 기본으로 사용합니다.
@@ -94,6 +117,7 @@ L04200I16
 - 하드웨어 제어는 앱 내부 프로토콜로 격리합니다.
 - 사이트용 저지연 서버와 앱용 범용 릴레이 서버를 분리해 지연 시간, QoS, 비용 정책을 다르게 운영합니다.
 - 모든 실시간 연동은 명시적 입장, 비밀번호, 중지 제어, 로그 확인을 전제로 설계합니다.
+- Relay socket은 Control API가 발급한 짧은 수명의 signed token만 신뢰합니다.
 
 ## 앱 릴레이 최적화
 
