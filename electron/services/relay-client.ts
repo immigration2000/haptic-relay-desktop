@@ -1,7 +1,7 @@
 import { io, Socket } from 'socket.io-client';
 import type { MotionFrame, RoomSettings } from '../protocol.js';
 import { clamp01, maxHzToInterval, RELAY_MAX_HZ } from '../tuning.js';
-import { encodeMotionPacket } from '../motion-packet.js';
+import { decodeMotionPacket, encodeMotionPacket } from '../motion-packet.js';
 
 export class RelayClient {
   private socket: Socket | undefined;
@@ -11,6 +11,8 @@ export class RelayClient {
   private latestFrame: MotionFrame | undefined;
   private flushTimer: NodeJS.Timeout | undefined;
   private readonly minIntervalMs = maxHzToInterval(RELAY_MAX_HZ);
+
+  constructor(private readonly onMotion?: (frame: MotionFrame) => void) {}
 
   async connect(relayUrl: string) {
     if (this.socket?.connected && this.relayUrl === relayUrl) return;
@@ -22,6 +24,13 @@ export class RelayClient {
       upgrade: false,
       reconnection: true,
       timeout: 5000
+    });
+    this.socket.on('m', payload => {
+      try {
+        this.onMotion?.(decodeMotionPacket(payload));
+      } catch (error) {
+        console.error('invalid relay motion packet', error);
+      }
     });
 
     await new Promise<void>((resolve, reject) => {

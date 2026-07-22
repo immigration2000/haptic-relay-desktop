@@ -33,7 +33,8 @@ Haptic Relay 서버 = 방 생성, 입장 제어, 모션 fanout
 9. Control API가 viewer token 발급
 10. viewer 앱이 relay node에 연결
 11. 스트리머 하드웨어 모션을 4바이트 packet으로 relay
-12. 시청자 앱이 모션을 하드웨어 명령으로 변환
+12. viewer 앱이 packet을 decode
+13. viewer 앱이 수신 motion frame을 연결된 하드웨어에 T-Code로 출력
 ```
 
 ## 3. 주요 컴포넌트
@@ -46,7 +47,7 @@ electron/main.ts
   Electron main process. Renderer와 native 기능 사이 IPC 연결.
 
 electron/services/relay-client.ts
-  Control API 호출, Socket.IO relay 연결, motion packet 송신.
+  Control API 호출, Socket.IO relay 연결, motion packet 송신/수신.
 
 electron/services/hardware-controller.ts
   SerialPort 연결, 하드웨어 출력 queue, backpressure 처리.
@@ -198,6 +199,9 @@ Viewer:
   Socket.IO connect
   viewer:join { token: viewerToken }
   motion packet receive: "m"
+  packet decode
+  HardwareController.queueMotion()
+  T-Code serial output
 ```
 
 모션 이벤트 이름은 트래픽 절감을 위해 `"m"`을 사용합니다.
@@ -512,7 +516,7 @@ electron/motion-packet.ts
   Electron main process용 binary packet encoder.
 
 electron/services/relay-client.ts
-  Control API 호출 후 배정된 relayUrl로 Socket.IO 연결.
+  Control API 호출 후 배정된 relayUrl로 Socket.IO 연결, viewer motion packet 수신.
 
 electron/services/hardware-controller.ts
   SerialPort 연결, latest frame queue, write drain 처리.
@@ -540,17 +544,16 @@ b82b897 feat: add relay node room assignment
 
 ## 19. 아직 남은 작업
 
-1. 시청자 앱에서 수신 motion packet을 실제 하드웨어 출력으로 연결
-2. 신청입장 승인 queue 구현
-3. 강퇴/차단
-4. emergency stop
-5. adaptive Hz 자동 조절
-6. Redis live integration test
-7. Dockerfile / production deployment
-8. TLS termination / reverse proxy 설정
-9. Prometheus metrics 또는 structured logging
-10. Control API를 별도 서비스로 분리
-11. Postgres user/account/billing/moderation schema
+1. 신청입장 승인 queue 구현
+2. 강퇴/차단
+3. emergency stop
+4. adaptive Hz 자동 조절
+5. Redis live integration test
+6. Dockerfile / production deployment
+7. TLS termination / reverse proxy 설정
+8. Prometheus metrics 또는 structured logging
+9. Control API를 별도 서비스로 분리
+10. Postgres user/account/billing/moderation schema
 
 ## 20. 중요한 설계 원칙
 

@@ -8,7 +8,9 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 let mainWindow: BrowserWindow | undefined;
 const hardware = new HardwareController();
-const relay = new RelayClient();
+const relay = new RelayClient(frame => {
+  hardware.queueMotion(frame);
+});
 
 function createWindow() {
   mainWindow = new BrowserWindow({
