@@ -1,7 +1,9 @@
 node_modules/
 dist/
 dist-electron/
+dist-server/
 release/
+.npm-cache/
 .env
 .env.*
 !.env.example
