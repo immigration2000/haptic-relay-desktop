@@ -44,6 +44,21 @@ npm.cmd run server:dev
 npm.cmd run electron:dev
 ```
 
+## 릴레이 부하 테스트
+
+릴레이 서버를 실행한 뒤 500명 시청자 조건을 시뮬레이션할 수 있습니다.
+
+```bash
+npm run server:dev
+VIEWERS=500 HZ=30 DURATION_MS=30000 npm run load:relay
+```
+
+Windows PowerShell:
+
+```powershell
+$env:VIEWERS=500; $env:HZ=30; $env:DURATION_MS=30000; npm.cmd run load:relay
+```
+
 ## 릴레이 모션 프로토콜
 
 앱 내부에서는 정규화된 `MotionFrame`을 사용하지만, 네트워크 전송은 4바이트 바이너리 motion packet을 기본으로 사용합니다.
@@ -87,6 +102,7 @@ L04200I16
 - 모션 payload는 JSON 대신 4바이트 바이너리 packet으로 전송합니다.
 - 느린 네트워크나 클라이언트에는 오래된 모션 프레임을 쌓지 않도록 volatile 이벤트를 사용합니다.
 - 서버, 앱 릴레이, 하드웨어 출력은 각각 최대 Hz를 환경변수로 제한합니다.
+- 서버 rate limit은 token bucket으로 처리해 60Hz 근처의 타이머 지터를 과도하게 드롭하지 않습니다.
 - SerialPort 출력은 backpressure를 고려해 최신 프레임만 큐에 남깁니다.
 
 ## 다음 구현 순서
