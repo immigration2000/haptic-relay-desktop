@@ -4,15 +4,7 @@ import type { MotionFrame, RoomSettings } from '../../src/shared/protocol.js';
 import { clamp01, DEFAULT_RELAY_MAX_HZ } from '../../src/shared/tuning.js';
 import { decodeMotionPacket, encodeMotionPacket } from '../../src/shared/motion-packet.js';
 import { signRelayToken, verifyRelayToken, type RelayTokenPayload } from './control-token.js';
-
-type RoomState = RoomSettings & {
-  hostSocketId?: string;
-  createdAt: number;
-  motionTokens: number;
-  lastTokenRefillAt: number;
-  forwardedFrames: number;
-  droppedFrames: number;
-};
+import { InMemoryRoomRegistry, RelayDirectory, type RoomRecord } from './room-registry.js';
 
 type JoinRequest = {
   displayName: string;
@@ -29,7 +21,6 @@ type HostRoomRequest = {
   token: string;
 };
 
-const rooms = new Map<string, RoomState>();
 const hostRoomsBySocket = new Map<string, string>();
 const port = Number(process.env.HAPTIC_RELAY_PORT ?? 4174);
 const corsOrigin = process.env.HAPTIC_RELAY_CORS_ORIGIN ?? '*';
@@ -39,6 +30,8 @@ const tokenTtlMs = Number(process.env.HAPTIC_CONTROL_TOKEN_TTL_MS ?? 1000 * 60 *
 const maxViewersPerRoom = Number(process.env.HAPTIC_MAX_VIEWERS_PER_ROOM ?? 500);
 const relayMaxHz = Number(process.env.HAPTIC_RELAY_MAX_HZ ?? DEFAULT_RELAY_MAX_HZ);
 const burstFrames = Number(process.env.HAPTIC_RELAY_BURST_FRAMES ?? 2);
+const relayDirectory = RelayDirectory.fromEnv(publicRelayUrl, maxViewersPerRoom);
+const roomRegistry = new InMemoryRoomRegistry(relayDirectory, burstFrames);
 
 const httpServer = createServer((request, response) => {
   void handleControlRequest(request, response).catch(error => {
@@ -65,13 +58,12 @@ io.on('connection', socket => {
       return;
     }
 
-    const room = rooms.get(token.roomName);
+    const room = roomRegistry.attachHost(token.roomName, socket.id);
     if (!room) {
       ack?.({ ok: false, reason: 'room-not-found' });
       return;
     }
 
-    room.hostSocketId = socket.id;
     hostRoomsBySocket.set(socket.id, token.roomName);
     socket.join(token.roomName);
     ack?.({ ok: true, roomName: token.roomName, entryMode: room.entryMode });
@@ -84,14 +76,14 @@ io.on('connection', socket => {
       return;
     }
 
-    const room = rooms.get(token.roomName);
+    const room = roomRegistry.getRoom(token.roomName);
     if (!room) {
       ack?.({ ok: false, reason: 'room-not-found' });
       return;
     }
 
     const connected = getConnectedCount(room.roomName);
-    if (connected.viewers >= maxViewersPerRoom) {
+    if (connected.viewers >= getRoomCapacity(room)) {
       ack?.({ ok: false, reason: 'room-full' });
       return;
     }
@@ -130,9 +122,7 @@ io.on('connection', socket => {
 
   socket.on('disconnect', () => {
     hostRoomsBySocket.delete(socket.id);
-    for (const [roomName, room] of rooms) {
-      if (room.hostSocketId === socket.id) rooms.delete(roomName);
-    }
+    roomRegistry.removeHostSocket(socket.id);
   });
 });
 
@@ -153,15 +143,18 @@ async function handleControlRequest(request: IncomingMessage, response: ServerRe
 
   const url = new URL(request.url ?? '/', publicRelayUrl);
   if (request.method === 'GET' && url.pathname === '/healthz') {
-    sendJson(response, 200, { ok: true, rooms: rooms.size });
+    sendJson(response, 200, { ok: true, rooms: roomRegistry.roomCount(), relayNodes: roomRegistry.listRelayNodes().length });
     return;
   }
 
   if (request.method === 'GET' && url.pathname === '/metrics') {
     sendJson(response, 200, {
-      rooms: [...rooms.values()].map(room => ({
+      relayNodes: roomRegistry.listRelayNodes(),
+      rooms: roomRegistry.listRooms().map(room => ({
         roomName: room.roomName,
         entryMode: room.entryMode,
+        relayNodeId: room.relayNodeId,
+        relayUrl: room.relayUrl,
         connected: getConnectedCount(room.roomName),
         forwardedFrames: room.forwardedFrames,
         droppedFrames: room.droppedFrames,
@@ -179,12 +172,13 @@ async function handleControlRequest(request: IncomingMessage, response: ServerRe
       return;
     }
 
-    rooms.set(roomName, createRoomState({ ...settings, roomName, entryMode: settings.entryMode ?? 'open' }));
+    const room = roomRegistry.createRoom({ ...settings, roomName, entryMode: settings.entryMode ?? 'open' });
     sendJson(response, 201, {
       ok: true,
       roomName,
       entryMode: settings.entryMode,
-      relayUrl: publicRelayUrl,
+      relayNodeId: room.relayNodeId,
+      relayUrl: room.relayUrl,
       hostToken: createRelayToken({ role: 'host', roomName })
     });
     return;
@@ -194,7 +188,7 @@ async function handleControlRequest(request: IncomingMessage, response: ServerRe
   if (request.method === 'POST' && joinMatch) {
     const roomName = decodeURIComponent(joinMatch[1]);
     const requestBody = await readJson<JoinRequest>(request);
-    const room = rooms.get(roomName);
+    const room = roomRegistry.getRoom(roomName);
     if (!room) {
       sendJson(response, 404, { ok: false, reason: 'room-not-found' });
       return;
@@ -206,7 +200,7 @@ async function handleControlRequest(request: IncomingMessage, response: ServerRe
     }
 
     const connected = getConnectedCount(room.roomName);
-    if (connected.viewers >= maxViewersPerRoom) {
+    if (connected.viewers >= getRoomCapacity(room)) {
       sendJson(response, 409, { ok: false, reason: 'room-full' });
       return;
     }
@@ -214,7 +208,8 @@ async function handleControlRequest(request: IncomingMessage, response: ServerRe
     sendJson(response, 200, {
       ok: true,
       roomName,
-      relayUrl: publicRelayUrl,
+      relayNodeId: room.relayNodeId,
+      relayUrl: room.relayUrl,
       viewerToken: createRelayToken({
         role: 'viewer',
         roomName,
@@ -227,18 +222,6 @@ async function handleControlRequest(request: IncomingMessage, response: ServerRe
   sendJson(response, 404, { ok: false, reason: 'not-found' });
 }
 
-function createRoomState(settings: RoomSettings): RoomState {
-  return {
-    ...settings,
-    password: settings.password?.trim() || undefined,
-    createdAt: Date.now(),
-    motionTokens: burstFrames,
-    lastTokenRefillAt: Date.now(),
-    forwardedFrames: 0,
-    droppedFrames: 0
-  };
-}
-
 function createRelayToken(payload: Omit<RelayTokenPayload, 'exp'>) {
   return signRelayToken({
     ...payload,
@@ -247,7 +230,7 @@ function createRelayToken(payload: Omit<RelayTokenPayload, 'exp'>) {
 }
 
 function forwardMotion(socket: Socket, roomName: string, frame: MotionFrame) {
-  const room = rooms.get(roomName);
+  const room = roomRegistry.getRoom(roomName);
   if (!room || room.hostSocketId !== socket.id) return;
 
   refillMotionTokens(room);
@@ -271,7 +254,7 @@ function forwardMotion(socket: Socket, roomName: string, frame: MotionFrame) {
 
 function getConnectedCount(roomName: string) {
   const size = io.sockets.adapter.rooms.get(roomName)?.size ?? 0;
-  const room = rooms.get(roomName);
+  const room = roomRegistry.getRoom(roomName);
   return {
     total: size,
     viewers: Math.max(0, size - (room?.hostSocketId ? 1 : 0))
@@ -291,7 +274,11 @@ async function readJson<T>(request: IncomingMessage) {
   return JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}') as T;
 }
 
-function refillMotionTokens(room: RoomState) {
+function getRoomCapacity(room: RoomRecord) {
+  return roomRegistry.listRelayNodes().find(node => node.id === room.relayNodeId)?.maxViewers ?? maxViewersPerRoom;
+}
+
+function refillMotionTokens(room: RoomRecord) {
   const now = Date.now();
   const elapsedMs = now - room.lastTokenRefillAt;
   if (elapsedMs <= 0) return;
