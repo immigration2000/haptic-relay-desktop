@@ -17,3 +17,9 @@ export type ApprovalRequest = {
   displayName: string;
   roomName: string;
 };
+
+export type ViewerSession = {
+  socketId: string;
+  displayName: string;
+  roomName: string;
+};

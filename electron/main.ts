@@ -14,6 +14,8 @@ const relay = new RelayClient(frame => {
   mainWindow?.webContents.send('room:approval-requested', request);
 }, status => {
   mainWindow?.webContents.send('room:viewer-status', status);
+}, viewers => {
+  mainWindow?.webContents.send('room:viewers', viewers);
 });
 
 function createWindow() {
@@ -62,4 +64,6 @@ ipcMain.handle('hardware:send', async (_event, intensity: number, position: numb
 ipcMain.handle('room:start-host', (_event, relayUrl: string, settings) => relay.createRoom(relayUrl, settings));
 ipcMain.handle('room:join', (_event, relayUrl: string, request) => relay.joinRoom(relayUrl, request));
 ipcMain.handle('room:approve', (_event, socketId: string, approved: boolean) => relay.approveViewer(socketId, approved));
+ipcMain.handle('room:moderate-viewer', (_event, socketId: string, action: 'kick' | 'block') => relay.moderateViewer(socketId, action));
+ipcMain.handle('room:list-viewers', () => relay.refreshViewers());
 ipcMain.handle('room:disconnect', () => relay.disconnect());

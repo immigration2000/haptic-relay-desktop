@@ -1,6 +1,6 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { Server, type Socket } from 'socket.io';
-import type { MotionFrame, RoomSettings } from '../../src/shared/protocol.js';
+import type { MotionFrame, RoomSettings, ViewerSession } from '../../src/shared/protocol.js';
 import { clamp01, DEFAULT_RELAY_MAX_HZ } from '../../src/shared/tuning.js';
 import { decodeMotionPacket, encodeMotionPacket } from '../../src/shared/motion-packet.js';
 import { signRelayToken, verifyRelayToken, type RelayTokenPayload } from './control-token.js';
@@ -23,6 +23,8 @@ type HostRoomRequest = {
 
 const hostRoomsBySocket = new Map<string, string>();
 const pendingApprovals = new Map<string, { roomName: string; displayName: string }>();
+const viewerSessions = new Map<string, ViewerSession>();
+const blockedViewersByRoom = new Map<string, Set<string>>();
 const port = Number(process.env.HAPTIC_RELAY_PORT ?? 4174);
 const corsOrigin = process.env.HAPTIC_RELAY_CORS_ORIGIN ?? '*';
 const publicRelayUrl = process.env.HAPTIC_PUBLIC_RELAY_URL ?? `http://localhost:${port}`;
@@ -65,6 +67,15 @@ io.on('connection', socket => {
     handleViewerApproval(socket, request, ack);
   });
 
+  socket.on('viewer:moderate', (request: { socketId: string; action: 'kick' | 'block' }, ack) => {
+    handleViewerModeration(socket, request, ack);
+  });
+
+  socket.on('room:viewers', (_request, ack) => {
+    const roomName = hostRoomsBySocket.get(socket.id);
+    ack?.({ ok: true, viewers: roomName ? getRoomViewers(roomName) : [] });
+  });
+
   socket.on('m', (payload: ArrayBuffer | Uint8Array | Buffer) => {
     const roomName = hostRoomsBySocket.get(socket.id);
     if (!roomName) return;
@@ -88,6 +99,7 @@ io.on('connection', socket => {
     if (roomName) activeRooms.delete(roomName);
     pendingApprovals.delete(socket.id);
     hostRoomsBySocket.delete(socket.id);
+    removeViewerSession(socket.id);
     void roomRegistry.removeHostSocket(socket.id);
   });
 });
@@ -135,21 +147,27 @@ async function handleViewerJoin(socket: Socket, request: JoinRequest, ack?: (res
     return;
   }
 
+  const displayName = token.displayName ?? request.displayName;
+  if (isViewerBlocked(token.roomName, displayName)) {
+    ack?.({ ok: false, reason: 'blocked' });
+    return;
+  }
+
   if (room.entryMode === 'request') {
     pendingApprovals.set(socket.id, {
       roomName: token.roomName,
-      displayName: token.displayName ?? request.displayName
+      displayName
     });
     if (room.hostSocketId) io.to(room.hostSocketId).emit('viewer:approval-requested', {
       socketId: socket.id,
-      displayName: token.displayName ?? request.displayName,
+      displayName,
       roomName: token.roomName
     });
     ack?.({ ok: false, reason: 'approval-required', requestId: socket.id });
     return;
   }
 
-  socket.join(room.roomName);
+  attachViewerToRoom(socket, room.roomName, displayName);
   ack?.({ ok: true, roomName: room.roomName });
 }
 
@@ -182,9 +200,28 @@ function handleViewerApproval(socket: Socket, request: { socketId: string; appro
     return;
   }
 
-  viewerSocket.join(roomName);
+  attachViewerToRoom(viewerSocket, roomName, pending.displayName);
   viewerSocket.emit('viewer:approved', { roomName });
   ack?.({ ok: true, approved: true });
+}
+
+function handleViewerModeration(socket: Socket, request: { socketId: string; action: 'kick' | 'block' }, ack?: (response: unknown) => void) {
+  const roomName = hostRoomsBySocket.get(socket.id);
+  const session = viewerSessions.get(request.socketId);
+  if (!roomName || !session || session.roomName !== roomName) {
+    ack?.({ ok: false, reason: 'viewer-not-found' });
+    return;
+  }
+
+  if (request.action === 'block') {
+    getBlockedViewers(roomName).add(normalizeViewerName(session.displayName));
+  }
+
+  const viewerSocket = io.sockets.sockets.get(request.socketId);
+  viewerSocket?.leave(roomName);
+  viewerSocket?.emit('viewer:removed', { roomName, reason: request.action });
+  removeViewerSession(request.socketId);
+  ack?.({ ok: true, action: request.action });
 }
 
 async function handleControlRequest(request: IncomingMessage, response: ServerResponse) {
@@ -216,6 +253,7 @@ async function handleControlRequest(request: IncomingMessage, response: ServerRe
           relayUrl: room.relayUrl,
           connected: getConnectedCount(room.roomName),
           pendingApprovals: [...pendingApprovals.values()].filter(request => request.roomName === room.roomName).length,
+          blockedViewers: blockedViewersByRoom.get(room.roomName)?.size ?? 0,
           forwardedFrames: activeRoom.forwardedFrames,
           droppedFrames: activeRoom.droppedFrames,
           effectiveMaxHz: relayMaxHz
@@ -320,6 +358,48 @@ function getConnectedCount(roomName: string) {
     total: size,
     viewers: Math.max(0, size - (room?.hostSocketId ? 1 : 0))
   };
+}
+
+function attachViewerToRoom(socket: Socket, roomName: string, displayName: string) {
+  const session = { socketId: socket.id, displayName, roomName };
+  viewerSessions.set(socket.id, session);
+  socket.join(roomName);
+  emitViewerList(roomName);
+}
+
+function removeViewerSession(socketId: string) {
+  const session = viewerSessions.get(socketId);
+  if (!session) return;
+
+  viewerSessions.delete(socketId);
+  emitViewerList(session.roomName);
+}
+
+function getRoomViewers(roomName: string) {
+  return [...viewerSessions.values()].filter(session => session.roomName === roomName);
+}
+
+function emitViewerList(roomName: string) {
+  const room = activeRooms.get(roomName);
+  if (!room?.hostSocketId) return;
+  io.to(room.hostSocketId).emit('room:viewers', getRoomViewers(roomName));
+}
+
+function getBlockedViewers(roomName: string) {
+  let blocked = blockedViewersByRoom.get(roomName);
+  if (!blocked) {
+    blocked = new Set<string>();
+    blockedViewersByRoom.set(roomName, blocked);
+  }
+  return blocked;
+}
+
+function isViewerBlocked(roomName: string, displayName: string) {
+  return getBlockedViewers(roomName).has(normalizeViewerName(displayName));
+}
+
+function normalizeViewerName(displayName: string) {
+  return displayName.trim().toLowerCase();
 }
 
 function sendJson(response: ServerResponse, statusCode: number, payload: unknown) {

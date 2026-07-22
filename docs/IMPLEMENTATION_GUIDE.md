@@ -43,7 +43,7 @@ Haptic Relay 서버 = 방 생성, 입장 제어, 모션 fanout
 
 ```text
 src/App.tsx
-  데스크톱 앱 UI. 스트리머/시청자 역할, 방 생성, 방 입장, 하드웨어 연결.
+  데스크톱 앱 UI. 스트리머/시청자 역할, 방 생성, 방 입장, 하드웨어 연결, 접속자 관리.
 
 electron/main.ts
   Electron main process. Renderer와 native 기능 사이 IPC 연결.
@@ -185,6 +185,7 @@ Postgres, later
 
 방별 연결 수, forwarded frame, dropped frame, relay node 정보를 확인합니다.
 신청입장 방은 `pendingApprovals`로 승인 대기 viewer 수도 확인할 수 있습니다.
+세션 차단 수는 `blockedViewers`로 확인할 수 있습니다.
 
 ## 6. Relay Socket 흐름
 
@@ -204,6 +205,8 @@ Viewer:
   request mode면 viewer:approval-requested가 host 앱으로 전달됨
   host가 viewer:approve { socketId, approved } 송신
   승인된 viewer만 room join 완료
+  host가 viewer:moderate { socketId, action } 송신 가능
+  kick은 즉시 room에서 제거, block은 제거 후 같은 표시 이름의 현재 방 재입장을 차단
   motion packet receive: "m"
   packet decode
   HardwareController.queueMotion()
@@ -522,7 +525,7 @@ electron/motion-packet.ts
   Electron main process용 binary packet encoder.
 
 electron/services/relay-client.ts
-  Control API 호출 후 배정된 relayUrl로 Socket.IO 연결, viewer motion packet 수신, 신청입장 승인 이벤트 처리.
+  Control API 호출 후 배정된 relayUrl로 Socket.IO 연결, viewer motion packet 수신, 신청입장 승인 이벤트, 접속자 관리 이벤트 처리.
 
 electron/services/hardware-controller.ts
   SerialPort 연결, latest frame queue, write drain 처리.
@@ -552,15 +555,15 @@ dd0a0f7 feat: route viewer motion to hardware
 
 ## 19. 아직 남은 작업
 
-1. 강퇴/차단
-2. emergency stop
-3. adaptive Hz 자동 조절
-4. Redis live integration test
-5. Dockerfile / production deployment
-6. TLS termination / reverse proxy 설정
-7. Prometheus metrics 또는 structured logging
-8. Control API를 별도 서비스로 분리
-9. Postgres user/account/billing/moderation schema
+1. emergency stop
+2. adaptive Hz 자동 조절
+3. Redis live integration test
+4. Dockerfile / production deployment
+5. TLS termination / reverse proxy 설정
+6. Prometheus metrics 또는 structured logging
+7. Control API를 별도 서비스로 분리
+8. Postgres user/account/billing/moderation schema
+9. 영구 차단/세션 로그 저장소
 
 ## 20. 중요한 설계 원칙
 

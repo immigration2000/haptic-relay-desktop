@@ -1,9 +1,9 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { ApprovalRequest, RoomSettings } from './protocol.js';
+import type { ApprovalRequest, RoomSettings, ViewerSession } from './protocol.js';
 
 type ViewerStatus = {
   roomName: string;
-  status: 'approved' | 'rejected';
+  status: 'approved' | 'rejected' | 'removed';
   reason?: string;
 };
 
@@ -15,6 +15,8 @@ contextBridge.exposeInMainWorld('hapticRelay', {
   startHostRoom: (relayUrl: string, settings: RoomSettings) => ipcRenderer.invoke('room:start-host', relayUrl, settings),
   joinRoom: (relayUrl: string, request: { displayName: string; roomName: string; password?: string }) => ipcRenderer.invoke('room:join', relayUrl, request),
   approveViewer: (socketId: string, approved: boolean) => ipcRenderer.invoke('room:approve', socketId, approved),
+  moderateViewer: (socketId: string, action: 'kick' | 'block') => ipcRenderer.invoke('room:moderate-viewer', socketId, action),
+  listViewers: () => ipcRenderer.invoke('room:list-viewers'),
   onApprovalRequest: (listener: (request: ApprovalRequest) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, request: ApprovalRequest) => listener(request);
     ipcRenderer.on('room:approval-requested', handler);
@@ -24,6 +26,11 @@ contextBridge.exposeInMainWorld('hapticRelay', {
     const handler = (_event: Electron.IpcRendererEvent, status: ViewerStatus) => listener(status);
     ipcRenderer.on('room:viewer-status', handler);
     return () => ipcRenderer.removeListener('room:viewer-status', handler);
+  },
+  onViewerList: (listener: (viewers: ViewerSession[]) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, viewers: ViewerSession[]) => listener(viewers);
+    ipcRenderer.on('room:viewers', handler);
+    return () => ipcRenderer.removeListener('room:viewers', handler);
   },
   disconnectRoom: () => ipcRenderer.invoke('room:disconnect')
 });
