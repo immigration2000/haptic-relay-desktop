@@ -32,7 +32,7 @@ export class RelayClient {
 
   async createRoom(relayUrl: string, settings: RoomSettings) {
     const room = await postJson<{ ok: true; roomName: string; relayUrl: string; hostToken: string; entryMode: string }>(`${relayUrl}/api/rooms`, settings);
-    await this.connect(relayUrl);
+    await this.connect(room.relayUrl);
 
     const response = await this.emitWithAck('room:create', { token: room.hostToken });
     if (!response.ok) {
@@ -51,7 +51,7 @@ export class RelayClient {
   async joinRoom(relayUrl: string, request: { displayName: string; roomName: string; password?: string }) {
     const encodedRoomName = encodeURIComponent(request.roomName);
     const join = await postJson<{ ok: true; roomName: string; relayUrl: string; viewerToken: string }>(`${relayUrl}/api/rooms/${encodedRoomName}/join`, request);
-    await this.connect(relayUrl);
+    await this.connect(join.relayUrl);
 
     const response = await this.emitWithAck('viewer:join', {
       displayName: request.displayName,
