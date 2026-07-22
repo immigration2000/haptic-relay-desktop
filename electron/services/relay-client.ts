@@ -1,6 +1,7 @@
 import { io, Socket } from 'socket.io-client';
 import type { MotionFrame, RoomSettings } from '../protocol.js';
 import { clamp01, maxHzToInterval, RELAY_MAX_HZ } from '../tuning.js';
+import { encodeMotionPacket } from '../motion-packet.js';
 
 export class RelayClient {
   private socket: Socket | undefined;
@@ -97,10 +98,7 @@ export class RelayClient {
 
     const frame = this.latestFrame;
     this.latestFrame = undefined;
-    this.socket.volatile.compress(false).emit('host:motion', {
-      ...frame,
-      roomName: this.roomName
-    });
+    this.socket.volatile.compress(false).emit('m', encodeMotionPacket(frame));
   }
 
   private emitWithAck(eventName: string, payload: unknown) {

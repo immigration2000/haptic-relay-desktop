@@ -42,6 +42,7 @@ The app relay optimizes for stable perceived motion rather than guaranteed deliv
 
 - WebSocket-only transport avoids long-polling overhead.
 - Compression is disabled for tiny motion frames.
+- Motion frames use a 4-byte binary packet instead of JSON.
 - Motion broadcasts use volatile events so slow clients drop stale frames.
 - Server-side max Hz protects viewers, devices, and relay cost.
 - Desktop-side coalescing keeps serial hardware and network output from building queues.
@@ -50,7 +51,7 @@ The app relay optimizes for stable perceived motion rather than guaranteed deliv
 
 The relay protocol and hardware protocol are intentionally different.
 
-- Relay payload: normalized app-level `MotionFrame`.
+- Relay payload: 4-byte binary packet derived from normalized app-level `MotionFrame`.
 - Hardware output: T-Code ASCII over UART serial.
 - Default output axis: `L0`, matching OSR/SR6 stroke control.
 - Optional output axis: `V0` can map normalized intensity to vibration when a connected device supports it.
