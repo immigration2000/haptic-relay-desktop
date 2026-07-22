@@ -70,6 +70,7 @@ Desktop App -> Control API -> signed room token -> Relay Node -> Viewers
 
 - `POST /api/rooms`: 방을 만들고 host token을 발급합니다.
 - `POST /api/rooms/:roomName/join`: 비밀번호와 정원을 확인하고 viewer token을 발급합니다.
+- Control API 응답에는 `relayNodeId`, `relayUrl`이 포함됩니다.
 - Relay socket은 token 없이 `room:create` 또는 `viewer:join`을 허용하지 않습니다.
 - `GET /healthz`: 서버 생존 확인
 - `GET /metrics`: 방별 연결 수, forwarded/dropped frame 확인
@@ -78,8 +79,15 @@ Desktop App -> Control API -> signed room token -> Relay Node -> Viewers
 
 ```text
 HAPTIC_PUBLIC_RELAY_URL=https://relay.example.com
+HAPTIC_RELAY_NODE_ID=relay-seoul-1
 HAPTIC_CONTROL_TOKEN_SECRET=long-random-secret
 HAPTIC_MAX_VIEWERS_PER_ROOM=500
+```
+
+여러 relay node를 Control API에서 배정하려면:
+
+```text
+HAPTIC_RELAY_NODES=[{"id":"relay-seoul-1","url":"https://relay-seoul-1.example.com","maxViewers":500},{"id":"relay-seoul-2","url":"https://relay-seoul-2.example.com","maxViewers":500}]
 ```
 
 ## 릴레이 모션 프로토콜
@@ -133,6 +141,7 @@ L04200I16
 
 1. 시청자 클라이언트의 수신 모션을 하드웨어 출력으로 연결
 2. 신청입장 승인 큐와 강퇴/차단
-3. 앱용 공용 릴레이 서버 배포
-4. 하드웨어별 어댑터 분리
-5. 긴급 정지, 속도 제한, 연령/동의 확인, 세션 로그
+3. room registry를 Redis/Postgres 구현으로 교체
+4. 앱용 공용 릴레이 서버 배포
+5. 하드웨어별 어댑터 분리
+6. 긴급 정지, 속도 제한, 연령/동의 확인, 세션 로그
