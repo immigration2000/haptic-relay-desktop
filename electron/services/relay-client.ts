@@ -1,15 +1,23 @@
 import { io, Socket } from 'socket.io-client';
 import type { MotionFrame, RoomSettings } from '../protocol.js';
+import { clamp01, maxHzToInterval, RELAY_MAX_HZ } from '../tuning.js';
 
 export class RelayClient {
   private socket: Socket | undefined;
   private roomName = '';
+  private relayUrl = '';
+  private latestFrame: MotionFrame | undefined;
+  private flushTimer: NodeJS.Timeout | undefined;
+  private readonly minIntervalMs = maxHzToInterval(RELAY_MAX_HZ);
 
   async connect(relayUrl: string) {
-    if (this.socket?.connected) return;
+    if (this.socket?.connected && this.relayUrl === relayUrl) return;
+    this.disconnect();
 
+    this.relayUrl = relayUrl;
     this.socket = io(relayUrl, {
       transports: ['websocket'],
+      upgrade: false,
       reconnection: true,
       timeout: 5000
     });
@@ -53,18 +61,46 @@ export class RelayClient {
       return { sent: false, reason: 'relay-not-connected' };
     }
 
-    this.socket.emit('host:motion', {
-      ...frame,
-      roomName: this.roomName
-    });
-    return { sent: true };
+    this.latestFrame = {
+      intensity: clamp01(frame.intensity),
+      position: clamp01(frame.position),
+      timestamp: frame.timestamp
+    };
+    this.scheduleFlush();
+    return { queued: true };
   }
 
   disconnect() {
+    if (this.flushTimer) {
+      clearTimeout(this.flushTimer);
+      this.flushTimer = undefined;
+    }
     this.socket?.disconnect();
     this.socket = undefined;
     this.roomName = '';
+    this.relayUrl = '';
+    this.latestFrame = undefined;
     return { connected: false };
+  }
+
+  private scheduleFlush() {
+    if (this.flushTimer) return;
+
+    this.flushTimer = setTimeout(() => {
+      this.flushTimer = undefined;
+      this.flushLatest();
+    }, this.minIntervalMs);
+  }
+
+  private flushLatest() {
+    if (!this.socket?.connected || !this.roomName || !this.latestFrame) return;
+
+    const frame = this.latestFrame;
+    this.latestFrame = undefined;
+    this.socket.volatile.compress(false).emit('host:motion', {
+      ...frame,
+      roomName: this.roomName
+    });
   }
 
   private emitWithAck(eventName: string, payload: unknown) {
