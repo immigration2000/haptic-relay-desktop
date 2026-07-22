@@ -59,6 +59,21 @@ export default function App() {
     setStatus(`모션 전송: intensity ${intensity.toFixed(2)}, position ${position.toFixed(2)}`);
   }
 
+  const hardwarePanel = (
+    <section className="panel">
+      <h2>{role === 'host' ? '스트리머 하드웨어' : '시청자 하드웨어'}</h2>
+      <div className="hardware-row">
+        <select value={selectedPort} onChange={event => setSelectedPort(event.target.value)}>
+          {ports.map(port => (
+            <option value={port.path} key={port.path}>{port.path}</option>
+          ))}
+        </select>
+        <button onClick={refreshPorts}>새로고침</button>
+        <button onClick={connectHardware}>연결</button>
+      </div>
+    </section>
+  );
+
   return (
     <main className="app-shell">
       <aside className="sidebar">
@@ -106,18 +121,7 @@ export default function App() {
               <button className="primary" disabled={!canHost} onClick={createRoom}>방 생성</button>
             </section>
 
-            <section className="panel">
-              <h2>스트리머 하드웨어</h2>
-              <div className="hardware-row">
-                <select value={selectedPort} onChange={event => setSelectedPort(event.target.value)}>
-                  {ports.map(port => (
-                    <option value={port.path} key={port.path}>{port.path}</option>
-                  ))}
-                </select>
-                <button onClick={refreshPorts}>새로고침</button>
-                <button onClick={connectHardware}>연결</button>
-              </div>
-            </section>
+            {hardwarePanel}
 
             <section className="panel">
               <h2>모션 테스트</h2>
@@ -133,24 +137,28 @@ export default function App() {
             </section>
           </>
         ) : (
-          <section className="panel">
-            <h2>방 입장</h2>
-            <div className="form-grid">
-              <label>
-                표시 이름
-                <input value={displayName} onChange={event => setDisplayName(event.target.value)} />
-              </label>
-              <label>
-                방 이름
-                <input value={roomName} onChange={event => setRoomName(event.target.value)} />
-              </label>
-              <label>
-                비밀번호
-                <input value={password} onChange={event => setPassword(event.target.value)} />
-              </label>
-            </div>
-            <button className="primary" onClick={joinRoom}>입장 요청</button>
-          </section>
+          <>
+            <section className="panel">
+              <h2>방 입장</h2>
+              <div className="form-grid">
+                <label>
+                  표시 이름
+                  <input value={displayName} onChange={event => setDisplayName(event.target.value)} />
+                </label>
+                <label>
+                  방 이름
+                  <input value={roomName} onChange={event => setRoomName(event.target.value)} />
+                </label>
+                <label>
+                  비밀번호
+                  <input value={password} onChange={event => setPassword(event.target.value)} />
+                </label>
+              </div>
+              <button className="primary" onClick={joinRoom}>입장 요청</button>
+            </section>
+
+            {hardwarePanel}
+          </>
         )}
       </section>
     </main>
