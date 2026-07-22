@@ -11,6 +11,7 @@ Haptic Relay extracts hardware control from the live-streaming website. The live
 - `electron/services/tcode-encoder.ts`: converts normalized motion frames to OSR/SR6 compatible T-Code lines.
 - `electron/services/relay-client.ts`: Socket.IO client used by the desktop app.
 - `server/src/relay-server.ts`: standalone Socket.IO relay server for rooms and motion frames.
+- `server/src/control-token.ts`: HMAC signed token helper for host/viewer relay authorization.
 - `src/App.tsx`: renderer UI for host and viewer workflows.
 - `src/shared/protocol.ts`: shared room and motion protocol types.
 
@@ -26,6 +27,26 @@ Host hardware -> Desktop app -> Relay server -> Viewer desktop app -> Viewer har
 ```
 
 For local testing, run the relay server on `localhost:4174`. For production, deploy this relay server separately from the website's low-latency in-site hardware sync backend.
+
+## Control Plane
+
+The current Node process serves both the Control API and Relay Node so local development stays simple. The API contract is intentionally separable.
+
+```text
+POST /api/rooms
+  -> create room metadata
+  -> return hostToken + relayUrl
+
+POST /api/rooms/:roomName/join
+  -> validate password and room capacity
+  -> return viewerToken + relayUrl
+
+Socket.IO room:create/viewer:join
+  -> verify signed token
+  -> bind socket to room
+```
+
+Production should split the Control API from Relay Nodes once account auth, billing, and moderation are added.
 
 ## Server Split Rationale
 
