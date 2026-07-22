@@ -1,7 +1,8 @@
 import { createServer } from 'node:http';
-import { Server } from 'socket.io';
+import { Server, type Socket } from 'socket.io';
 import type { MotionFrame, RoomSettings } from '../../src/shared/protocol.js';
 import { clamp01, DEFAULT_RELAY_MAX_HZ, maxHzToInterval } from '../../src/shared/tuning.js';
+import { decodeMotionPacket, encodeMotionPacket } from '../../src/shared/motion-packet.js';
 
 type RoomState = RoomSettings & {
   hostSocketId: string;
@@ -22,6 +23,7 @@ type HostMotionFrame = MotionFrame & {
 };
 
 const rooms = new Map<string, RoomState>();
+const hostRoomsBySocket = new Map<string, string>();
 const port = Number(process.env.HAPTIC_RELAY_PORT ?? 4174);
 const corsOrigin = process.env.HAPTIC_RELAY_CORS_ORIGIN ?? '*';
 const relayMaxHz = Number(process.env.HAPTIC_RELAY_MAX_HZ ?? DEFAULT_RELAY_MAX_HZ);
@@ -57,6 +59,7 @@ io.on('connection', socket => {
       forwardedFrames: 0,
       droppedFrames: 0
     });
+    hostRoomsBySocket.set(socket.id, roomName);
     socket.join(roomName);
     ack?.({ ok: true, roomName, entryMode: settings.entryMode });
   });
@@ -87,27 +90,26 @@ io.on('connection', socket => {
     ack?.({ ok: true, roomName: room.roomName });
   });
 
-  socket.on('host:motion', (frame: HostMotionFrame) => {
-    const room = rooms.get(frame.roomName);
-    if (!room || room.hostSocketId !== socket.id) return;
+  socket.on('m', (payload: ArrayBuffer | Uint8Array | Buffer) => {
+    const roomName = hostRoomsBySocket.get(socket.id);
+    if (!roomName) return;
 
-    const now = Date.now();
-    if (now - room.lastMotionAt < minMotionIntervalMs) {
-      room.droppedFrames += 1;
+    let frame: MotionFrame;
+    try {
+      frame = decodeMotionPacket(payload);
+    } catch {
       return;
     }
 
-    room.lastMotionAt = now;
-    room.forwardedFrames += 1;
+    forwardMotion(socket, roomName, frame);
+  });
 
-    socket.to(room.roomName).volatile.compress(false).emit('viewer:motion', {
-      intensity: clamp01(frame.intensity),
-      position: clamp01(frame.position),
-      timestamp: Date.now()
-    });
+  socket.on('host:motion', (frame: HostMotionFrame) => {
+    forwardMotion(socket, frame.roomName, frame);
   });
 
   socket.on('disconnect', () => {
+    hostRoomsBySocket.delete(socket.id);
     for (const [roomName, room] of rooms) {
       if (room.hostSocketId === socket.id) rooms.delete(roomName);
     }
@@ -117,3 +119,25 @@ io.on('connection', socket => {
 httpServer.listen(port, () => {
   console.log(`Haptic Relay server listening on ws://localhost:${port} at ${relayMaxHz}Hz max`);
 });
+
+function forwardMotion(socket: Socket, roomName: string, frame: MotionFrame) {
+  const room = rooms.get(roomName);
+  if (!room || room.hostSocketId !== socket.id) return;
+
+  const now = Date.now();
+  if (now - room.lastMotionAt < minMotionIntervalMs) {
+    room.droppedFrames += 1;
+    return;
+  }
+
+  room.lastMotionAt = now;
+  room.forwardedFrames += 1;
+
+  const safeFrame = {
+    intensity: clamp01(frame.intensity),
+    position: clamp01(frame.position),
+    timestamp: now
+  };
+
+  socket.to(room.roomName).volatile.compress(false).emit('m', encodeMotionPacket(safeFrame));
+}
