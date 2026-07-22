@@ -48,7 +48,7 @@ ipcMain.handle('hardware:connect', (_event, pathName: string, baudRate: number) 
 ipcMain.handle('hardware:disconnect', () => hardware.disconnect());
 ipcMain.handle('hardware:send', async (_event, intensity: number, position: number) => {
   const frame = { intensity, position, timestamp: Date.now() };
-  const hardwareResult = await hardware.sendMotion(frame);
+  const hardwareResult = hardware.queueMotion(frame);
   const relayResult = relay.publishMotion(frame);
   return { hardware: hardwareResult, relay: relayResult };
 });

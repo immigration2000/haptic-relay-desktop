@@ -35,6 +35,16 @@ The website hardware feature and the external-platform desktop app should not sh
 - Shared protocol: motion frame shape and hardware adapters can stay compatible across both products.
 - Separate infrastructure: latency budgets, relay geography, logging, moderation, and cost controls can diverge without hurting the website experience.
 
+## Latency Policy
+
+The app relay optimizes for stable perceived motion rather than guaranteed delivery of every frame. Motion frames are transient state, so the newest frame is more valuable than a delayed backlog.
+
+- WebSocket-only transport avoids long-polling overhead.
+- Compression is disabled for tiny motion frames.
+- Motion broadcasts use volatile events so slow clients drop stale frames.
+- Server-side max Hz protects viewers, devices, and relay cost.
+- Desktop-side coalescing keeps serial hardware and network output from building queues.
+
 ## Access Modes
 
 - `open`: room name and optional password are enough to join.
