@@ -1,6 +1,7 @@
 import { SerialPort } from 'serialport';
 import type { MotionFrame } from '../protocol.js';
-import { clamp01, HARDWARE_MAX_HZ, maxHzToInterval } from '../tuning.js';
+import { clamp01, HARDWARE_MAX_HZ, maxHzToInterval, TCODE_INTERVAL_MS, TCODE_LINEAR_AXIS, TCODE_VIBRATION_AXIS } from '../tuning.js';
+import { encodeTCodeMotion } from './tcode-encoder.js';
 
 export class HardwareController {
   private port: SerialPort | undefined;
@@ -78,15 +79,14 @@ export class HardwareController {
     const frame = this.latestFrame;
     this.latestFrame = undefined;
 
-    const payload = JSON.stringify({
-      type: 'motion',
-      intensity: frame.intensity,
-      position: frame.position,
-      timestamp: frame.timestamp
+    const payload = encodeTCodeMotion(frame, {
+      linearAxis: TCODE_LINEAR_AXIS,
+      vibrationAxis: TCODE_VIBRATION_AXIS,
+      intervalMs: TCODE_INTERVAL_MS
     });
 
     await new Promise<void>((resolve, reject) => {
-      const accepted = this.port?.write(`${payload}\n`, error => (error ? reject(error) : resolve()));
+      const accepted = this.port?.write(payload, error => (error ? reject(error) : resolve()));
       if (accepted === false) {
         this.port?.once('drain', resolve);
       }
