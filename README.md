@@ -44,9 +44,9 @@ npm.cmd run server:dev
 npm.cmd run electron:dev
 ```
 
-## 하드웨어 모션 프로토콜
+## 릴레이 모션 프로토콜
 
-현재 MVP 송신 포맷은 줄 단위 JSON입니다.
+앱과 서버 사이의 릴레이 데이터는 정규화된 JSON motion frame입니다.
 
 ```json
 {"type":"motion","intensity":0.8,"position":0.42,"timestamp":1784630400000}
@@ -55,6 +55,21 @@ npm.cmd run electron:dev
 - `intensity`: 0.0-1.0 강도
 - `position`: 0.0-1.0 정규화 위치
 - `timestamp`: 송신 기준 Unix timestamp ms
+
+## 하드웨어 출력 프로토콜
+
+SerialPort로 장비에 쓰는 데이터는 OSR/SR6 계열 T-Code ASCII 라인입니다. 기본 출력은 L0 스트로크 축입니다.
+
+```text
+L04200I16
+```
+
+- `L0`: 기본 linear stroke axis
+- `4200`: 정규화 위치 `0.42`를 0-9999 범위로 변환한 값
+- `I16`: 해당 위치까지 이동할 interval ms
+- `HAPTIC_TCODE_LINEAR_AXIS`: 기본 `L0`
+- `HAPTIC_TCODE_VIBRATION_AXIS`: 선택값, 예: `V0`
+- `HAPTIC_TCODE_INTERVAL_MS`: 기본 `16`
 
 ## 제품 원칙
 

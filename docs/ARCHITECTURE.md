@@ -8,6 +8,7 @@ Haptic Relay extracts hardware control from the live-streaming website. The live
 
 - `electron/main.ts`: native desktop shell, IPC registration, app lifecycle.
 - `electron/services/hardware-controller.ts`: serial hardware access and normalized motion output.
+- `electron/services/tcode-encoder.ts`: converts normalized motion frames to OSR/SR6 compatible T-Code lines.
 - `electron/services/relay-client.ts`: Socket.IO client used by the desktop app.
 - `server/src/relay-server.ts`: standalone Socket.IO relay server for rooms and motion frames.
 - `src/App.tsx`: renderer UI for host and viewer workflows.
@@ -44,6 +45,16 @@ The app relay optimizes for stable perceived motion rather than guaranteed deliv
 - Motion broadcasts use volatile events so slow clients drop stale frames.
 - Server-side max Hz protects viewers, devices, and relay cost.
 - Desktop-side coalescing keeps serial hardware and network output from building queues.
+
+## Hardware Protocol
+
+The relay protocol and hardware protocol are intentionally different.
+
+- Relay payload: normalized app-level `MotionFrame`.
+- Hardware output: T-Code ASCII over UART serial.
+- Default output axis: `L0`, matching OSR/SR6 stroke control.
+- Optional output axis: `V0` can map normalized intensity to vibration when a connected device supports it.
+- Example: position `0.42` with a 16ms interval becomes `L04200I16\n`.
 
 ## Access Modes
 
