@@ -44,7 +44,7 @@ The app relay optimizes for stable perceived motion rather than guaranteed deliv
 - Compression is disabled for tiny motion frames.
 - Motion frames use a 4-byte binary packet instead of JSON.
 - Motion broadcasts use volatile events so slow clients drop stale frames.
-- Server-side max Hz protects viewers, devices, and relay cost.
+- Server-side token bucket max Hz protects viewers, devices, and relay cost without over-dropping timer jitter.
 - Desktop-side coalescing keeps serial hardware and network output from building queues.
 
 ## Hardware Protocol

@@ -7,7 +7,8 @@ import { decodeMotionPacket, encodeMotionPacket } from '../../src/shared/motion-
 type RoomState = RoomSettings & {
   hostSocketId: string;
   createdAt: number;
-  lastMotionAt: number;
+  motionTokens: number;
+  lastTokenRefillAt: number;
   forwardedFrames: number;
   droppedFrames: number;
 };
@@ -27,7 +28,7 @@ const hostRoomsBySocket = new Map<string, string>();
 const port = Number(process.env.HAPTIC_RELAY_PORT ?? 4174);
 const corsOrigin = process.env.HAPTIC_RELAY_CORS_ORIGIN ?? '*';
 const relayMaxHz = Number(process.env.HAPTIC_RELAY_MAX_HZ ?? DEFAULT_RELAY_MAX_HZ);
-const minMotionIntervalMs = maxHzToInterval(relayMaxHz);
+const burstFrames = Number(process.env.HAPTIC_RELAY_BURST_FRAMES ?? 2);
 
 const httpServer = createServer();
 const io = new Server(httpServer, {
@@ -55,7 +56,8 @@ io.on('connection', socket => {
       password: settings.password?.trim() || undefined,
       hostSocketId: socket.id,
       createdAt: Date.now(),
-      lastMotionAt: 0,
+      motionTokens: burstFrames,
+      lastTokenRefillAt: Date.now(),
       forwardedFrames: 0,
       droppedFrames: 0
     });
@@ -124,15 +126,16 @@ function forwardMotion(socket: Socket, roomName: string, frame: MotionFrame) {
   const room = rooms.get(roomName);
   if (!room || room.hostSocketId !== socket.id) return;
 
-  const now = Date.now();
-  if (now - room.lastMotionAt < minMotionIntervalMs) {
+  refillMotionTokens(room);
+  if (room.motionTokens < 1) {
     room.droppedFrames += 1;
     return;
   }
 
-  room.lastMotionAt = now;
+  room.motionTokens -= 1;
   room.forwardedFrames += 1;
 
+  const now = Date.now();
   const safeFrame = {
     intensity: clamp01(frame.intensity),
     position: clamp01(frame.position),
@@ -140,4 +143,14 @@ function forwardMotion(socket: Socket, roomName: string, frame: MotionFrame) {
   };
 
   socket.to(room.roomName).volatile.compress(false).emit('m', encodeMotionPacket(safeFrame));
+}
+
+function refillMotionTokens(room: RoomState) {
+  const now = Date.now();
+  const elapsedMs = now - room.lastTokenRefillAt;
+  if (elapsedMs <= 0) return;
+
+  const refill = elapsedMs * (relayMaxHz / 1000);
+  room.motionTokens = Math.min(burstFrames, room.motionTokens + refill);
+  room.lastTokenRefillAt = now;
 }

@@ -8,6 +8,7 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "server:dev": "npm run build:server && node dist-server/server/src/relay-server.js",
+    "load:relay": "node scripts/relay-load-test.mjs",
     "build": "tsc --noEmit && npm run build:electron && npm run build:server && vite build",
     "build:electron": "tsc -p tsconfig.electron.json",
     "build:server": "tsc -p tsconfig.server.json",
