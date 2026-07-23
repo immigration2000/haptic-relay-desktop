@@ -16,6 +16,9 @@ const relay = new RelayClient(frame => {
   mainWindow?.webContents.send('room:viewer-status', status);
 }, viewers => {
   mainWindow?.webContents.send('room:viewers', viewers);
+}, signal => {
+  void hardware.emergencyStop();
+  mainWindow?.webContents.send('room:emergency-stop', signal);
 });
 
 function createWindow() {
@@ -54,6 +57,7 @@ app.on('activate', () => {
 ipcMain.handle('hardware:list', () => hardware.listPorts());
 ipcMain.handle('hardware:connect', (_event, pathName: string, baudRate: number) => hardware.connect(pathName, baudRate));
 ipcMain.handle('hardware:disconnect', () => hardware.disconnect());
+ipcMain.handle('hardware:emergency-stop', () => hardware.emergencyStop());
 ipcMain.handle('hardware:send', async (_event, intensity: number, position: number) => {
   const frame = { intensity, position, timestamp: Date.now() };
   const hardwareResult = hardware.queueMotion(frame);
@@ -66,4 +70,9 @@ ipcMain.handle('room:join', (_event, relayUrl: string, request) => relay.joinRoo
 ipcMain.handle('room:approve', (_event, socketId: string, approved: boolean) => relay.approveViewer(socketId, approved));
 ipcMain.handle('room:moderate-viewer', (_event, socketId: string, action: 'kick' | 'block') => relay.moderateViewer(socketId, action));
 ipcMain.handle('room:list-viewers', () => relay.refreshViewers());
+ipcMain.handle('room:emergency-stop', async () => {
+  const hardwareResult = await hardware.emergencyStop();
+  const relayResult = await relay.emergencyStop();
+  return { hardware: hardwareResult, relay: relayResult };
+});
 ipcMain.handle('room:disconnect', () => relay.disconnect());

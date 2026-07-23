@@ -197,6 +197,7 @@ Host:
   Socket.IO connect
   room:create { token: hostToken }
   motion packet emit: "m"
+  긴급 정지 시 room:stop 송신
 
 Viewer:
   Control API에서 viewerToken 받음
@@ -207,6 +208,7 @@ Viewer:
   승인된 viewer만 room join 완료
   host가 viewer:moderate { socketId, action } 송신 가능
   kick은 즉시 room에서 제거, block은 제거 후 같은 표시 이름의 현재 방 재입장을 차단
+  room:stop 수신 시 motion queue 삭제 후 하드웨어에 0 T-Code 출력
   motion packet receive: "m"
   packet decode
   HardwareController.queueMotion()
@@ -355,6 +357,8 @@ Hardware protocol:
 ```text
 T-Code ASCII over SerialPort
 ```
+
+긴급 정지는 일반 motion queue보다 우선합니다. 앱은 pending frame을 삭제하고 즉시 0 위치/0 강도 T-Code를 씁니다.
 
 기본 출력:
 
@@ -555,15 +559,14 @@ dd0a0f7 feat: route viewer motion to hardware
 
 ## 19. 아직 남은 작업
 
-1. emergency stop
-2. adaptive Hz 자동 조절
-3. Redis live integration test
-4. Dockerfile / production deployment
-5. TLS termination / reverse proxy 설정
-6. Prometheus metrics 또는 structured logging
-7. Control API를 별도 서비스로 분리
-8. Postgres user/account/billing/moderation schema
-9. 영구 차단/세션 로그 저장소
+1. adaptive Hz 자동 조절
+2. Redis live integration test
+3. Dockerfile / production deployment
+4. TLS termination / reverse proxy 설정
+5. Prometheus metrics 또는 structured logging
+6. Control API를 별도 서비스로 분리
+7. Postgres user/account/billing/moderation schema
+8. 영구 차단/세션 로그 저장소
 
 ## 20. 중요한 설계 원칙
 

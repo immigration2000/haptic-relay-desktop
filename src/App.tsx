@@ -47,11 +47,15 @@ export default function App() {
     const removeViewerList = window.hapticRelay.onViewerList(viewers => {
       setViewerSessions(viewers);
     });
+    const removeEmergencyStop = window.hapticRelay.onEmergencyStop(signal => {
+      setStatus(`긴급 정지 수신: ${signal.roomName}`);
+    });
 
     return () => {
       removeApprovalRequest();
       removeViewerStatus();
       removeViewerList();
+      removeEmergencyStop();
     };
   }, []);
 
@@ -109,6 +113,15 @@ export default function App() {
     setStatus(`모션 전송: intensity ${intensity.toFixed(2)}, position ${position.toFixed(2)}`);
   }
 
+  async function emergencyStop() {
+    const result = await window.hapticRelay.emergencyStop() as { relay?: { sent?: boolean; reason?: string } };
+    if (result.relay?.sent === false && result.relay.reason !== 'invalid-host-room') {
+      setStatus(`긴급 정지: 로컬 정지, relay ${result.relay.reason}`);
+      return;
+    }
+    setStatus(role === 'host' ? '긴급 정지 전송됨' : '로컬 긴급 정지됨');
+  }
+
   const hardwarePanel = (
     <section className="panel">
       <h2>{role === 'host' ? '스트리머 하드웨어' : '시청자 하드웨어'}</h2>
@@ -135,6 +148,7 @@ export default function App() {
           <button className={role === 'host' ? 'active' : ''} onClick={() => setRole('host')}>스트리머</button>
           <button className={role === 'viewer' ? 'active' : ''} onClick={() => setRole('viewer')}>시청자</button>
         </div>
+        <button className="danger" onClick={emergencyStop}>긴급 정지</button>
         <p className="status">{status}</p>
       </aside>
 

@@ -18,6 +18,7 @@
 - 방 생성 설정: 방 이름, 비밀번호, 자유입장/신청입장
 - 신청입장 승인/거절 대기 큐
 - 스트리머용 접속자 목록, 강퇴, 세션 차단
+- 로컬/방 전체 긴급 정지
 - SerialPort 기반 하드웨어 포트 검색, 연결, T-Code 프로토콜 송신
 - Socket.IO 기반 독립 릴레이 서버 골격
 - Control API 기반 방 생성/입장 토큰 발급
@@ -77,6 +78,7 @@ Desktop App -> Control API -> signed room token -> Relay Node -> Viewers
 - Relay socket은 token 없이 `room:create` 또는 `viewer:join`을 허용하지 않습니다.
 - 신청입장 방에서는 viewer socket이 승인 대기 상태가 되고, 스트리머 앱의 승인 후에만 방 fanout에 참여합니다.
 - 스트리머는 접속자 목록에서 viewer를 강퇴하거나 표시 이름 기준으로 현재 방 세션에서 차단할 수 있습니다.
+- 스트리머의 긴급 정지는 local hardware stop과 room-wide stop event를 동시에 실행합니다.
 - `GET /healthz`: 서버 생존 확인
 - `GET /metrics`: 방별 연결 수, forwarded/dropped frame 확인
 
@@ -163,4 +165,4 @@ L04200I16
 1. 앱용 공용 릴레이 서버 배포
 2. 영구 차단/세션 로그 저장소
 3. 하드웨어별 어댑터 분리
-4. 긴급 정지, 속도 제한, 연령/동의 확인
+4. 속도 제한, 연령/동의 확인

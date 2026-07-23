@@ -76,6 +76,10 @@ io.on('connection', socket => {
     ack?.({ ok: true, viewers: roomName ? getRoomViewers(roomName) : [] });
   });
 
+  socket.on('room:stop', (_request, ack) => {
+    handleEmergencyStop(socket, ack);
+  });
+
   socket.on('m', (payload: ArrayBuffer | Uint8Array | Buffer) => {
     const roomName = hostRoomsBySocket.get(socket.id);
     if (!roomName) return;
@@ -222,6 +226,17 @@ function handleViewerModeration(socket: Socket, request: { socketId: string; act
   viewerSocket?.emit('viewer:removed', { roomName, reason: request.action });
   removeViewerSession(request.socketId);
   ack?.({ ok: true, action: request.action });
+}
+
+function handleEmergencyStop(socket: Socket, ack?: (response: unknown) => void) {
+  const roomName = hostRoomsBySocket.get(socket.id);
+  if (!roomName) {
+    ack?.({ ok: false, reason: 'invalid-host-room' });
+    return;
+  }
+
+  socket.to(roomName).volatile.compress(false).emit('room:stop', { roomName, timestamp: Date.now() });
+  ack?.({ ok: true, roomName });
 }
 
 async function handleControlRequest(request: IncomingMessage, response: ServerResponse) {
