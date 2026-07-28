@@ -3,6 +3,13 @@ import type { ApprovalRequest, EntryMode, PortInfo, ViewerSession } from './shar
 import './styles.css';
 
 type Role = 'host' | 'viewer';
+type StatusTone = 'idle' | 'busy' | 'ok' | 'warning' | 'error';
+type BusyAction = 'ports' | 'hardware' | 'room' | 'join' | 'approval' | 'moderation' | 'motion' | 'stop';
+
+type AppStatus = {
+  tone: StatusTone;
+  message: string;
+};
 
 export default function App() {
   const [role, setRole] = useState<Role>('host');
@@ -13,16 +20,19 @@ export default function App() {
   const [entryMode, setEntryMode] = useState<EntryMode>('open');
   const [ports, setPorts] = useState<PortInfo[]>([]);
   const [selectedPort, setSelectedPort] = useState('');
-  const [status, setStatus] = useState('대기 중');
+  const [status, setStatus] = useState<AppStatus>({ tone: 'idle', message: '대기 중' });
+  const [busyAction, setBusyAction] = useState<BusyAction>();
   const [intensity, setIntensity] = useState(0.5);
   const [position, setPosition] = useState(0.5);
   const [approvalRequests, setApprovalRequests] = useState<ApprovalRequest[]>([]);
   const [viewerSessions, setViewerSessions] = useState<ViewerSession[]>([]);
 
   const canHost = useMemo(() => roomName.trim().length >= 3, [roomName]);
+  const canJoin = useMemo(() => roomName.trim().length >= 3 && displayName.trim().length > 0, [displayName, roomName]);
+  const isBusy = busyAction !== undefined;
 
   useEffect(() => {
-    void refreshPorts();
+    void refreshPorts(true);
   }, []);
 
   useEffect(() => {
@@ -31,24 +41,24 @@ export default function App() {
         if (current.some(item => item.socketId === request.socketId)) return current;
         return [...current, request];
       });
-      setStatus(`입장 신청: ${request.displayName}`);
+      setStatusMessage('warning', `입장 신청: ${request.displayName}`);
     });
     const removeViewerStatus = window.hapticRelay.onViewerStatus(nextStatus => {
       if (nextStatus.status === 'approved') {
-        setStatus(`방 입장 승인됨: ${nextStatus.roomName}`);
+        setStatusMessage('ok', `방 입장 승인됨: ${nextStatus.roomName}`);
         return;
       }
       if (nextStatus.status === 'removed') {
-        setStatus(`${nextStatus.reason === 'block' ? '차단' : '강퇴'}됨: ${nextStatus.roomName}`);
+        setStatusMessage('warning', `${nextStatus.reason === 'block' ? '차단' : '강퇴'}됨: ${nextStatus.roomName}`);
         return;
       }
-      setStatus(`방 입장 거절됨: ${nextStatus.reason ?? nextStatus.roomName}`);
+      setStatusMessage('warning', `방 입장 거절됨: ${formatReason(nextStatus.reason ?? nextStatus.roomName)}`);
     });
     const removeViewerList = window.hapticRelay.onViewerList(viewers => {
       setViewerSessions(viewers);
     });
     const removeEmergencyStop = window.hapticRelay.onEmergencyStop(signal => {
-      setStatus(`긴급 정지 수신: ${signal.roomName}`);
+      setStatusMessage('warning', `긴급 정지 수신: ${signal.roomName}`);
     });
 
     return () => {
@@ -59,67 +69,123 @@ export default function App() {
     };
   }, []);
 
-  async function refreshPorts() {
-    const nextPorts = await window.hapticRelay.listPorts();
-    setPorts(nextPorts);
-    if (!selectedPort && nextPorts[0]) setSelectedPort(nextPorts[0].path);
+  function setStatusMessage(tone: StatusTone, message: string) {
+    setStatus({ tone, message });
+  }
+
+  async function runAction(action: BusyAction, busyMessage: string, task: () => Promise<void>) {
+    if (busyAction) return;
+
+    setBusyAction(action);
+    setStatusMessage('busy', busyMessage);
+    try {
+      await task();
+    } catch (error) {
+      setStatusMessage('error', formatError(error));
+    } finally {
+      setBusyAction(undefined);
+    }
+  }
+
+  async function refreshPorts(silent = false) {
+    await runAction('ports', silent ? '포트 확인 중' : '하드웨어 포트 새로고침 중', async () => {
+      const nextPorts = await window.hapticRelay.listPorts();
+      setPorts(nextPorts);
+      if (!selectedPort && nextPorts[0]) setSelectedPort(nextPorts[0].path);
+      if (!silent) {
+        setStatusMessage(nextPorts.length > 0 ? 'ok' : 'warning', nextPorts.length > 0 ? `포트 ${nextPorts.length}개 발견` : '사용 가능한 하드웨어 포트가 없습니다');
+      }
+    });
   }
 
   async function connectHardware() {
-    if (!selectedPort) return;
-    await window.hapticRelay.connectHardware(selectedPort, 115200);
-    setStatus(`하드웨어 연결됨: ${selectedPort}`);
+    if (!selectedPort) {
+      setStatusMessage('warning', '연결할 하드웨어 포트를 선택하세요');
+      return;
+    }
+
+    await runAction('hardware', '하드웨어 연결 중', async () => {
+      await window.hapticRelay.connectHardware(selectedPort, 115200);
+      setStatusMessage('ok', `하드웨어 연결됨: ${selectedPort}`);
+    });
   }
 
   async function createRoom() {
-    if (!canHost) return;
-    const room = await window.hapticRelay.startHostRoom(relayUrl.trim(), {
-      roomName: roomName.trim(),
-      password: password.trim() || undefined,
-      entryMode
+    if (!canHost) {
+      setStatusMessage('warning', '방 이름은 3자 이상이어야 합니다');
+      return;
+    }
+
+    await runAction('room', '방 생성 중', async () => {
+      const room = await window.hapticRelay.startHostRoom(normalizeRelayUrl(relayUrl), {
+        roomName: roomName.trim(),
+        password: password.trim() || undefined,
+        entryMode
+      });
+      setApprovalRequests([]);
+      setViewerSessions(await window.hapticRelay.listViewers());
+      setStatusMessage('ok', `방 생성됨: ${room.roomName} / ${room.relayUrl}`);
     });
-    setApprovalRequests([]);
-    setViewerSessions(await window.hapticRelay.listViewers());
-    setStatus(`방 생성됨: ${room.roomName} / ${room.relayUrl}`);
   }
 
   async function joinRoom() {
-    const response = await window.hapticRelay.joinRoom(relayUrl.trim(), {
-      displayName: displayName.trim(),
-      roomName: roomName.trim(),
-      password: password.trim() || undefined
-    });
-    if (response.reason === 'approval-required') {
-      setStatus(`입장 승인 대기 중: ${roomName}`);
+    if (!canJoin) {
+      setStatusMessage('warning', '표시 이름과 3자 이상의 방 이름이 필요합니다');
       return;
     }
-    setStatus(`방 입장됨: ${roomName}`);
+
+    await runAction('join', '방 입장 요청 중', async () => {
+      const response = await window.hapticRelay.joinRoom(normalizeRelayUrl(relayUrl), {
+        displayName: displayName.trim(),
+        roomName: roomName.trim(),
+        password: password.trim() || undefined
+      });
+      if (response.reason === 'approval-required') {
+        setStatusMessage('warning', `입장 승인 대기 중: ${roomName.trim()}`);
+        return;
+      }
+      setStatusMessage('ok', `방 입장됨: ${roomName.trim()}`);
+    });
   }
 
   async function decideApproval(request: ApprovalRequest, approved: boolean) {
-    await window.hapticRelay.approveViewer(request.socketId, approved);
-    setApprovalRequests(current => current.filter(item => item.socketId !== request.socketId));
-    setStatus(`${request.displayName} ${approved ? '승인됨' : '거절됨'}`);
+    await runAction('approval', `${request.displayName} ${approved ? '승인' : '거절'} 처리 중`, async () => {
+      await window.hapticRelay.approveViewer(request.socketId, approved);
+      setApprovalRequests(current => current.filter(item => item.socketId !== request.socketId));
+      setStatusMessage('ok', `${request.displayName} ${approved ? '승인됨' : '거절됨'}`);
+    });
   }
 
   async function moderateViewer(viewer: ViewerSession, action: 'kick' | 'block') {
-    await window.hapticRelay.moderateViewer(viewer.socketId, action);
-    setViewerSessions(current => current.filter(item => item.socketId !== viewer.socketId));
-    setStatus(`${viewer.displayName} ${action === 'block' ? '차단됨' : '강퇴됨'}`);
+    await runAction('moderation', `${viewer.displayName} ${action === 'block' ? '차단' : '강퇴'} 처리 중`, async () => {
+      await window.hapticRelay.moderateViewer(viewer.socketId, action);
+      setViewerSessions(current => current.filter(item => item.socketId !== viewer.socketId));
+      setStatusMessage('ok', `${viewer.displayName} ${action === 'block' ? '차단됨' : '강퇴됨'}`);
+    });
   }
 
   async function sendMotion() {
-    await window.hapticRelay.sendMotion(intensity, position);
-    setStatus(`모션 전송: intensity ${intensity.toFixed(2)}, position ${position.toFixed(2)}`);
+    await runAction('motion', '모션 전송 중', async () => {
+      await window.hapticRelay.sendMotion(intensity, position);
+      setStatusMessage('ok', `모션 전송: intensity ${intensity.toFixed(2)}, position ${position.toFixed(2)}`);
+    });
   }
 
   async function emergencyStop() {
-    const result = await window.hapticRelay.emergencyStop() as { relay?: { sent?: boolean; reason?: string } };
-    if (result.relay?.sent === false && result.relay.reason !== 'invalid-host-room') {
-      setStatus(`긴급 정지: 로컬 정지, relay ${result.relay.reason}`);
-      return;
+    setBusyAction('stop');
+    setStatusMessage('busy', '긴급 정지 처리 중');
+    try {
+      const result = await window.hapticRelay.emergencyStop() as { relay?: { sent?: boolean; reason?: string } };
+      if (result.relay?.sent === false && result.relay.reason !== 'invalid-host-room') {
+        setStatusMessage('warning', `긴급 정지: 로컬 정지, relay ${formatReason(result.relay.reason ?? 'room-stop-failed')}`);
+        return;
+      }
+      setStatusMessage('warning', role === 'host' ? '긴급 정지 전송됨' : '로컬 긴급 정지됨');
+    } catch (error) {
+      setStatusMessage('error', formatError(error));
+    } finally {
+      setBusyAction(undefined);
     }
-    setStatus(role === 'host' ? '긴급 정지 전송됨' : '로컬 긴급 정지됨');
   }
 
   const hardwarePanel = (
@@ -131,8 +197,8 @@ export default function App() {
             <option value={port.path} key={port.path}>{port.path}</option>
           ))}
         </select>
-        <button onClick={refreshPorts}>새로고침</button>
-        <button onClick={connectHardware}>연결</button>
+        <button disabled={isBusy} onClick={() => refreshPorts()}>새로고침</button>
+        <button disabled={isBusy || !selectedPort} onClick={connectHardware}>연결</button>
       </div>
     </section>
   );
@@ -148,8 +214,8 @@ export default function App() {
           <button className={role === 'host' ? 'active' : ''} onClick={() => setRole('host')}>스트리머</button>
           <button className={role === 'viewer' ? 'active' : ''} onClick={() => setRole('viewer')}>시청자</button>
         </div>
-        <button className="danger" onClick={emergencyStop}>긴급 정지</button>
-        <p className="status">{status}</p>
+        <button className="danger" disabled={busyAction === 'stop'} onClick={emergencyStop}>긴급 정지</button>
+        <p className={`status ${status.tone}`}>{status.message}</p>
       </aside>
 
       <section className="workspace">
@@ -182,7 +248,7 @@ export default function App() {
                   </select>
                 </label>
               </div>
-              <button className="primary" disabled={!canHost} onClick={createRoom}>방 생성</button>
+              <button className="primary" disabled={!canHost || isBusy} onClick={createRoom}>방 생성</button>
             </section>
 
             {hardwarePanel}
@@ -200,8 +266,8 @@ export default function App() {
                           <strong>{request.displayName}</strong>
                           <span>{request.roomName}</span>
                         </div>
-                        <button onClick={() => decideApproval(request, false)}>거절</button>
-                        <button className="primary" onClick={() => decideApproval(request, true)}>승인</button>
+                        <button disabled={isBusy} onClick={() => decideApproval(request, false)}>거절</button>
+                        <button className="primary" disabled={isBusy} onClick={() => decideApproval(request, true)}>승인</button>
                       </div>
                     ))}
                   </div>
@@ -221,8 +287,8 @@ export default function App() {
                         <strong>{viewer.displayName}</strong>
                         <span>{viewer.roomName}</span>
                       </div>
-                      <button onClick={() => moderateViewer(viewer, 'kick')}>강퇴</button>
-                      <button onClick={() => moderateViewer(viewer, 'block')}>차단</button>
+                      <button disabled={isBusy} onClick={() => moderateViewer(viewer, 'kick')}>강퇴</button>
+                      <button disabled={isBusy} onClick={() => moderateViewer(viewer, 'block')}>차단</button>
                     </div>
                   ))}
                 </div>
@@ -239,7 +305,7 @@ export default function App() {
                 위치
                 <input type="range" min="0" max="1" step="0.01" value={position} onChange={event => setPosition(Number(event.target.value))} />
               </label>
-              <button className="primary" onClick={sendMotion}>시청자에게 전송</button>
+              <button className="primary" disabled={isBusy} onClick={sendMotion}>시청자에게 전송</button>
             </section>
           </>
         ) : (
@@ -260,7 +326,7 @@ export default function App() {
                   <input value={password} onChange={event => setPassword(event.target.value)} />
                 </label>
               </div>
-              <button className="primary" onClick={joinRoom}>입장 요청</button>
+              <button className="primary" disabled={!canJoin || isBusy} onClick={joinRoom}>입장 요청</button>
             </section>
 
             {hardwarePanel}
@@ -269,4 +335,44 @@ export default function App() {
       </section>
     </main>
   );
+}
+
+function normalizeRelayUrl(value: string) {
+  try {
+    const url = new URL(value.trim());
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+      throw new Error('invalid-relay-url');
+    }
+    return url.toString().replace(/\/$/, '');
+  } catch {
+    throw new Error('invalid-relay-url');
+  }
+}
+
+function formatError(error: unknown) {
+  if (error instanceof Error) return formatReason(error.message);
+  if (typeof error === 'string') return formatReason(error);
+  return '알 수 없는 오류가 발생했습니다';
+}
+
+function formatReason(reason: string) {
+  const messages: Record<string, string> = {
+    'invalid-relay-url': '릴레이 서버 URL은 http 또는 https 주소여야 합니다',
+    'hardware-not-connected': '하드웨어가 연결되어 있지 않습니다',
+    'relay-not-connected': '릴레이 서버에 연결되어 있지 않습니다',
+    'room-not-found': '방을 찾을 수 없습니다',
+    'room-full': '방 정원이 가득 찼습니다',
+    'invalid-password': '비밀번호가 올바르지 않습니다',
+    'blocked': '이 방에서 차단된 이름입니다',
+    'approval-required': '스트리머 승인 대기 중입니다',
+    'invalid-host-token': '스트리머 방 토큰이 유효하지 않습니다',
+    'invalid-viewer-token': '시청자 입장 토큰이 유효하지 않습니다',
+    'approval-not-found': '입장 신청을 찾을 수 없습니다',
+    'viewer-disconnected': '시청자가 이미 연결을 끊었습니다',
+    'viewer-not-found': '접속자를 찾을 수 없습니다',
+    'connect_error': '릴레이 서버에 연결할 수 없습니다',
+    'timeout': '요청 시간이 초과되었습니다'
+  };
+
+  return messages[reason] ?? reason;
 }
