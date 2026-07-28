@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { ApprovalRequest, EntryMode, PortInfo, ViewerSession } from './shared/protocol';
+import type { ApprovalRequest, EntryMode, HardwareProfile, PortInfo, ViewerSession } from './shared/protocol';
 import './styles.css';
 
 type Role = 'host' | 'viewer';
@@ -11,6 +11,15 @@ type AppStatus = {
   message: string;
 };
 
+const DEFAULT_HARDWARE_PROFILE: HardwareProfile = {
+  baudRate: 115200,
+  linearAxis: 'L0',
+  vibrationAxis: '',
+  strokeMin: 0,
+  strokeMax: 1,
+  invertPosition: false
+};
+
 export default function App() {
   const [role, setRole] = useState<Role>('host');
   const [relayUrl, setRelayUrl] = useState(import.meta.env.VITE_RELAY_URL ?? 'http://localhost:4174');
@@ -20,6 +29,7 @@ export default function App() {
   const [entryMode, setEntryMode] = useState<EntryMode>('open');
   const [ports, setPorts] = useState<PortInfo[]>([]);
   const [selectedPort, setSelectedPort] = useState('');
+  const [hardwareProfile, setHardwareProfile] = useState<HardwareProfile>(DEFAULT_HARDWARE_PROFILE);
   const [status, setStatus] = useState<AppStatus>({ tone: 'idle', message: '?? ?' });
   const [busyAction, setBusyAction] = useState<BusyAction>();
   const [intensity, setIntensity] = useState(0.5);
@@ -109,6 +119,10 @@ export default function App() {
     }
   }
 
+  function updateHardwareProfile(patch: Partial<HardwareProfile>) {
+    setHardwareProfile(current => updateProfileValue(current, patch));
+  }
+
   async function refreshPorts(silent = false) {
     await runAction('ports', silent ? '?? ?? ?' : '???? ?? ???? ?', async () => {
       const nextPorts = await window.hapticRelay.listPorts();
@@ -127,15 +141,15 @@ export default function App() {
     }
 
     await runAction('hardware', '???? ?? ?', async () => {
-      const result = await window.hapticRelay.connectHardware(selectedPort, 115200);
+      const result = await window.hapticRelay.connectHardware(selectedPort, hardwareProfile);
       if (result.probe.detected) {
         const version = result.probe.version ? ` / TCode ${result.probe.version}` : '';
         const axes = result.probe.axes.length > 0 ? ` / ? ${result.probe.axes.join(', ')}` : '';
-        setStatusMessage('ok', `???? ???: ${selectedPort}${version}${axes}`);
+        setStatusMessage('ok', `???? ???: ${selectedPort} / ${result.profile.baudRate}${version}${axes}`);
         return;
       }
 
-      setStatusMessage('warning', `???? ???: ${selectedPort} / TCode ?? ??`);
+      setStatusMessage('warning', `???? ???: ${selectedPort} / ${result.profile.baudRate} / TCode ?? ??`);
     });
   }
 
@@ -228,6 +242,38 @@ export default function App() {
         </select>
         <button disabled={isBusy} onClick={() => refreshPorts()}>????</button>
         <button disabled={isBusy || !selectedPort} onClick={connectHardware}>??</button>
+      </div>
+      <div className="profile-grid">
+        <label>
+          Baudrate
+          <select value={hardwareProfile.baudRate} onChange={event => updateHardwareProfile({ baudRate: Number(event.target.value) })}>
+            <option value={9600}>9600</option>
+            <option value={57600}>57600</option>
+            <option value={115200}>115200</option>
+            <option value={230400}>230400</option>
+            <option value={460800}>460800</option>
+          </select>
+        </label>
+        <label>
+          Stroke ?
+          <input value={hardwareProfile.linearAxis} onChange={event => updateHardwareProfile({ linearAxis: event.target.value.toUpperCase() })} />
+        </label>
+        <label>
+          ?? ?
+          <input value={hardwareProfile.vibrationAxis ?? ''} onChange={event => updateHardwareProfile({ vibrationAxis: event.target.value.toUpperCase() })} placeholder="??, ?: V0" />
+        </label>
+        <label>
+          ?? ??
+          <input type="number" min="0" max="1" step="0.01" value={hardwareProfile.strokeMin} onChange={event => updateHardwareProfile({ strokeMin: Number(event.target.value) })} />
+        </label>
+        <label>
+          ?? ??
+          <input type="number" min="0" max="1" step="0.01" value={hardwareProfile.strokeMax} onChange={event => updateHardwareProfile({ strokeMax: Number(event.target.value) })} />
+        </label>
+        <label className="checkbox-row">
+          <input type="checkbox" checked={hardwareProfile.invertPosition} onChange={event => updateHardwareProfile({ invertPosition: event.target.checked })} />
+          ?? ??
+        </label>
       </div>
     </section>
   );
@@ -366,6 +412,13 @@ export default function App() {
   );
 }
 
+function updateProfileValue(profile: HardwareProfile, patch: Partial<HardwareProfile>): HardwareProfile {
+  return {
+    ...profile,
+    ...patch
+  };
+}
+
 function normalizeRelayUrl(value: string) {
   try {
     const url = new URL(value.trim());
@@ -405,6 +458,13 @@ function formatReason(reason: string) {
     'ping timeout': '??? ?? ??? ???????',
     'room-rejoin-failed': '? ???? ??????',
     'room-stop-failed': '?? ?? ??? ??????',
+    'invalid-hardware-profile': '???? ??? ??? ???? ????',
+    'invalid-baud-rate': 'baudrate ?? ???? ????',
+    'invalid-linearAxis': 'stroke ?? L0, R0, V0, A0 ????? ???',
+    'invalid-vibrationAxis': '?? ?? L0, R0, V0, A0 ????? ???',
+    'invalid-stroke-range': '?? ??? ?? ???? ??? ???',
+    'invalid-strokeMin': '?? ??? 0?? 1 ???? ???',
+    'invalid-strokeMax': '?? ??? 0?? 1 ???? ???',
     'timeout': '?? ??? ???????'
   };
 

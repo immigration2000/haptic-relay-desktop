@@ -1,5 +1,5 @@
 import { SerialPort } from 'serialport';
-import type { MotionFrame } from '../protocol.js';
+import type { HardwareProfile, MotionFrame } from '../protocol.js';
 import {
   clamp01,
   HARDWARE_MAX_HZ,
@@ -13,9 +13,18 @@ import {
 import { encodeTCodeMotion, encodeTCodeProbe, encodeTCodeStop, parseTCodeProbe } from './tcode-encoder.js';
 
 const TCODE_PROBE_TIMEOUT_MS = 350;
+const DEFAULT_HARDWARE_PROFILE: HardwareProfile = {
+  baudRate: 115200,
+  linearAxis: TCODE_LINEAR_AXIS,
+  vibrationAxis: TCODE_VIBRATION_AXIS,
+  strokeMin: 0,
+  strokeMax: 1,
+  invertPosition: false
+};
 
 export class HardwareController {
   private port: SerialPort | undefined;
+  private profile = DEFAULT_HARDWARE_PROFILE;
   private latestFrame: MotionFrame | undefined;
   private flushTimer: NodeJS.Timeout | undefined;
   private safetyTimer: NodeJS.Timeout | undefined;
@@ -27,12 +36,13 @@ export class HardwareController {
     return SerialPort.list();
   }
 
-  async connect(pathName: string, baudRate = 115200) {
+  async connect(pathName: string, profile: HardwareProfile = DEFAULT_HARDWARE_PROFILE) {
     await this.disconnect();
+    this.profile = normalizeProfile(profile);
 
     this.port = new SerialPort({
       path: pathName,
-      baudRate,
+      baudRate: this.profile.baudRate,
       autoOpen: false
     });
 
@@ -41,7 +51,7 @@ export class HardwareController {
     });
 
     const probe = await this.probeTCodeCapabilities();
-    return { connected: true, path: pathName, baudRate, probe };
+    return { connected: true, path: pathName, baudRate: this.profile.baudRate, profile: this.profile, probe };
   }
 
   async disconnect() {
@@ -92,8 +102,9 @@ export class HardwareController {
     }
 
     const payload = encodeTCodeStop({
-      linearAxis: TCODE_LINEAR_AXIS,
-      vibrationAxis: TCODE_VIBRATION_AXIS
+      linearAxis: this.profile.linearAxis,
+      vibrationAxis: this.profile.vibrationAxis,
+      stopPosition: this.profile.strokeMin
     });
 
     await this.writePayload(payload).catch(error => {
@@ -119,9 +130,9 @@ export class HardwareController {
     const frame = this.latestFrame;
     this.latestFrame = undefined;
 
-    const payload = encodeTCodeMotion(frame, {
-      linearAxis: TCODE_LINEAR_AXIS,
-      vibrationAxis: TCODE_VIBRATION_AXIS,
+    const payload = encodeTCodeMotion(applyProfile(frame, this.profile), {
+      linearAxis: this.profile.linearAxis,
+      vibrationAxis: this.profile.vibrationAxis,
       intervalMs: TCODE_INTERVAL_MS
     });
 
@@ -191,4 +202,26 @@ export class HardwareController {
       }
     });
   }
+}
+
+function normalizeProfile(profile: HardwareProfile): HardwareProfile {
+  return {
+    baudRate: profile.baudRate,
+    linearAxis: profile.linearAxis.trim().toUpperCase(),
+    vibrationAxis: profile.vibrationAxis?.trim().toUpperCase() || undefined,
+    strokeMin: clamp01(profile.strokeMin),
+    strokeMax: clamp01(profile.strokeMax),
+    invertPosition: profile.invertPosition
+  };
+}
+
+function applyProfile(frame: MotionFrame, profile: HardwareProfile): MotionFrame {
+  const low = Math.min(profile.strokeMin, profile.strokeMax);
+  const high = Math.max(profile.strokeMin, profile.strokeMax);
+  const normalizedPosition = profile.invertPosition ? 1 - frame.position : frame.position;
+
+  return {
+    ...frame,
+    position: low + clamp01(normalizedPosition) * (high - low)
+  };
 }

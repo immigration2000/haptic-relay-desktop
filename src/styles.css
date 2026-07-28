@@ -159,6 +159,25 @@ select {
   gap: 10px;
 }
 
+.profile-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.checkbox-row {
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  align-self: end;
+  min-height: 42px;
+}
+
+.checkbox-row input {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+}
+
 .approval-list {
   display: grid;
   gap: 10px;
@@ -195,6 +214,7 @@ select {
   }
 
   .form-grid,
+  .profile-grid,
   .hardware-row,
   .approval-row {
     grid-template-columns: 1fr;

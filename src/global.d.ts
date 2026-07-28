@@ -1,4 +1,4 @@
-import type { ApprovalRequest, PortInfo, RoomSettings, ViewerSession } from './shared/protocol';
+import type { ApprovalRequest, HardwareProfile, PortInfo, RoomSettings, ViewerSession } from './shared/protocol';
 
 type ViewerStatus = {
   roomName: string;
@@ -29,6 +29,7 @@ type HardwareConnectResult = {
   connected: boolean;
   path: string;
   baudRate: number;
+  profile: HardwareProfile;
   probe: TCodeProbeResult;
 };
 
@@ -36,7 +37,7 @@ declare global {
   interface Window {
     hapticRelay: {
       listPorts: () => Promise<PortInfo[]>;
-      connectHardware: (pathName: string, baudRate: number) => Promise<HardwareConnectResult>;
+      connectHardware: (pathName: string, profile: HardwareProfile) => Promise<HardwareConnectResult>;
       disconnectHardware: () => Promise<unknown>;
       stopHardware: () => Promise<unknown>;
       sendMotion: (intensity: number, position: number) => Promise<unknown>;
