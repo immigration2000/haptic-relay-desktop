@@ -14,11 +14,36 @@ type StopSignal = {
   timestamp: number;
 };
 
+type RelayConnectionStatus = {
+  status: 'connected' | 'disconnected' | 'reconnecting' | 'rejoined' | 'error';
+  role?: 'host' | 'viewer';
+  roomName?: string;
+  reason?: string;
+};
+
+type HostSession = {
+  role: 'host';
+  roomName: string;
+  token: string;
+};
+
+type ViewerSessionState = {
+  role: 'viewer';
+  roomName: string;
+  displayName: string;
+  token: string;
+  waitingForApproval: boolean;
+};
+
+type RelaySession = HostSession | ViewerSessionState;
+
 export class RelayClient {
   private socket: Socket | undefined;
   private roomName = '';
   private relayUrl = '';
   private hostToken = '';
+  private session: RelaySession | undefined;
+  private rejoining = false;
   private latestFrame: MotionFrame | undefined;
   private flushTimer: NodeJS.Timeout | undefined;
   private readonly minIntervalMs = maxHzToInterval(RELAY_MAX_HZ);
@@ -28,7 +53,8 @@ export class RelayClient {
     private readonly onApprovalRequest?: (request: ApprovalRequest) => void,
     private readonly onViewerStatus?: (status: ViewerStatus) => void,
     private readonly onViewerList?: (viewers: ViewerSession[]) => void,
-    private readonly onEmergencyStop?: (signal: StopSignal) => void
+    private readonly onEmergencyStop?: (signal: StopSignal) => void,
+    private readonly onConnectionStatus?: (status: RelayConnectionStatus) => void
   ) {}
 
   async connect(relayUrl: string) {
@@ -42,6 +68,19 @@ export class RelayClient {
       reconnection: true,
       timeout: 5000
     });
+    this.socket.on('connect', () => {
+      this.onConnectionStatus?.({ status: 'connected', role: this.session?.role, roomName: this.session?.roomName });
+      if (this.session) void this.rejoinSession();
+    });
+    this.socket.io.on('reconnect_attempt', () => {
+      this.onConnectionStatus?.({ status: 'reconnecting', role: this.session?.role, roomName: this.session?.roomName });
+    });
+    this.socket.on('disconnect', reason => {
+      this.onConnectionStatus?.({ status: 'disconnected', role: this.session?.role, roomName: this.session?.roomName, reason });
+    });
+    this.socket.on('connect_error', error => {
+      this.onConnectionStatus?.({ status: 'error', role: this.session?.role, roomName: this.session?.roomName, reason: error.message });
+    });
     this.socket.on('m', payload => {
       try {
         this.onMotion?.(decodeMotionPacket(payload));
@@ -53,13 +92,17 @@ export class RelayClient {
       this.onApprovalRequest?.(request);
     });
     this.socket.on('viewer:approved', response => {
+      if (this.session?.role === 'viewer') this.session.waitingForApproval = false;
       this.onViewerStatus?.({ roomName: response.roomName, status: 'approved' });
     });
     this.socket.on('viewer:rejected', response => {
+      this.session = undefined;
+      this.roomName = '';
       this.onViewerStatus?.({ roomName: response.roomName, status: 'rejected', reason: response.reason });
     });
     this.socket.on('viewer:removed', response => {
       this.roomName = '';
+      this.session = undefined;
       this.onViewerStatus?.({ roomName: response.roomName, status: 'removed', reason: response.reason });
     });
     this.socket.on('room:viewers', viewers => {
@@ -87,6 +130,11 @@ export class RelayClient {
 
     this.roomName = room.roomName;
     this.hostToken = room.hostToken;
+    this.session = {
+      role: 'host',
+      roomName: room.roomName,
+      token: room.hostToken
+    };
     void this.refreshViewers();
     return {
       roomName: room.roomName,
@@ -109,6 +157,13 @@ export class RelayClient {
     }
 
     this.roomName = join.roomName;
+    this.session = {
+      role: 'viewer',
+      roomName: join.roomName,
+      displayName: request.displayName,
+      token: join.viewerToken,
+      waitingForApproval: response.reason === 'approval-required'
+    };
     return response;
   }
 
@@ -176,8 +231,47 @@ export class RelayClient {
     this.roomName = '';
     this.relayUrl = '';
     this.hostToken = '';
+    this.session = undefined;
+    this.rejoining = false;
     this.latestFrame = undefined;
     return { connected: false };
+  }
+
+  private async rejoinSession() {
+    if (!this.socket?.connected || !this.session || this.rejoining) return;
+
+    this.rejoining = true;
+    try {
+      if (this.session.role === 'host') {
+        const response = await this.emitWithAck('room:create', { token: this.session.token });
+        if (!response.ok) throw new Error(response.reason ?? 'room-rejoin-failed');
+
+        this.roomName = this.session.roomName;
+        this.hostToken = this.session.token;
+        void this.refreshViewers();
+        this.onConnectionStatus?.({ status: 'rejoined', role: 'host', roomName: this.session.roomName });
+        return;
+      }
+
+      const response = await this.emitWithAck('viewer:join', {
+        displayName: this.session.displayName,
+        token: this.session.token
+      });
+      if (!response.ok && response.reason !== 'approval-required') throw new Error(response.reason ?? 'room-rejoin-failed');
+
+      this.roomName = this.session.roomName;
+      this.session.waitingForApproval = response.reason === 'approval-required';
+      this.onConnectionStatus?.({ status: 'rejoined', role: 'viewer', roomName: this.session.roomName, reason: response.reason });
+    } catch (error) {
+      this.onConnectionStatus?.({
+        status: 'error',
+        role: this.session.role,
+        roomName: this.session.roomName,
+        reason: error instanceof Error ? error.message : 'room-rejoin-failed'
+      });
+    } finally {
+      this.rejoining = false;
+    }
   }
 
   private scheduleFlush() {

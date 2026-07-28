@@ -12,6 +12,13 @@ type StopSignal = {
   timestamp: number;
 };
 
+type RelayConnectionStatus = {
+  status: 'connected' | 'disconnected' | 'reconnecting' | 'rejoined' | 'error';
+  role?: 'host' | 'viewer';
+  roomName?: string;
+  reason?: string;
+};
+
 contextBridge.exposeInMainWorld('hapticRelay', {
   listPorts: () => ipcRenderer.invoke('hardware:list'),
   connectHardware: (pathName: string, baudRate: number) => ipcRenderer.invoke('hardware:connect', pathName, baudRate),
@@ -43,6 +50,11 @@ contextBridge.exposeInMainWorld('hapticRelay', {
     const handler = (_event: Electron.IpcRendererEvent, signal: StopSignal) => listener(signal);
     ipcRenderer.on('room:emergency-stop', handler);
     return () => ipcRenderer.removeListener('room:emergency-stop', handler);
+  },
+  onConnectionStatus: (listener: (status: RelayConnectionStatus) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, status: RelayConnectionStatus) => listener(status);
+    ipcRenderer.on('room:connection-status', handler);
+    return () => ipcRenderer.removeListener('room:connection-status', handler);
   },
   disconnectRoom: () => ipcRenderer.invoke('room:disconnect')
 });

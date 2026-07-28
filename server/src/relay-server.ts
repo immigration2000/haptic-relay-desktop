@@ -25,6 +25,7 @@ const hostRoomsBySocket = new Map<string, string>();
 const pendingApprovals = new Map<string, { roomName: string; displayName: string }>();
 const viewerSessions = new Map<string, ViewerSession>();
 const blockedViewersByRoom = new Map<string, Set<string>>();
+const approvedViewersByRoom = new Map<string, Set<string>>();
 const port = Number(process.env.HAPTIC_RELAY_PORT ?? 4174);
 const corsOrigin = process.env.HAPTIC_RELAY_CORS_ORIGIN ?? '*';
 const publicRelayUrl = process.env.HAPTIC_PUBLIC_RELAY_URL ?? `http://localhost:${port}`;
@@ -158,6 +159,12 @@ async function handleViewerJoin(socket: Socket, request: JoinRequest, ack?: (res
   }
 
   if (room.entryMode === 'request') {
+    if (isViewerApproved(token.roomName, displayName)) {
+      attachViewerToRoom(socket, room.roomName, displayName);
+      ack?.({ ok: true, roomName: room.roomName });
+      return;
+    }
+
     pendingApprovals.set(socket.id, {
       roomName: token.roomName,
       displayName
@@ -204,6 +211,7 @@ function handleViewerApproval(socket: Socket, request: { socketId: string; appro
     return;
   }
 
+  getApprovedViewers(roomName).add(normalizeViewerName(pending.displayName));
   attachViewerToRoom(viewerSocket, roomName, pending.displayName);
   viewerSocket.emit('viewer:approved', { roomName });
   ack?.({ ok: true, approved: true });
@@ -219,6 +227,7 @@ function handleViewerModeration(socket: Socket, request: { socketId: string; act
 
   if (request.action === 'block') {
     getBlockedViewers(roomName).add(normalizeViewerName(session.displayName));
+    approvedViewersByRoom.get(roomName)?.delete(normalizeViewerName(session.displayName));
   }
 
   const viewerSocket = io.sockets.sockets.get(request.socketId);
@@ -411,6 +420,19 @@ function getBlockedViewers(roomName: string) {
 
 function isViewerBlocked(roomName: string, displayName: string) {
   return getBlockedViewers(roomName).has(normalizeViewerName(displayName));
+}
+
+function getApprovedViewers(roomName: string) {
+  let approved = approvedViewersByRoom.get(roomName);
+  if (!approved) {
+    approved = new Set<string>();
+    approvedViewersByRoom.set(roomName, approved);
+  }
+  return approved;
+}
+
+function isViewerApproved(roomName: string, displayName: string) {
+  return getApprovedViewers(roomName).has(normalizeViewerName(displayName));
 }
 
 function normalizeViewerName(displayName: string) {
