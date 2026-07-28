@@ -361,12 +361,14 @@ Hardware protocol:
 T-Code ASCII over SerialPort
 ```
 
-긴급 정지는 일반 motion queue보다 우선합니다. 앱은 pending frame을 삭제하고 즉시 0 위치/0 강도 T-Code를 씁니다.
+긴급 정지는 일반 motion queue보다 우선합니다. 앱은 pending frame을 삭제하고 `DSTOP`을 먼저 쓴 뒤 0 위치/0 강도 fallback T-Code를 씁니다.
 
 기본 출력:
 
 ```text
 L04200I16
+L04200I16 V08000
+DSTOP
 ```
 
 의미:
@@ -375,7 +377,11 @@ L04200I16
 L0    = OSR/SR6 linear stroke axis
 4200  = position 0.42를 0-9999로 변환
 I16   = 16ms interval
+V08000 = vibration axis V0를 0.8로 설정
+DSTOP = TCode device stop command
 ```
+
+여러 T-Code channel은 같은 line에서 공백으로 구분합니다.
 
 환경변수:
 

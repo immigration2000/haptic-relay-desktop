@@ -134,11 +134,15 @@ SerialPort로 장비에 쓰는 데이터는 OSR/SR6 계열 T-Code ASCII 라인�
 
 ```text
 L04200I16
+L04200I16 V08000
+DSTOP
 ```
 
 - `L0`: 기본 linear stroke axis
 - `4200`: 정규화 위치 `0.42`를 0-9999 범위로 변환한 값
 - `I16`: 해당 위치까지 이동할 interval ms
+- 여러 T-Code channel은 한 줄 안에서 공백으로 구분합니다.
+- 긴급 정지는 `DSTOP`을 먼저 보내고 0 위치 fallback 명령을 이어서 보냅니다.
 - `HAPTIC_TCODE_LINEAR_AXIS`: 기본 `L0`
 - `HAPTIC_TCODE_VIBRATION_AXIS`: 선택값, 예: `V0`
 - `HAPTIC_TCODE_INTERVAL_MS`: 기본 `16`

@@ -1,7 +1,7 @@
 import { SerialPort } from 'serialport';
 import type { MotionFrame } from '../protocol.js';
 import { clamp01, HARDWARE_MAX_HZ, maxHzToInterval, TCODE_INTERVAL_MS, TCODE_LINEAR_AXIS, TCODE_VIBRATION_AXIS } from '../tuning.js';
-import { encodeTCodeMotion } from './tcode-encoder.js';
+import { encodeTCodeMotion, encodeTCodeStop } from './tcode-encoder.js';
 
 export class HardwareController {
   private port: SerialPort | undefined;
@@ -74,14 +74,9 @@ export class HardwareController {
       return { stopped: false, reason: 'hardware-not-connected' };
     }
 
-    const payload = encodeTCodeMotion({
-      intensity: 0,
-      position: 0,
-      timestamp: Date.now()
-    }, {
+    const payload = encodeTCodeStop({
       linearAxis: TCODE_LINEAR_AXIS,
-      vibrationAxis: TCODE_VIBRATION_AXIS,
-      intervalMs: 1
+      vibrationAxis: TCODE_VIBRATION_AXIS
     });
 
     await new Promise<void>((resolve, reject) => {
