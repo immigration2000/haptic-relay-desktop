@@ -16,7 +16,20 @@ export function encodeTCodeMotion(frame: MotionFrame, options: TCodeOptions) {
     commands.push(encodeAxis(options.vibrationAxis, frame.intensity));
   }
 
-  return `${commands.join('')}\n`;
+  return `${commands.join(' ')}\n`;
+}
+
+export function encodeTCodeStop(options: TCodeOptions) {
+  const fallback = encodeTCodeMotion({
+    intensity: 0,
+    position: 0,
+    timestamp: Date.now()
+  }, {
+    ...options,
+    intervalMs: 1
+  }).trim();
+
+  return `DSTOP\n${fallback}\n`;
 }
 
 function encodeAxis(axis: string, value: number, intervalMs?: number) {
