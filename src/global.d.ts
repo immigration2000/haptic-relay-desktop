@@ -18,11 +18,25 @@ type RelayConnectionStatus = {
   reason?: string;
 };
 
+type TCodeProbeResult = {
+  detected: boolean;
+  raw: string[];
+  version?: string;
+  axes: string[];
+};
+
+type HardwareConnectResult = {
+  connected: boolean;
+  path: string;
+  baudRate: number;
+  probe: TCodeProbeResult;
+};
+
 declare global {
   interface Window {
     hapticRelay: {
       listPorts: () => Promise<PortInfo[]>;
-      connectHardware: (pathName: string, baudRate: number) => Promise<unknown>;
+      connectHardware: (pathName: string, baudRate: number) => Promise<HardwareConnectResult>;
       disconnectHardware: () => Promise<unknown>;
       stopHardware: () => Promise<unknown>;
       sendMotion: (intensity: number, position: number) => Promise<unknown>;

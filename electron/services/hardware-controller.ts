@@ -1,7 +1,9 @@
 import { SerialPort } from 'serialport';
 import type { MotionFrame } from '../protocol.js';
 import { clamp01, HARDWARE_MAX_HZ, maxHzToInterval, TCODE_INTERVAL_MS, TCODE_LINEAR_AXIS, TCODE_VIBRATION_AXIS } from '../tuning.js';
-import { encodeTCodeMotion, encodeTCodeStop } from './tcode-encoder.js';
+import { encodeTCodeMotion, encodeTCodeProbe, encodeTCodeStop, parseTCodeProbe } from './tcode-encoder.js';
+
+const TCODE_PROBE_TIMEOUT_MS = 350;
 
 export class HardwareController {
   private port: SerialPort | undefined;
@@ -27,7 +29,8 @@ export class HardwareController {
       this.port?.open(error => (error ? reject(error) : resolve()));
     });
 
-    return { connected: true, path: pathName, baudRate };
+    const probe = await this.probeTCodeCapabilities();
+    return { connected: true, path: pathName, baudRate, probe };
   }
 
   async disconnect() {
@@ -79,12 +82,7 @@ export class HardwareController {
       vibrationAxis: TCODE_VIBRATION_AXIS
     });
 
-    await new Promise<void>((resolve, reject) => {
-      const accepted = this.port?.write(payload, error => (error ? reject(error) : resolve()));
-      if (accepted === false) {
-        this.port?.once('drain', resolve);
-      }
-    }).catch(error => {
+    await this.writePayload(payload).catch(error => {
       console.error('hardware emergency stop failed', error);
     });
 
@@ -113,16 +111,52 @@ export class HardwareController {
       intervalMs: TCODE_INTERVAL_MS
     });
 
-    await new Promise<void>((resolve, reject) => {
-      const accepted = this.port?.write(payload, error => (error ? reject(error) : resolve()));
-      if (accepted === false) {
-        this.port?.once('drain', resolve);
-      }
-    }).catch(error => {
+    await this.writePayload(payload).catch(error => {
       console.error('hardware write failed', error);
     });
 
     this.writing = false;
     if (this.latestFrame) this.scheduleFlush();
+  }
+
+  private async probeTCodeCapabilities() {
+    if (!this.port?.isOpen) return parseTCodeProbe([]);
+
+    const chunks: string[] = [];
+    const onData = (chunk: Buffer) => {
+      chunks.push(chunk.toString('utf8'));
+    };
+
+    this.port.on('data', onData);
+    try {
+      await this.writePayload(encodeTCodeProbe());
+      await new Promise(resolve => setTimeout(resolve, TCODE_PROBE_TIMEOUT_MS));
+    } catch (error) {
+      console.warn('hardware T-Code probe failed', error);
+    } finally {
+      this.port?.off('data', onData);
+    }
+
+    const raw = chunks
+      .join('')
+      .split(/\r?\n/)
+      .map(line => line.trim())
+      .filter(Boolean);
+
+    return parseTCodeProbe(raw);
+  }
+
+  private writePayload(payload: string) {
+    return new Promise<void>((resolve, reject) => {
+      if (!this.port?.isOpen) {
+        reject(new Error('hardware-not-connected'));
+        return;
+      }
+
+      const accepted = this.port.write(payload, error => (error ? reject(error) : resolve()));
+      if (accepted === false) {
+        this.port.once('drain', resolve);
+      }
+    });
   }
 }
