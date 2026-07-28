@@ -96,6 +96,23 @@ h2 {
   color: #c8d7e2;
 }
 
+.status.busy {
+  color: #fde68a;
+}
+
+.status.ok {
+  color: #a7f3d0;
+}
+
+.status.warning {
+  color: #fdba74;
+}
+
+.status.error {
+  color: #fecaca;
+  font-weight: 700;
+}
+
 .workspace {
   display: grid;
   gap: 20px;
