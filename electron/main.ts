@@ -1,10 +1,24 @@
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, ipcMain, session } from 'electron';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import type { IpcMainInvokeEvent } from 'electron';
+import type { RoomSettings } from './protocol.js';
 import { HardwareController } from './services/hardware-controller.js';
 import { RelayClient } from './services/relay-client.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const CONTENT_SECURITY_POLICY = [
+  "default-src 'self'",
+  "script-src 'self'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data:",
+  "font-src 'self'",
+  "connect-src 'self' https: wss: http://localhost:* http://127.0.0.1:* ws://localhost:* ws://127.0.0.1:*",
+  "object-src 'none'",
+  "base-uri 'none'",
+  "form-action 'none'",
+  "frame-ancestors 'none'"
+].join('; ');
 
 let mainWindow: BrowserWindow | undefined;
 const hardware = new HardwareController();
@@ -23,6 +37,28 @@ const relay = new RelayClient(frame => {
   mainWindow?.webContents.send('room:connection-status', status);
 });
 
+function configureSecurityPolicy() {
+  session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => {
+    callback(false);
+  });
+
+  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    callback({
+      responseHeaders: {
+        ...details.responseHeaders,
+        'Content-Security-Policy': [CONTENT_SECURITY_POLICY]
+      }
+    });
+  });
+
+  app.on('web-contents-created', (_event, contents) => {
+    contents.setWindowOpenHandler(() => ({ action: 'deny' }));
+    contents.on('will-navigate', (event, navigationUrl) => {
+      if (!isAllowedAppNavigation(navigationUrl)) event.preventDefault();
+    });
+  });
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1180,
@@ -33,18 +69,26 @@ function createWindow() {
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      sandbox: true,
+      webSecurity: true,
+      allowRunningInsecureContent: false,
+      webviewTag: false
     }
   });
 
-  if (process.env.VITE_DEV_SERVER_URL) {
-    void mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
+  const devServerUrl = getDevServerUrl();
+  if (devServerUrl) {
+    void mainWindow.loadURL(devServerUrl);
   } else {
     void mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
   }
 }
 
-app.whenReady().then(createWindow);
+app.whenReady().then(() => {
+  configureSecurityPolicy();
+  createWindow();
+});
 
 app.on('window-all-closed', () => {
   void hardware.disconnect();
@@ -56,25 +100,157 @@ app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) createWindow();
 });
 
-ipcMain.handle('hardware:list', () => hardware.listPorts());
-ipcMain.handle('hardware:connect', (_event, pathName: string, baudRate: number) => hardware.connect(pathName, baudRate));
-ipcMain.handle('hardware:disconnect', () => hardware.disconnect());
-ipcMain.handle('hardware:emergency-stop', () => hardware.emergencyStop());
-ipcMain.handle('hardware:send', async (_event, intensity: number, position: number) => {
-  const frame = { intensity, position, timestamp: Date.now() };
+ipcMain.handle('hardware:list', event => {
+  assertTrustedSender(event);
+  return hardware.listPorts();
+});
+ipcMain.handle('hardware:connect', (event, pathName: unknown, baudRate: unknown) => {
+  assertTrustedSender(event);
+  return hardware.connect(validatePortPath(pathName), validateBaudRate(baudRate));
+});
+ipcMain.handle('hardware:disconnect', event => {
+  assertTrustedSender(event);
+  return hardware.disconnect();
+});
+ipcMain.handle('hardware:emergency-stop', event => {
+  assertTrustedSender(event);
+  return hardware.emergencyStop();
+});
+ipcMain.handle('hardware:send', async (event, intensity: unknown, position: unknown) => {
+  assertTrustedSender(event);
+  const frame = { intensity: validateUnitInterval(intensity, 'intensity'), position: validateUnitInterval(position, 'position'), timestamp: Date.now() };
   const hardwareResult = hardware.queueMotion(frame);
   const relayResult = relay.publishMotion(frame);
   return { hardware: hardwareResult, relay: relayResult };
 });
 
-ipcMain.handle('room:start-host', (_event, relayUrl: string, settings) => relay.createRoom(relayUrl, settings));
-ipcMain.handle('room:join', (_event, relayUrl: string, request) => relay.joinRoom(relayUrl, request));
-ipcMain.handle('room:approve', (_event, socketId: string, approved: boolean) => relay.approveViewer(socketId, approved));
-ipcMain.handle('room:moderate-viewer', (_event, socketId: string, action: 'kick' | 'block') => relay.moderateViewer(socketId, action));
-ipcMain.handle('room:list-viewers', () => relay.refreshViewers());
-ipcMain.handle('room:emergency-stop', async () => {
+ipcMain.handle('room:start-host', (event, relayUrl: unknown, settings: unknown) => {
+  assertTrustedSender(event);
+  return relay.createRoom(validateRelayUrl(relayUrl), validateRoomSettings(settings));
+});
+ipcMain.handle('room:join', (event, relayUrl: unknown, request: unknown) => {
+  assertTrustedSender(event);
+  return relay.joinRoom(validateRelayUrl(relayUrl), validateJoinRequest(request));
+});
+ipcMain.handle('room:approve', (event, socketId: unknown, approved: unknown) => {
+  assertTrustedSender(event);
+  return relay.approveViewer(validateSocketId(socketId), validateBoolean(approved, 'approved'));
+});
+ipcMain.handle('room:moderate-viewer', (event, socketId: unknown, action: unknown) => {
+  assertTrustedSender(event);
+  return relay.moderateViewer(validateSocketId(socketId), validateModerationAction(action));
+});
+ipcMain.handle('room:list-viewers', event => {
+  assertTrustedSender(event);
+  return relay.refreshViewers();
+});
+ipcMain.handle('room:emergency-stop', async event => {
+  assertTrustedSender(event);
   const hardwareResult = await hardware.emergencyStop();
   const relayResult = await relay.emergencyStop();
   return { hardware: hardwareResult, relay: relayResult };
 });
-ipcMain.handle('room:disconnect', () => relay.disconnect());
+ipcMain.handle('room:disconnect', event => {
+  assertTrustedSender(event);
+  return relay.disconnect();
+});
+
+function getDevServerUrl() {
+  if (app.isPackaged || !process.env.VITE_DEV_SERVER_URL) return undefined;
+
+  const parsed = new URL(process.env.VITE_DEV_SERVER_URL);
+  if (parsed.protocol !== 'http:' || !isLocalhost(parsed.hostname)) {
+    throw new Error('invalid-dev-server-url');
+  }
+
+  return parsed.toString();
+}
+
+function assertTrustedSender(event: IpcMainInvokeEvent) {
+  if (event.sender !== mainWindow?.webContents) {
+    throw new Error('untrusted-ipc-sender');
+  }
+}
+
+function validateRelayUrl(value: unknown) {
+  if (typeof value !== 'string') throw new Error('invalid-relay-url');
+
+  const parsed = new URL(value);
+  if (parsed.username || parsed.password) throw new Error('invalid-relay-url');
+
+  const isLocalHttp = parsed.protocol === 'http:' && isLocalhost(parsed.hostname);
+  if (parsed.protocol !== 'https:' && !isLocalHttp) throw new Error('invalid-relay-url');
+
+  return parsed.toString().replace(/\/$/, '');
+}
+
+function isAllowedAppNavigation(navigationUrl: string) {
+  const parsed = new URL(navigationUrl);
+  if (parsed.protocol === 'file:') return true;
+  return !app.isPackaged && parsed.protocol === 'http:' && isLocalhost(parsed.hostname);
+}
+
+function validateRoomSettings(value: unknown): RoomSettings {
+  if (!isRecord(value)) throw new Error('invalid-room-settings');
+  const roomName = validateShortText(value.roomName, 'roomName', 3, 64);
+  const password = value.password === undefined ? undefined : validateShortText(value.password, 'password', 1, 128);
+  const entryMode = value.entryMode;
+  if (entryMode !== 'open' && entryMode !== 'request') throw new Error('invalid-entry-mode');
+  return { roomName, password, entryMode };
+}
+
+function validateJoinRequest(value: unknown) {
+  if (!isRecord(value)) throw new Error('invalid-join-request');
+  return {
+    displayName: validateShortText(value.displayName, 'displayName', 1, 64),
+    roomName: validateShortText(value.roomName, 'roomName', 3, 64),
+    password: value.password === undefined ? undefined : validateShortText(value.password, 'password', 1, 128)
+  };
+}
+
+function validatePortPath(value: unknown) {
+  return validateShortText(value, 'pathName', 1, 260);
+}
+
+function validateBaudRate(value: unknown) {
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 1200 || value > 1000000) {
+    throw new Error('invalid-baud-rate');
+  }
+  return value;
+}
+
+function validateUnitInterval(value: unknown, fieldName: string) {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 1) {
+    throw new Error(`invalid-${fieldName}`);
+  }
+  return value;
+}
+
+function validateSocketId(value: unknown) {
+  return validateShortText(value, 'socketId', 1, 128);
+}
+
+function validateBoolean(value: unknown, fieldName: string) {
+  if (typeof value !== 'boolean') throw new Error(`invalid-${fieldName}`);
+  return value;
+}
+
+function validateModerationAction(value: unknown) {
+  if (value !== 'kick' && value !== 'block') throw new Error('invalid-moderation-action');
+  return value;
+}
+
+function validateShortText(value: unknown, fieldName: string, minLength: number, maxLength: number) {
+  if (typeof value !== 'string') throw new Error(`invalid-${fieldName}`);
+  const trimmed = value.trim();
+  if (trimmed.length < minLength || trimmed.length > maxLength) throw new Error(`invalid-${fieldName}`);
+  return trimmed;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isLocalhost(hostname: string) {
+  return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1' || hostname === '[::1]';
+}

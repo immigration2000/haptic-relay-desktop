@@ -84,6 +84,7 @@ Desktop App -> Control API -> signed room token -> Relay Node -> Viewers
 - 데스크톱 앱은 relay socket 재연결 후 마지막 host/viewer token으로 방 바인딩을 다시 수행합니다.
 - `GET /healthz`: 서버 생존 확인
 - `GET /metrics`: 방별 연결 수, forwarded/dropped frame 확인
+- 패키지 앱에서 원격 relay URL은 `https`만 허용합니다. `http`는 로컬 개발용 `localhost`/`127.0.0.1`만 허용합니다.
 
 운영 필수 환경변수:
 
@@ -161,6 +162,7 @@ DSTOP
 - 사이트용 저지연 서버와 앱용 범용 릴레이 서버를 분리해 지연 시간, QoS, 비용 정책을 다르게 운영합니다.
 - 모든 실시간 연동은 명시적 입장, 비밀번호, 중지 제어, 로그 확인을 전제로 설계합니다.
 - Relay socket은 Control API가 발급한 짧은 수명의 signed token만 신뢰합니다.
+- Electron renderer는 sandbox/context isolation 상태로 실행하고, CSP, navigation 차단, 새 window 차단, IPC 입력값 검증을 적용합니다.
 
 ## 앱 릴레이 최적화
 

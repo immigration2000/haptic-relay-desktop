@@ -46,7 +46,7 @@ src/App.tsx
   데스크톱 앱 UI. 스트리머/시청자 역할, 방 생성, 방 입장, 하드웨어 연결, 접속자 관리.
 
 electron/main.ts
-  Electron main process. Renderer와 native 기능 사이 IPC 연결.
+  Electron main process. Renderer와 native 기능 사이 IPC 연결, CSP, navigation/window-open 차단, IPC 입력값 검증.
 
 electron/services/relay-client.ts
   Control API 호출, Socket.IO relay 연결, motion packet 송신/수신, 신청입장 승인 이벤트 처리.
@@ -219,6 +219,21 @@ Viewer:
 ```
 
 모션 이벤트 이름은 트래픽 절감을 위해 `"m"`을 사용합니다.
+
+## 6.1 Electron 보안 경계
+
+renderer는 `contextIsolation: true`, `nodeIntegration: false`, `sandbox: true`로 실행합니다. preload는 필요한 함수만 `window.hapticRelay`에 노출하고, main process는 모든 IPC 요청에서 sender가 현재 main window인지 확인합니다.
+
+적용된 제한:
+
+- Content-Security-Policy 적용
+- permission request 기본 거부
+- renderer navigation 차단
+- renderer의 새 window 생성 차단
+- IPC 입력값 타입/길이/range 검증
+- 패키지 앱에서 relay URL은 `https` 또는 localhost 개발 URL만 허용
+
+이 앱은 방송 플랫폼 웹페이지를 renderer 안에 로드하지 않습니다. 외부 플랫폼은 방송/홍보 채널이고, 앱 renderer는 패키지된 UI만 실행하는 구조를 유지합니다.
 
 ## 7. Token 설계
 
