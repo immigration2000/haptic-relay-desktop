@@ -69,6 +69,117 @@ The website hardware feature and the external-platform desktop app should not sh
 - Shared protocol: motion frame shape and hardware adapters can stay compatible across both products.
 - Separate infrastructure: latency budgets, relay geography, logging, moderation, and cost controls can diverge without hurting the website experience.
 
+## Production Server Language Base
+
+The MVP server stays in Node.js because the desktop app, Control API, and Socket.IO client are already moving quickly in TypeScript. The production realtime relay should move to Go once traffic and deployment shape are clear.
+
+Recommended split:
+
+```text
+Control API: TypeScript or Go
+Relay Node: Go
+Device Protocol Gateway: Go first, Rust later only for specialized native protocol work
+Analytics / Session Logs: TypeScript workers or Go batch consumers
+```
+
+Why Go for the relay node:
+
+- The hot path is high-concurrency network I/O, not complex CPU computation.
+- A room maps cleanly to a goroutine-owned state loop: one room actor receives host frames and broadcasts to viewer sessions.
+- Go binaries deploy simply as one process per relay node.
+- The standard library and runtime make connection-heavy services straightforward to operate.
+- Team velocity is better than Rust for the first production relay.
+
+Why not keep Node.js as the long-term relay core:
+
+- Node is fine for the MVP and Control API, but the motion fanout hot path should not share one event loop with JSON control routes, metrics, auth checks, logs, and future moderation work.
+- Worker threads help CPU-heavy work, not ordinary async I/O. The relay bottleneck is connection fanout, queue policy, and per-room scheduling.
+- TypeScript remains useful at the edge: desktop app, admin UI, room management, dashboards, and non-hot-path APIs.
+
+Why not start with Rust:
+
+- Rust + Tokio is a strong fit for a future ultra-low-latency relay, binary protocol gateway, or device-specific protocol engine.
+- It is more expensive to build and maintain while the room model, pricing, moderation, and deployment topology are still changing.
+- Use Rust later when profiling proves Go is the bottleneck or when memory safety around native protocol parsing becomes the main risk.
+
+## Production Server Topology
+
+The production system should split control-plane work from motion-plane work.
+
+```text
+Desktop App
+  |
+  | HTTPS create/join
+  v
+Control API
+  - auth / accounts later
+  - room create / join
+  - password / approval policy
+  - relay node assignment
+  - signed token issue
+  |
+  | signed host/viewer token + relayUrl
+  v
+Go Relay Node
+  - WebSocket only
+  - token verification
+  - room-local state
+  - binary motion fanout
+  - emergency stop fanout
+  - viewer kick/block for active session
+  |
+  v
+Viewer Desktop Apps -> Serial T-Code hardware output
+```
+
+Do not route motion frames through Redis, Postgres, Kafka, or a generic message broker in the first production design. Use those for room metadata, audit logs, billing events, and metrics. The motion hot path should stay in memory on the relay node that owns the room.
+
+## Go Relay Node Shape
+
+Target packages:
+
+```text
+cmd/relay-node
+  process startup, config, health server
+
+internal/transport/ws
+  WebSocket accept loop, ping/pong, binary frame read/write
+
+internal/relay
+  room actor, viewer session, host session, fanout policy
+
+internal/protocol
+  4-byte motion packet, stop event, join/control messages
+
+internal/auth
+  HMAC token verification compatible with current Control API tokens
+
+internal/metrics
+  Prometheus counters, room gauges, event loop/runtime stats
+```
+
+Room actor model:
+
+```text
+Host socket read loop
+  -> decode 4-byte motion packet
+  -> room inbox channel, latest-frame wins
+  -> room actor rate gate
+  -> nonblocking write to viewer send queues
+  -> slow viewer drops old motion frames
+```
+
+Each viewer should have a bounded send queue of size 1-2 for motion frames. If a viewer cannot keep up, replace the queued motion frame with the newest one. Never let one viewer create room-level latency.
+
+Use a separate reliable control channel path for:
+
+- join result
+- approval result
+- kick/block
+- emergency stop
+
+Emergency stop is not normal motion. It must clear pending motion and be delivered as a distinct control event.
+
 ## Latency Policy
 
 The app relay optimizes for stable perceived motion rather than guaranteed delivery of every frame. Motion frames are transient state, so the newest frame is more valuable than a delayed backlog.
@@ -93,12 +204,14 @@ The relay protocol and hardware protocol are intentionally different.
 ## Access Modes
 
 - `open`: room name and optional password are enough to join.
-- `request`: viewer join requests are rejected with `approval-required` until an approval queue is implemented.
+- `request`: viewer join requests remain connected in approval wait state until the host approves or rejects them.
+- Host moderation can kick active viewers or block the same display name for the current room session.
 
 ## Security And Safety Requirements
 
 - Require explicit room join before receiving motion.
-- Provide host and viewer emergency stop controls before hardware output is enabled.
+- Provide host and viewer emergency stop controls.
+- Treat emergency stop as a distinct control event, not as an ordinary zero-value motion frame.
 - Clamp all incoming motion values to valid ranges.
 - Rate-limit motion frames to protect devices and relay infrastructure.
 - Keep `.env` and relay secrets out of git.
