@@ -151,6 +151,7 @@ DSTOP
 - `HAPTIC_TCODE_LINEAR_AXIS`: 기본 `L0`
 - `HAPTIC_TCODE_VIBRATION_AXIS`: 선택값, 예: `V0`
 - `HAPTIC_TCODE_INTERVAL_MS`: 기본 `16`
+- `HAPTIC_HARDWARE_SAFETY_TIMEOUT_MS`: 기본 `1000`, 새 motion frame이 없을 때 자동 정지까지 대기할 시간. `0` 이하로 설정하면 비활성화합니다.
 
 ## 제품 원칙
 
@@ -170,6 +171,7 @@ DSTOP
 - 서버, 앱 릴레이, 하드웨어 출력은 각각 최대 Hz를 환경변수로 제한합니다.
 - 서버 rate limit은 token bucket으로 처리해 60Hz 근처의 타이머 지터를 과도하게 드롭하지 않습니다.
 - SerialPort 출력은 backpressure를 고려해 최신 프레임만 큐에 남깁니다.
+- 하드웨어는 새 motion frame이 일정 시간 없으면 자동으로 `DSTOP`과 0 위치 fallback을 출력합니다.
 
 ## 다음 구현 순서
 

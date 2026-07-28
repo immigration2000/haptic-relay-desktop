@@ -393,9 +393,11 @@ DSTOP = TCode device stop command
 HAPTIC_TCODE_LINEAR_AXIS=L0
 HAPTIC_TCODE_VIBRATION_AXIS=V0
 HAPTIC_TCODE_INTERVAL_MS=16
+HAPTIC_HARDWARE_SAFETY_TIMEOUT_MS=1000
 ```
 
 `HAPTIC_TCODE_VIBRATION_AXIS`는 선택값입니다. 장비가 지원할 때만 켭니다.
+`HAPTIC_HARDWARE_SAFETY_TIMEOUT_MS`는 새 motion frame이 들어오지 않을 때 자동 정지를 실행하기까지의 시간입니다. `0` 이하로 설정하면 safety timeout을 비활성화합니다.
 
 ## 12. 지연 최적화
 
@@ -410,6 +412,7 @@ HAPTIC_TCODE_INTERVAL_MS=16
 - 4바이트 binary packet
 - token bucket rate limit
 - SerialPort backpressure 처리
+- 하드웨어 safety timeout
 
 핵심 판단:
 
