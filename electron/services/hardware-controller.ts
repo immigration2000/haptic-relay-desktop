@@ -1,6 +1,15 @@
 import { SerialPort } from 'serialport';
 import type { MotionFrame } from '../protocol.js';
-import { clamp01, HARDWARE_MAX_HZ, maxHzToInterval, TCODE_INTERVAL_MS, TCODE_LINEAR_AXIS, TCODE_VIBRATION_AXIS } from '../tuning.js';
+import {
+  clamp01,
+  HARDWARE_MAX_HZ,
+  HARDWARE_SAFETY_TIMEOUT_MS,
+  maxHzToInterval,
+  normalizeOptionalTimeoutMs,
+  TCODE_INTERVAL_MS,
+  TCODE_LINEAR_AXIS,
+  TCODE_VIBRATION_AXIS
+} from '../tuning.js';
 import { encodeTCodeMotion, encodeTCodeProbe, encodeTCodeStop, parseTCodeProbe } from './tcode-encoder.js';
 
 const TCODE_PROBE_TIMEOUT_MS = 350;
@@ -9,8 +18,10 @@ export class HardwareController {
   private port: SerialPort | undefined;
   private latestFrame: MotionFrame | undefined;
   private flushTimer: NodeJS.Timeout | undefined;
+  private safetyTimer: NodeJS.Timeout | undefined;
   private writing = false;
   private readonly minIntervalMs = maxHzToInterval(HARDWARE_MAX_HZ);
+  private readonly safetyTimeoutMs = normalizeOptionalTimeoutMs(HARDWARE_SAFETY_TIMEOUT_MS);
 
   async listPorts() {
     return SerialPort.list();
@@ -38,6 +49,7 @@ export class HardwareController {
       clearTimeout(this.flushTimer);
       this.flushTimer = undefined;
     }
+    this.clearSafetyTimer();
     this.latestFrame = undefined;
 
     if (!this.port?.isOpen) {
@@ -62,6 +74,7 @@ export class HardwareController {
       position: clamp01(frame.position),
       timestamp: frame.timestamp
     };
+    this.scheduleSafetyStop();
     this.scheduleFlush();
     return { queued: true };
   }
@@ -71,6 +84,7 @@ export class HardwareController {
       clearTimeout(this.flushTimer);
       this.flushTimer = undefined;
     }
+    this.clearSafetyTimer();
     this.latestFrame = undefined;
 
     if (!this.port?.isOpen) {
@@ -117,6 +131,24 @@ export class HardwareController {
 
     this.writing = false;
     if (this.latestFrame) this.scheduleFlush();
+  }
+
+  private scheduleSafetyStop() {
+    if (!this.safetyTimeoutMs) return;
+
+    this.clearSafetyTimer();
+    this.safetyTimer = setTimeout(() => {
+      this.safetyTimer = undefined;
+      void this.emergencyStop().then(result => {
+        if (result.stopped) console.warn('hardware safety timeout triggered');
+      });
+    }, this.safetyTimeoutMs);
+  }
+
+  private clearSafetyTimer() {
+    if (!this.safetyTimer) return;
+    clearTimeout(this.safetyTimer);
+    this.safetyTimer = undefined;
   }
 
   private async probeTCodeCapabilities() {
