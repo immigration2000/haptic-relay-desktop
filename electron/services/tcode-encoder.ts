@@ -7,6 +7,13 @@ export type TCodeOptions = {
   intervalMs?: number;
 };
 
+export type TCodeProbeResult = {
+  detected: boolean;
+  raw: string[];
+  version?: string;
+  axes: string[];
+};
+
 export function encodeTCodeMotion(frame: MotionFrame, options: TCodeOptions) {
   const commands = [
     encodeAxis(options.linearAxis, frame.position, options.intervalMs)
@@ -30,6 +37,23 @@ export function encodeTCodeStop(options: TCodeOptions) {
   }).trim();
 
   return `DSTOP\n${fallback}\n`;
+}
+
+export function encodeTCodeProbe() {
+  return 'D1\nD2\n';
+}
+
+export function parseTCodeProbe(raw: string[]) {
+  const text = raw.join('\n');
+  const version = text.match(/(?:t-?code|version|v)\s*[:= ]\s*(v?\d+(?:\.\d+)?)/i)?.[1];
+  const axes = [...new Set(text.match(/\b[LRVA][0-9]\b/gi)?.map(axis => axis.toUpperCase()) ?? [])].sort();
+
+  return {
+    detected: raw.length > 0,
+    raw,
+    version,
+    axes
+  } satisfies TCodeProbeResult;
 }
 
 function encodeAxis(axis: string, value: number, intervalMs?: number) {

@@ -127,8 +127,15 @@ export default function App() {
     }
 
     await runAction('hardware', '하드웨어 연결 중', async () => {
-      await window.hapticRelay.connectHardware(selectedPort, 115200);
-      setStatusMessage('ok', `하드웨어 연결됨: ${selectedPort}`);
+      const result = await window.hapticRelay.connectHardware(selectedPort, 115200);
+      if (result.probe.detected) {
+        const version = result.probe.version ? ` / TCode ${result.probe.version}` : '';
+        const axes = result.probe.axes.length > 0 ? ` / 축 ${result.probe.axes.join(', ')}` : '';
+        setStatusMessage('ok', `하드웨어 연결됨: ${selectedPort}${version}${axes}`);
+        return;
+      }
+
+      setStatusMessage('warning', `하드웨어 연결됨: ${selectedPort} / TCode 응답 없음`);
     });
   }
 

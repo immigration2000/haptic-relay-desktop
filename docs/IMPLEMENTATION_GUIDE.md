@@ -52,10 +52,10 @@ electron/services/relay-client.ts
   Control API 호출, Socket.IO relay 연결, motion packet 송신/수신, 신청입장 승인 이벤트 처리.
 
 electron/services/hardware-controller.ts
-  SerialPort 연결, 하드웨어 출력 queue, backpressure 처리.
+  SerialPort 연결, T-Code D1/D2 capability probe, 하드웨어 출력 queue, backpressure 처리.
 
 electron/services/tcode-encoder.ts
-  정규화된 motion frame을 OSR/SR6 호환 T-Code로 변환.
+  정규화된 motion frame을 OSR/SR6 호환 T-Code로 변환하고 probe 응답을 파싱.
 
 server/src/relay-server.ts
   Control API, Socket.IO relay, motion fanout, metrics, healthcheck.
@@ -361,11 +361,15 @@ Hardware protocol:
 T-Code ASCII over SerialPort
 ```
 
+연결 직후 앱은 `D1`/`D2`를 보내 장비의 T-Code 버전과 지원 axis를 best-effort로 확인합니다. OSR/SR6 펌웨어별 응답 형식이 다를 수 있으므로 probe 응답이 없어도 연결은 유지하고, UI에는 응답 없음 상태를 표시합니다.
+
 긴급 정지는 일반 motion queue보다 우선합니다. 앱은 pending frame을 삭제하고 `DSTOP`을 먼저 쓴 뒤 0 위치/0 강도 fallback T-Code를 씁니다.
 
 기본 출력:
 
 ```text
+D1
+D2
 L04200I16
 L04200I16 V08000
 DSTOP
@@ -541,10 +545,10 @@ electron/services/relay-client.ts
   Control API 호출 후 배정된 relayUrl로 Socket.IO 연결, viewer motion packet 수신, 신청입장 승인 이벤트, 접속자 관리 이벤트 처리.
 
 electron/services/hardware-controller.ts
-  SerialPort 연결, latest frame queue, write drain 처리.
+  SerialPort 연결, T-Code capability probe, latest frame queue, write drain 처리.
 
 electron/services/tcode-encoder.ts
-  MotionFrame -> T-Code 변환.
+  MotionFrame -> T-Code 변환, probe command 생성, probe 응답 파싱.
 
 scripts/relay-load-test.mjs
   relay fanout 부하 테스트.

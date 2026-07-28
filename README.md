@@ -21,6 +21,7 @@
 - 로컬/방 전체 긴급 정지
 - 릴레이 재연결 후 자동 방 재입장
 - SerialPort 기반 하드웨어 포트 검색, 연결, T-Code 프로토콜 송신
+- 하드웨어 연결 시 T-Code `D1`/`D2` capability probe
 - Socket.IO 기반 독립 릴레이 서버 골격
 - Control API 기반 방 생성/입장 토큰 발급
 - 시청자 수신 motion packet을 하드웨어 T-Code 출력으로 연결
@@ -133,11 +134,15 @@ byte 2-3: intensity uint16, big-endian, 0-65535
 SerialPort로 장비에 쓰는 데이터는 OSR/SR6 계열 T-Code ASCII 라인입니다. 기본 출력은 L0 스트로크 축입니다.
 
 ```text
+D1
+D2
 L04200I16
 L04200I16 V08000
 DSTOP
 ```
 
+- 연결 직후 `D1`/`D2`를 보내 T-Code 장비 정보와 지원 축을 best-effort로 확인합니다.
+- probe 응답이 없어도 연결 실패로 처리하지 않고, UI에 `TCode 응답 없음`으로 표시합니다.
 - `L0`: 기본 linear stroke axis
 - `4200`: 정규화 위치 `0.42`를 0-9999 범위로 변환한 값
 - `I16`: 해당 위치까지 이동할 interval ms
