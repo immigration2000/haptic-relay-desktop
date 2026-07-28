@@ -22,6 +22,7 @@
 - 릴레이 재연결 후 자동 방 재입장
 - SerialPort 기반 하드웨어 포트 검색, 연결, T-Code 프로토콜 송신
 - 하드웨어 연결 시 T-Code `D1`/`D2` capability probe
+- baudrate, T-Code 축, stroke 범위, 방향 반전 하드웨어 프로필 설정
 - Socket.IO 기반 독립 릴레이 서버 골격
 - Control API 기반 방 생성/입장 토큰 발급
 - 시청자 수신 motion packet을 하드웨어 T-Code 출력으로 연결
@@ -153,6 +154,14 @@ DSTOP
 - `HAPTIC_TCODE_VIBRATION_AXIS`: 선택값, 예: `V0`
 - `HAPTIC_TCODE_INTERVAL_MS`: 기본 `16`
 - `HAPTIC_HARDWARE_SAFETY_TIMEOUT_MS`: 기본 `1000`, 새 motion frame이 없을 때 자동 정지까지 대기할 시간. `0` 이하로 설정하면 비활성화합니다.
+
+앱 UI에서 연결 시점의 하드웨어 프로필을 조정할 수 있습니다.
+
+- `Baudrate`: SerialPort 연결 속도
+- `Stroke 축`: 기본 `L0`
+- `진동 축`: 선택값, 예: `V0`
+- `최소/최대 위치`: 수신 position `0.0-1.0`을 실제 출력 범위로 매핑
+- `방향 반전`: position `0.0`과 `1.0` 방향을 반대로 매핑
 
 ## 제품 원칙
 

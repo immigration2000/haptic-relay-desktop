@@ -52,7 +52,7 @@ electron/services/relay-client.ts
   Control API 호출, Socket.IO relay 연결, motion packet 송신/수신, 신청입장 승인 이벤트 처리.
 
 electron/services/hardware-controller.ts
-  SerialPort 연결, T-Code D1/D2 capability probe, 하드웨어 출력 queue, backpressure 처리.
+  SerialPort 연결, 하드웨어 프로필 적용, T-Code D1/D2 capability probe, 하드웨어 출력 queue, backpressure 처리.
 
 electron/services/tcode-encoder.ts
   정규화된 motion frame을 OSR/SR6 호환 T-Code로 변환하고 probe 응답을 파싱.
@@ -414,6 +414,18 @@ HAPTIC_HARDWARE_SAFETY_TIMEOUT_MS=1000
 `HAPTIC_TCODE_VIBRATION_AXIS`는 선택값입니다. 장비가 지원할 때만 켭니다.
 `HAPTIC_HARDWARE_SAFETY_TIMEOUT_MS`는 새 motion frame이 들어오지 않을 때 자동 정지를 실행하기까지의 시간입니다. `0` 이하로 설정하면 safety timeout을 비활성화합니다.
 
+앱 UI의 하드웨어 프로필은 연결 시점에 main process로 전달되고 IPC에서 검증됩니다.
+
+프로필 항목:
+
+- baudrate
+- linear stroke axis
+- optional vibration axis
+- stroke min/max range
+- invert position
+
+수신 motion frame은 네트워크 프로토콜에서는 항상 `0.0-1.0` 정규화 값을 유지합니다. 하드웨어 프로필은 SerialPort 출력 직전에만 적용합니다.
+
 ## 12. 지연 최적화
 
 적용된 최적화:
@@ -563,7 +575,7 @@ electron/services/relay-client.ts
   Control API 호출 후 배정된 relayUrl로 Socket.IO 연결, viewer motion packet 수신, 신청입장 승인 이벤트, 접속자 관리 이벤트 처리.
 
 electron/services/hardware-controller.ts
-  SerialPort 연결, T-Code capability probe, latest frame queue, write drain 처리.
+  SerialPort 연결, 하드웨어 프로필 적용, T-Code capability probe, latest frame queue, write drain 처리.
 
 electron/services/tcode-encoder.ts
   MotionFrame -> T-Code 변환, probe command 생성, probe 응답 파싱.

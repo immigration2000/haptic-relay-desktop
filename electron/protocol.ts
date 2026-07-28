@@ -12,6 +12,15 @@ export type MotionFrame = {
   timestamp: number;
 };
 
+export type HardwareProfile = {
+  baudRate: number;
+  linearAxis: string;
+  vibrationAxis?: string;
+  strokeMin: number;
+  strokeMax: number;
+  invertPosition: boolean;
+};
+
 export type ApprovalRequest = {
   socketId: string;
   displayName: string;

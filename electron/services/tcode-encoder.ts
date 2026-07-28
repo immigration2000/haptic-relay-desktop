@@ -5,6 +5,7 @@ export type TCodeOptions = {
   linearAxis: string;
   vibrationAxis?: string;
   intervalMs?: number;
+  stopPosition?: number;
 };
 
 export type TCodeProbeResult = {
@@ -29,7 +30,7 @@ export function encodeTCodeMotion(frame: MotionFrame, options: TCodeOptions) {
 export function encodeTCodeStop(options: TCodeOptions) {
   const fallback = encodeTCodeMotion({
     intensity: 0,
-    position: 0,
+    position: options.stopPosition ?? 0,
     timestamp: Date.now()
   }, {
     ...options,

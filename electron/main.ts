@@ -2,7 +2,7 @@ import { app, BrowserWindow, ipcMain, session } from 'electron';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { IpcMainInvokeEvent } from 'electron';
-import type { RoomSettings } from './protocol.js';
+import type { HardwareProfile, RoomSettings } from './protocol.js';
 import { HardwareController } from './services/hardware-controller.js';
 import { RelayClient } from './services/relay-client.js';
 
@@ -104,9 +104,9 @@ ipcMain.handle('hardware:list', event => {
   assertTrustedSender(event);
   return hardware.listPorts();
 });
-ipcMain.handle('hardware:connect', (event, pathName: unknown, baudRate: unknown) => {
+ipcMain.handle('hardware:connect', (event, pathName: unknown, profile: unknown) => {
   assertTrustedSender(event);
-  return hardware.connect(validatePortPath(pathName), validateBaudRate(baudRate));
+  return hardware.connect(validatePortPath(pathName), validateHardwareProfile(profile));
 });
 ipcMain.handle('hardware:disconnect', event => {
   assertTrustedSender(event);
@@ -212,11 +212,39 @@ function validatePortPath(value: unknown) {
   return validateShortText(value, 'pathName', 1, 260);
 }
 
+function validateHardwareProfile(value: unknown): HardwareProfile {
+  if (!isRecord(value)) throw new Error('invalid-hardware-profile');
+
+  const strokeMin = validateUnitInterval(value.strokeMin, 'strokeMin');
+  const strokeMax = validateUnitInterval(value.strokeMax, 'strokeMax');
+  if (strokeMin >= strokeMax) throw new Error('invalid-stroke-range');
+
+  const vibrationAxis = value.vibrationAxis === undefined || value.vibrationAxis === ''
+    ? undefined
+    : validateTCodeAxis(value.vibrationAxis, 'vibrationAxis');
+
+  return {
+    baudRate: validateBaudRate(value.baudRate),
+    linearAxis: validateTCodeAxis(value.linearAxis, 'linearAxis'),
+    vibrationAxis,
+    strokeMin,
+    strokeMax,
+    invertPosition: validateBoolean(value.invertPosition, 'invertPosition')
+  };
+}
+
 function validateBaudRate(value: unknown) {
   if (typeof value !== 'number' || !Number.isInteger(value) || value < 1200 || value > 1000000) {
     throw new Error('invalid-baud-rate');
   }
   return value;
+}
+
+function validateTCodeAxis(value: unknown, fieldName: string) {
+  if (typeof value !== 'string') throw new Error(`invalid-${fieldName}`);
+  const axis = value.trim().toUpperCase();
+  if (!/^[LRVA][0-9]$/.test(axis)) throw new Error(`invalid-${fieldName}`);
+  return axis;
 }
 
 function validateUnitInterval(value: unknown, fieldName: string) {
