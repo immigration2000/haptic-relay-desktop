@@ -196,6 +196,7 @@ Host:
   Control API에서 hostToken 받음
   Socket.IO connect
   room:create { token: hostToken }
+  reconnect 후 같은 hostToken으로 room:create 재전송
   motion packet emit: "m"
   긴급 정지 시 room:stop 송신
 
@@ -203,9 +204,11 @@ Viewer:
   Control API에서 viewerToken 받음
   Socket.IO connect
   viewer:join { token: viewerToken }
+  reconnect 후 같은 viewerToken으로 viewer:join 재전송
   request mode면 viewer:approval-requested가 host 앱으로 전달됨
   host가 viewer:approve { socketId, approved } 송신
   승인된 viewer만 room join 완료
+  이미 승인된 표시 이름은 현재 방 세션 안에서 재연결 시 재승인을 요구하지 않음
   host가 viewer:moderate { socketId, action } 송신 가능
   kick은 즉시 room에서 제거, block은 제거 후 같은 표시 이름의 현재 방 재입장을 차단
   room:stop 수신 시 motion queue 삭제 후 하드웨어에 0 T-Code 출력

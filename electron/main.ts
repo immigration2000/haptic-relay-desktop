@@ -19,6 +19,8 @@ const relay = new RelayClient(frame => {
 }, signal => {
   void hardware.emergencyStop();
   mainWindow?.webContents.send('room:emergency-stop', signal);
+}, status => {
+  mainWindow?.webContents.send('room:connection-status', status);
 });
 
 function createWindow() {

@@ -60,12 +60,34 @@ export default function App() {
     const removeEmergencyStop = window.hapticRelay.onEmergencyStop(signal => {
       setStatusMessage('warning', `긴급 정지 수신: ${signal.roomName}`);
     });
+    const removeConnectionStatus = window.hapticRelay.onConnectionStatus(nextStatus => {
+      if (nextStatus.status === 'connected') {
+        if (!nextStatus.roomName) return;
+        setStatusMessage('ok', `릴레이 연결됨: ${nextStatus.roomName}`);
+        return;
+      }
+      if (nextStatus.status === 'reconnecting') {
+        setStatusMessage('warning', `릴레이 재연결 중: ${nextStatus.roomName ?? '방 없음'}`);
+        return;
+      }
+      if (nextStatus.status === 'rejoined') {
+        const suffix = nextStatus.reason === 'approval-required' ? ' / 승인 대기' : '';
+        setStatusMessage('ok', `방 재입장 완료: ${nextStatus.roomName}${suffix}`);
+        return;
+      }
+      if (nextStatus.status === 'disconnected') {
+        setStatusMessage('warning', `릴레이 연결 끊김: ${formatReason(nextStatus.reason ?? 'disconnected')}`);
+        return;
+      }
+      setStatusMessage('error', `릴레이 오류: ${formatReason(nextStatus.reason ?? 'connect_error')}`);
+    });
 
     return () => {
       removeApprovalRequest();
       removeViewerStatus();
       removeViewerList();
       removeEmergencyStop();
+      removeConnectionStatus();
     };
   }, []);
 
@@ -371,6 +393,11 @@ function formatReason(reason: string) {
     'viewer-disconnected': '시청자가 이미 연결을 끊었습니다',
     'viewer-not-found': '접속자를 찾을 수 없습니다',
     'connect_error': '릴레이 서버에 연결할 수 없습니다',
+    'disconnected': '연결이 끊겼습니다',
+    'transport close': '네트워크 연결이 끊겼습니다',
+    'ping timeout': '릴레이 응답 시간이 초과되었습니다',
+    'room-rejoin-failed': '방 재입장에 실패했습니다',
+    'room-stop-failed': '긴급 정지 전송에 실패했습니다',
     'timeout': '요청 시간이 초과되었습니다'
   };
 

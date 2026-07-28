@@ -11,6 +11,13 @@ type StopSignal = {
   timestamp: number;
 };
 
+type RelayConnectionStatus = {
+  status: 'connected' | 'disconnected' | 'reconnecting' | 'rejoined' | 'error';
+  role?: 'host' | 'viewer';
+  roomName?: string;
+  reason?: string;
+};
+
 declare global {
   interface Window {
     hapticRelay: {
@@ -29,6 +36,7 @@ declare global {
       onViewerStatus: (listener: (status: ViewerStatus) => void) => () => void;
       onViewerList: (listener: (viewers: ViewerSession[]) => void) => () => void;
       onEmergencyStop: (listener: (signal: StopSignal) => void) => () => void;
+      onConnectionStatus: (listener: (status: RelayConnectionStatus) => void) => () => void;
       disconnectRoom: () => Promise<unknown>;
     };
   }
