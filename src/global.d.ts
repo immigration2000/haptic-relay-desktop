@@ -1,4 +1,4 @@
-import type { ApprovalRequest, HardwareProfile, PortInfo, RoomSettings, ViewerSession } from './shared/protocol';
+import type { ApprovalRequest, HardwareProfile, HardwareProtection, PortInfo, RoomSettings, ViewerSession } from './shared/protocol';
 
 type ViewerStatus = {
   roomName: string;
@@ -41,6 +41,7 @@ declare global {
       disconnectHardware: () => Promise<unknown>;
       stopHardware: () => Promise<unknown>;
       sendMotion: (intensity: number, position: number) => Promise<unknown>;
+      setHardwareProtection: (protection: HardwareProtection) => Promise<{ protection: HardwareProtection }>;
       startHostRoom: (relayUrl: string, settings: RoomSettings) => Promise<{ roomName: string; entryMode: string; relayUrl: string }>;
       joinRoom: (relayUrl: string, request: { displayName: string; roomName: string; password?: string }) => Promise<{ ok: boolean; reason?: string; roomName?: string }>;
       approveViewer: (socketId: string, approved: boolean) => Promise<unknown>;

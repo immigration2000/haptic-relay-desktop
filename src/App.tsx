@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { ApprovalRequest, EntryMode, HardwareProfile, PortInfo, ViewerSession } from './shared/protocol';
+import type { ApprovalRequest, EntryMode, HardwareProfile, HardwareProtection, PortInfo, ViewerSession } from './shared/protocol';
 import './styles.css';
 
 type Role = 'host' | 'viewer';
@@ -19,6 +19,12 @@ const DEFAULT_HARDWARE_PROFILE: HardwareProfile = {
   strokeMax: 1,
   invertPosition: false
 };
+const DEFAULT_HARDWARE_PROTECTION: HardwareProtection = {
+  intensityLimit: 1,
+  positionMin: 0,
+  positionMax: 1,
+  paused: false
+};
 
 export default function App() {
   const [role, setRole] = useState<Role>('host');
@@ -30,6 +36,7 @@ export default function App() {
   const [ports, setPorts] = useState<PortInfo[]>([]);
   const [selectedPort, setSelectedPort] = useState('');
   const [hardwareProfile, setHardwareProfile] = useState<HardwareProfile>(DEFAULT_HARDWARE_PROFILE);
+  const [hardwareProtection, setHardwareProtection] = useState<HardwareProtection>(DEFAULT_HARDWARE_PROTECTION);
   const [status, setStatus] = useState<AppStatus>({ tone: 'idle', message: '?? ?' });
   const [busyAction, setBusyAction] = useState<BusyAction>();
   const [intensity, setIntensity] = useState(0.5);
@@ -121,6 +128,18 @@ export default function App() {
 
   function updateHardwareProfile(patch: Partial<HardwareProfile>) {
     setHardwareProfile(current => updateProfileValue(current, patch));
+  }
+
+  function updateHardwareProtection(patch: Partial<HardwareProtection>) {
+    setHardwareProtection(current => updateProtectionValue(current, patch));
+  }
+
+  async function applyHardwareProtection() {
+    await runAction('hardware', '?? ?? ?? ?', async () => {
+      const result = await window.hapticRelay.setHardwareProtection(hardwareProtection);
+      setHardwareProtection(result.protection);
+      setStatusMessage(result.protection.paused ? 'warning' : 'ok', result.protection.paused ? '?? ???? ???' : '?? ?? ???');
+    });
   }
 
   async function refreshPorts(silent = false) {
@@ -278,6 +297,32 @@ export default function App() {
     </section>
   );
 
+  const protectionPanel = (
+    <section className="panel">
+      <h2>??? ??</h2>
+      <div className="profile-grid">
+        <label>
+          ?? ??
+          <input type="range" min="0" max="1" step="0.01" value={hardwareProtection.intensityLimit} onChange={event => updateHardwareProtection({ intensityLimit: Number(event.target.value) })} />
+          <span className="field-value">{hardwareProtection.intensityLimit.toFixed(2)}</span>
+        </label>
+        <label>
+          ?? ??
+          <input type="number" min="0" max="1" step="0.01" value={hardwareProtection.positionMin} onChange={event => updateHardwareProtection({ positionMin: Number(event.target.value) })} />
+        </label>
+        <label>
+          ?? ??
+          <input type="number" min="0" max="1" step="0.01" value={hardwareProtection.positionMax} onChange={event => updateHardwareProtection({ positionMax: Number(event.target.value) })} />
+        </label>
+        <label className="checkbox-row">
+          <input type="checkbox" checked={hardwareProtection.paused} onChange={event => updateHardwareProtection({ paused: event.target.checked })} />
+          ?? ????
+        </label>
+      </div>
+      <button disabled={isBusy} onClick={applyHardwareProtection}>?? ?? ??</button>
+    </section>
+  );
+
   return (
     <main className="app-shell">
       <aside className="sidebar">
@@ -405,6 +450,7 @@ export default function App() {
             </section>
 
             {hardwarePanel}
+            {protectionPanel}
           </>
         )}
       </section>
@@ -415,6 +461,13 @@ export default function App() {
 function updateProfileValue(profile: HardwareProfile, patch: Partial<HardwareProfile>): HardwareProfile {
   return {
     ...profile,
+    ...patch
+  };
+}
+
+function updateProtectionValue(protection: HardwareProtection, patch: Partial<HardwareProtection>): HardwareProtection {
+  return {
+    ...protection,
     ...patch
   };
 }
@@ -465,6 +518,12 @@ function formatReason(reason: string) {
     'invalid-stroke-range': '?? ??? ?? ???? ??? ???',
     'invalid-strokeMin': '?? ??? 0?? 1 ???? ???',
     'invalid-strokeMax': '?? ??? 0?? 1 ???? ???',
+    'invalid-hardware-protection': '?? ?? ??? ???? ????',
+    'invalid-protection-position-range': '?? ?? ??? ?? ???? ??? ???',
+    'invalid-protectionIntensityLimit': '?? ??? 0?? 1 ???? ???',
+    'invalid-protectionPositionMin': '?? ?? ??? 0?? 1 ???? ???',
+    'invalid-protectionPositionMax': '?? ?? ??? 0?? 1 ???? ???',
+    'protection-paused': '?? ???? ????',
     'timeout': '?? ??? ???????'
   };
 

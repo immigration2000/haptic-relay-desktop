@@ -21,6 +21,13 @@ export type HardwareProfile = {
   invertPosition: boolean;
 };
 
+export type HardwareProtection = {
+  intensityLimit: number;
+  positionMin: number;
+  positionMax: number;
+  paused: boolean;
+};
+
 export type PortInfo = {
   path: string;
   manufacturer?: string;

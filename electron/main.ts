@@ -2,7 +2,7 @@ import { app, BrowserWindow, ipcMain, session } from 'electron';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { IpcMainInvokeEvent } from 'electron';
-import type { HardwareProfile, RoomSettings } from './protocol.js';
+import type { HardwareProfile, HardwareProtection, RoomSettings } from './protocol.js';
 import { HardwareController } from './services/hardware-controller.js';
 import { RelayClient } from './services/relay-client.js';
 
@@ -123,6 +123,10 @@ ipcMain.handle('hardware:send', async (event, intensity: unknown, position: unkn
   const relayResult = relay.publishMotion(frame);
   return { hardware: hardwareResult, relay: relayResult };
 });
+ipcMain.handle('hardware:set-protection', (event, protection: unknown) => {
+  assertTrustedSender(event);
+  return hardware.setProtection(validateHardwareProtection(protection));
+});
 
 ipcMain.handle('room:start-host', (event, relayUrl: unknown, settings: unknown) => {
   assertTrustedSender(event);
@@ -230,6 +234,21 @@ function validateHardwareProfile(value: unknown): HardwareProfile {
     strokeMin,
     strokeMax,
     invertPosition: validateBoolean(value.invertPosition, 'invertPosition')
+  };
+}
+
+function validateHardwareProtection(value: unknown): HardwareProtection {
+  if (!isRecord(value)) throw new Error('invalid-hardware-protection');
+
+  const positionMin = validateUnitInterval(value.positionMin, 'protectionPositionMin');
+  const positionMax = validateUnitInterval(value.positionMax, 'protectionPositionMax');
+  if (positionMin >= positionMax) throw new Error('invalid-protection-position-range');
+
+  return {
+    intensityLimit: validateUnitInterval(value.intensityLimit, 'protectionIntensityLimit'),
+    positionMin,
+    positionMax,
+    paused: validateBoolean(value.paused, 'protectionPaused')
   };
 }
 

@@ -1,5 +1,5 @@
 import { SerialPort } from 'serialport';
-import type { HardwareProfile, MotionFrame } from '../protocol.js';
+import type { HardwareProfile, HardwareProtection, MotionFrame } from '../protocol.js';
 import {
   clamp01,
   HARDWARE_MAX_HZ,
@@ -21,10 +21,17 @@ const DEFAULT_HARDWARE_PROFILE: HardwareProfile = {
   strokeMax: 1,
   invertPosition: false
 };
+const DEFAULT_HARDWARE_PROTECTION: HardwareProtection = {
+  intensityLimit: 1,
+  positionMin: 0,
+  positionMax: 1,
+  paused: false
+};
 
 export class HardwareController {
   private port: SerialPort | undefined;
   private profile = DEFAULT_HARDWARE_PROFILE;
+  private protection = DEFAULT_HARDWARE_PROTECTION;
   private latestFrame: MotionFrame | undefined;
   private flushTimer: NodeJS.Timeout | undefined;
   private safetyTimer: NodeJS.Timeout | undefined;
@@ -54,6 +61,15 @@ export class HardwareController {
     return { connected: true, path: pathName, baudRate: this.profile.baudRate, profile: this.profile, probe };
   }
 
+  async setProtection(protection: HardwareProtection) {
+    this.protection = normalizeProtection(protection);
+    if (this.protection.paused) {
+      await this.emergencyStop();
+    }
+
+    return { protection: this.protection };
+  }
+
   async disconnect() {
     if (this.flushTimer) {
       clearTimeout(this.flushTimer);
@@ -79,11 +95,13 @@ export class HardwareController {
       return { queued: false, reason: 'hardware-not-connected' };
     }
 
-    this.latestFrame = {
-      intensity: clamp01(frame.intensity),
-      position: clamp01(frame.position),
-      timestamp: frame.timestamp
-    };
+    const protectedFrame = applyProtection(frame, this.protection);
+    if (!protectedFrame) {
+      this.latestFrame = undefined;
+      return { queued: false, reason: 'protection-paused' };
+    }
+
+    this.latestFrame = protectedFrame;
     this.scheduleSafetyStop();
     this.scheduleFlush();
     return { queued: true };
@@ -223,5 +241,27 @@ function applyProfile(frame: MotionFrame, profile: HardwareProfile): MotionFrame
   return {
     ...frame,
     position: low + clamp01(normalizedPosition) * (high - low)
+  };
+}
+
+function normalizeProtection(protection: HardwareProtection): HardwareProtection {
+  return {
+    intensityLimit: clamp01(protection.intensityLimit),
+    positionMin: clamp01(protection.positionMin),
+    positionMax: clamp01(protection.positionMax),
+    paused: protection.paused
+  };
+}
+
+function applyProtection(frame: MotionFrame, protection: HardwareProtection): MotionFrame | undefined {
+  if (protection.paused) return undefined;
+
+  const low = Math.min(protection.positionMin, protection.positionMax);
+  const high = Math.max(protection.positionMin, protection.positionMax);
+
+  return {
+    intensity: Math.min(clamp01(frame.intensity), protection.intensityLimit),
+    position: low + clamp01(frame.position) * (high - low),
+    timestamp: frame.timestamp
   };
 }
