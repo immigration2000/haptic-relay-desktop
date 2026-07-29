@@ -16,6 +16,7 @@
 - Electron + React + TypeScript 데스크톱 앱 골격
 - 스트리머/시청자 역할 전환 UI
 - 방 생성 설정: 방 이름, 비밀번호, 자유입장/신청입장
+- 스트리머용 방 입장 정보 표시 및 클립보드 복사
 - 신청입장 승인/거절 대기 큐
 - 스트리머용 접속자 목록, 강퇴, 세션 차단
 - 로컬/방 전체 긴급 정지
@@ -203,6 +204,7 @@ DSTOP
 - 방 생성/입장 요청, 승인 요청, 접속자 목록 갱신
 - room-wide stop 수신
 - safety timeout, protection pause, protection update
+- 클립보드 복사
 
 ## 다음 구현 순서
 

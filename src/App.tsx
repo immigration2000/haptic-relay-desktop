@@ -11,6 +11,13 @@ type AppStatus = {
   message: string;
 };
 
+type HostRoomInvite = {
+  roomName: string;
+  password?: string;
+  entryMode: EntryMode;
+  relayUrl: string;
+};
+
 const DEFAULT_HARDWARE_PROFILE: HardwareProfile = {
   baudRate: 115200,
   linearAxis: 'L0',
@@ -44,6 +51,7 @@ export default function App() {
   const [approvalRequests, setApprovalRequests] = useState<ApprovalRequest[]>([]);
   const [viewerSessions, setViewerSessions] = useState<ViewerSession[]>([]);
   const [logEntries, setLogEntries] = useState<AppLogEntry[]>([]);
+  const [hostRoomInvite, setHostRoomInvite] = useState<HostRoomInvite>();
 
   const canHost = useMemo(() => roomName.trim().length >= 3, [roomName]);
   const canJoin = useMemo(() => roomName.trim().length >= 3 && displayName.trim().length > 0, [displayName, roomName]);
@@ -192,9 +200,24 @@ export default function App() {
         password: password.trim() || undefined,
         entryMode
       });
+      setHostRoomInvite({
+        roomName: room.roomName,
+        password: password.trim() || undefined,
+        entryMode,
+        relayUrl: room.relayUrl
+      });
       setApprovalRequests([]);
       setViewerSessions(await window.hapticRelay.listViewers());
       setStatusMessage('ok', `방 생성됨: ${room.roomName} / ${room.relayUrl}`);
+    });
+  }
+
+  async function copyInvite() {
+    if (!hostRoomInvite) return;
+
+    await runAction('room', '입장 정보 복사 중', async () => {
+      await window.hapticRelay.copyText(formatInviteText(hostRoomInvite));
+      setStatusMessage('ok', '방 입장 정보가 클립보드에 복사됨');
     });
   }
 
@@ -351,6 +374,31 @@ export default function App() {
     </section>
   );
 
+  const invitePanel = hostRoomInvite ? (
+    <section className="panel">
+      <h2>방 입장 정보</h2>
+      <div className="invite-grid">
+        <div>
+          <span>서버</span>
+          <strong>{hostRoomInvite.relayUrl}</strong>
+        </div>
+        <div>
+          <span>방 이름</span>
+          <strong>{hostRoomInvite.roomName}</strong>
+        </div>
+        <div>
+          <span>비밀번호</span>
+          <strong>{hostRoomInvite.password ?? '없음'}</strong>
+        </div>
+        <div>
+          <span>입장 방식</span>
+          <strong>{hostRoomInvite.entryMode === 'request' ? '신청입장' : '자유입장'}</strong>
+        </div>
+      </div>
+      <button disabled={isBusy} onClick={copyInvite}>입장 정보 복사</button>
+    </section>
+  ) : null;
+
   return (
     <main className="app-shell">
       <aside className="sidebar">
@@ -398,6 +446,8 @@ export default function App() {
               </div>
               <button className="primary" disabled={!canHost || isBusy} onClick={createRoom}>방 생성</button>
             </section>
+
+            {invitePanel}
 
             {hardwarePanel}
 
@@ -503,6 +553,16 @@ function updateProtectionValue(protection: HardwareProtection, patch: Partial<Ha
   };
 }
 
+function formatInviteText(invite: HostRoomInvite) {
+  return [
+    'Haptic Relay 방 입장 정보',
+    `서버: ${invite.relayUrl}`,
+    `방 이름: ${invite.roomName}`,
+    `비밀번호: ${invite.password ?? '없음'}`,
+    `입장 방식: ${invite.entryMode === 'request' ? '신청입장' : '자유입장'}`
+  ].join('\n');
+}
+
 function normalizeRelayUrl(value: string) {
   try {
     const url = new URL(value.trim());
@@ -553,7 +613,8 @@ function formatLogMessage(message: string) {
     'room-create-requested': '방 생성 요청',
     'room-join-requested': '방 입장 요청',
     'emergency-stop-requested': '긴급 정지 요청',
-    'relay-disconnect-requested': 'relay 연결 해제 요청'
+    'relay-disconnect-requested': 'relay 연결 해제 요청',
+    'clipboard-copied': '클립보드 복사'
   };
 
   return messages[message] ?? message;

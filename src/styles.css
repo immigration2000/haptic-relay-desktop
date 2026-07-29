@@ -204,6 +204,30 @@ select {
   font-size: 14px;
 }
 
+.invite-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.invite-grid div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid #d7e0e7;
+  border-radius: 6px;
+}
+
+.invite-grid span {
+  color: #647684;
+  font-size: 13px;
+}
+
+.invite-grid strong {
+  overflow-wrap: anywhere;
+}
+
 .field-value {
   color: #647684;
   font-size: 13px;
@@ -265,6 +289,10 @@ select {
   .profile-grid,
   .hardware-row,
   .approval-row {
+    grid-template-columns: 1fr;
+  }
+
+  .invite-grid {
     grid-template-columns: 1fr;
   }
 

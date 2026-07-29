@@ -43,7 +43,7 @@ Haptic Relay 서버 = 방 생성, 입장 제어, 모션 fanout
 
 ```text
 src/App.tsx
-  데스크톱 앱 UI. 스트리머/시청자 역할, 방 생성, 방 입장, 하드웨어 연결, 접속자 관리, 이벤트 로그 표시.
+  데스크톱 앱 UI. 스트리머/시청자 역할, 방 생성, 방 입장 정보 복사, 하드웨어 연결, 접속자 관리, 이벤트 로그 표시.
 
 electron/main.ts
   Electron main process. Renderer와 native 기능 사이 IPC 연결, CSP, navigation/window-open 차단, IPC 입력값 검증, 최근 이벤트 로그 버퍼.
@@ -459,6 +459,7 @@ main process는 최근 300개 이벤트를 메모리 버퍼로 보관합니다. 
 - room-wide stop received
 - hardware safety timeout
 - protection update/pause/motion dropped while paused
+- clipboard copy
 
 현재 로그는 앱 프로세스 메모리에만 보관합니다. 영구 파일 로그와 export는 별도 작업으로 분리합니다.
 

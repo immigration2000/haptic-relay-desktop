@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, session } from 'electron';
+import { app, BrowserWindow, clipboard, ipcMain, session } from 'electron';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { IpcMainInvokeEvent } from 'electron';
@@ -202,6 +202,13 @@ ipcMain.handle('room:disconnect', event => {
 ipcMain.handle('app:logs', event => {
   assertTrustedSender(event);
   return logEntries;
+});
+ipcMain.handle('app:copy-text', (event, text: unknown) => {
+  assertTrustedSender(event);
+  const value = validateShortText(text, 'clipboardText', 1, 1000);
+  clipboard.writeText(value);
+  addLog({ level: 'info', source: 'app', message: 'clipboard-copied' });
+  return { copied: true };
 });
 
 function getDevServerUrl() {
