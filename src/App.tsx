@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { ApprovalRequest, EntryMode, HardwareProfile, HardwareProtection, PortInfo, ViewerSession } from './shared/protocol';
+import type { AppLogEntry, ApprovalRequest, EntryMode, HardwareProfile, HardwareProtection, PortInfo, ViewerSession } from './shared/protocol';
 import './styles.css';
 
 type Role = 'host' | 'viewer';
@@ -43,6 +43,7 @@ export default function App() {
   const [position, setPosition] = useState(0.5);
   const [approvalRequests, setApprovalRequests] = useState<ApprovalRequest[]>([]);
   const [viewerSessions, setViewerSessions] = useState<ViewerSession[]>([]);
+  const [logEntries, setLogEntries] = useState<AppLogEntry[]>([]);
 
   const canHost = useMemo(() => roomName.trim().length >= 3, [roomName]);
   const canJoin = useMemo(() => roomName.trim().length >= 3 && displayName.trim().length > 0, [displayName, roomName]);
@@ -53,6 +54,12 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    void window.hapticRelay.getLogs().then(entries => {
+      setLogEntries(entries.slice(-80).reverse());
+    });
+    const removeLog = window.hapticRelay.onLog(entry => {
+      setLogEntries(current => [entry, ...current].slice(0, 80));
+    });
     const removeApprovalRequest = window.hapticRelay.onApprovalRequest(request => {
       setApprovalRequests(current => {
         if (current.some(item => item.socketId === request.socketId)) return current;
@@ -100,6 +107,7 @@ export default function App() {
     });
 
     return () => {
+      removeLog();
       removeApprovalRequest();
       removeViewerStatus();
       removeViewerList();
@@ -323,6 +331,26 @@ export default function App() {
     </section>
   );
 
+  const logPanel = (
+    <section className="panel">
+      <h2>??? ??</h2>
+      {logEntries.length === 0 ? (
+        <p className="muted">?? ??? ???? ????.</p>
+      ) : (
+        <div className="log-list">
+          {logEntries.map(entry => (
+            <div className={`log-row ${entry.level}`} key={entry.id}>
+              <span>{formatTime(entry.timestamp)}</span>
+              <strong>{entry.source}</strong>
+              <span>{formatLogMessage(entry.message)}</span>
+              {entry.details ? <em>{entry.details}</em> : null}
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+
   return (
     <main className="app-shell">
       <aside className="sidebar">
@@ -427,6 +455,8 @@ export default function App() {
               </label>
               <button className="primary" disabled={isBusy} onClick={sendMotion}>????? ??</button>
             </section>
+
+            {logPanel}
           </>
         ) : (
           <>
@@ -451,6 +481,7 @@ export default function App() {
 
             {hardwarePanel}
             {protectionPanel}
+            {logPanel}
           </>
         )}
       </section>
@@ -488,6 +519,44 @@ function formatError(error: unknown) {
   if (error instanceof Error) return formatReason(error.message);
   if (typeof error === 'string') return formatReason(error);
   return '? ? ?? ??? ??????';
+}
+
+function formatTime(timestamp: number) {
+  return new Date(timestamp).toLocaleTimeString('ko-KR', { hour12: false });
+}
+
+function formatLogMessage(message: string) {
+  const messages: Record<string, string> = {
+    'hardware-connected': '???? ??',
+    'hardware-disconnected': '???? ?? ??',
+    'hardware-connect-failed': '???? ?? ??',
+    'hardware-stopped': '???? ??',
+    'hardware-stop-write-failed': '?? ?? ??',
+    'hardware-motion-write-failed': '?? ?? ??',
+    'hardware-safety-timeout': '???? safety timeout',
+    'hardware-probe-failed': 'T-Code probe ??',
+    'receive-paused': '?? ????',
+    'protection-updated': '?? ?? ??',
+    'motion-dropped-paused': 'pause ? ?? ??',
+    'motion-not-queued': '?? queue ??',
+    'approval-requested': '?? ??',
+    'viewer-approved': '??? ??',
+    'viewer-rejected': '??? ??',
+    'viewer-removed': '??? ??',
+    'viewer-list-updated': '??? ?? ??',
+    'room-stop-received': '? ?? ??',
+    'relay-connected': 'relay ??',
+    'relay-disconnected': 'relay ??',
+    'relay-reconnecting': 'relay ??? ?',
+    'relay-rejoined': '? ???',
+    'relay-error': 'relay ??',
+    'room-create-requested': '? ?? ??',
+    'room-join-requested': '? ?? ??',
+    'emergency-stop-requested': '?? ?? ??',
+    'relay-disconnect-requested': 'relay ?? ?? ??'
+  };
+
+  return messages[message] ?? message;
 }
 
 function formatReason(reason: string) {

@@ -209,6 +209,49 @@ select {
   font-size: 13px;
 }
 
+.log-list {
+  display: grid;
+  gap: 8px;
+  max-height: 300px;
+  overflow: auto;
+}
+
+.log-row {
+  display: grid;
+  grid-template-columns: 82px 86px 1fr;
+  gap: 10px;
+  align-items: start;
+  padding: 9px 10px;
+  border: 1px solid #d7e0e7;
+  border-left-width: 4px;
+  border-radius: 6px;
+  color: #2d3a43;
+  font-size: 13px;
+}
+
+.log-row.info {
+  border-left-color: #1c8a73;
+}
+
+.log-row.warning {
+  border-left-color: #d97706;
+}
+
+.log-row.error {
+  border-left-color: #b42318;
+}
+
+.log-row strong {
+  color: #182026;
+}
+
+.log-row em {
+  grid-column: 3;
+  color: #647684;
+  font-style: normal;
+  overflow-wrap: anywhere;
+}
+
 @media (max-width: 860px) {
   .app-shell {
     grid-template-columns: 1fr;
@@ -223,5 +266,13 @@ select {
   .hardware-row,
   .approval-row {
     grid-template-columns: 1fr;
+  }
+
+  .log-row {
+    grid-template-columns: 1fr;
+  }
+
+  .log-row em {
+    grid-column: auto;
   }
 }

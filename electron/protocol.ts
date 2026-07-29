@@ -28,6 +28,15 @@ export type HardwareProtection = {
   paused: boolean;
 };
 
+export type AppLogEntry = {
+  id: number;
+  timestamp: number;
+  level: 'info' | 'warning' | 'error';
+  source: 'hardware' | 'relay' | 'room' | 'protection' | 'app';
+  message: string;
+  details?: string;
+};
+
 export type ApprovalRequest = {
   socketId: string;
   displayName: string;

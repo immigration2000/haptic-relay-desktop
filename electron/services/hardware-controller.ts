@@ -28,6 +28,13 @@ const DEFAULT_HARDWARE_PROTECTION: HardwareProtection = {
   paused: false
 };
 
+type HardwareLog = {
+  level: 'info' | 'warning' | 'error';
+  source: 'hardware' | 'protection';
+  message: string;
+  details?: string;
+};
+
 export class HardwareController {
   private port: SerialPort | undefined;
   private profile = DEFAULT_HARDWARE_PROFILE;
@@ -38,6 +45,8 @@ export class HardwareController {
   private writing = false;
   private readonly minIntervalMs = maxHzToInterval(HARDWARE_MAX_HZ);
   private readonly safetyTimeoutMs = normalizeOptionalTimeoutMs(HARDWARE_SAFETY_TIMEOUT_MS);
+
+  constructor(private readonly onLog?: (entry: HardwareLog) => void) {}
 
   async listPorts() {
     return SerialPort.list();
@@ -58,6 +67,7 @@ export class HardwareController {
     });
 
     const probe = await this.probeTCodeCapabilities();
+    this.onLog?.({ level: 'info', source: 'hardware', message: 'hardware-connected', details: `${pathName} @ ${this.profile.baudRate}` });
     return { connected: true, path: pathName, baudRate: this.profile.baudRate, profile: this.profile, probe };
   }
 
@@ -65,6 +75,9 @@ export class HardwareController {
     this.protection = normalizeProtection(protection);
     if (this.protection.paused) {
       await this.emergencyStop();
+      this.onLog?.({ level: 'warning', source: 'protection', message: 'receive-paused' });
+    } else {
+      this.onLog?.({ level: 'info', source: 'protection', message: 'protection-updated', details: `intensity<=${this.protection.intensityLimit.toFixed(2)}, position ${this.protection.positionMin.toFixed(2)}-${this.protection.positionMax.toFixed(2)}` });
     }
 
     return { protection: this.protection };
@@ -86,6 +99,7 @@ export class HardwareController {
     await new Promise<void>((resolve, reject) => {
       this.port?.close(error => (error ? reject(error) : resolve()));
     });
+    this.onLog?.({ level: 'info', source: 'hardware', message: 'hardware-disconnected' });
     this.port = undefined;
     return { connected: false };
   }
@@ -98,6 +112,7 @@ export class HardwareController {
     const protectedFrame = applyProtection(frame, this.protection);
     if (!protectedFrame) {
       this.latestFrame = undefined;
+      this.onLog?.({ level: 'warning', source: 'protection', message: 'motion-dropped-paused' });
       return { queued: false, reason: 'protection-paused' };
     }
 
@@ -127,8 +142,10 @@ export class HardwareController {
 
     await this.writePayload(payload).catch(error => {
       console.error('hardware emergency stop failed', error);
+      this.onLog?.({ level: 'error', source: 'hardware', message: 'hardware-stop-write-failed', details: formatError(error) });
     });
 
+    this.onLog?.({ level: 'warning', source: 'hardware', message: 'hardware-stopped' });
     return { stopped: true };
   }
 
@@ -156,6 +173,7 @@ export class HardwareController {
 
     await this.writePayload(payload).catch(error => {
       console.error('hardware write failed', error);
+      this.onLog?.({ level: 'error', source: 'hardware', message: 'hardware-motion-write-failed', details: formatError(error) });
     });
 
     this.writing = false;
@@ -169,7 +187,10 @@ export class HardwareController {
     this.safetyTimer = setTimeout(() => {
       this.safetyTimer = undefined;
       void this.emergencyStop().then(result => {
-        if (result.stopped) console.warn('hardware safety timeout triggered');
+        if (result.stopped) {
+          console.warn('hardware safety timeout triggered');
+          this.onLog?.({ level: 'warning', source: 'hardware', message: 'hardware-safety-timeout' });
+        }
       });
     }, this.safetyTimeoutMs);
   }
@@ -194,6 +215,7 @@ export class HardwareController {
       await new Promise(resolve => setTimeout(resolve, TCODE_PROBE_TIMEOUT_MS));
     } catch (error) {
       console.warn('hardware T-Code probe failed', error);
+      this.onLog?.({ level: 'warning', source: 'hardware', message: 'hardware-probe-failed', details: formatError(error) });
     } finally {
       this.port?.off('data', onData);
     }
@@ -220,6 +242,12 @@ export class HardwareController {
       }
     });
   }
+}
+
+function formatError(error: unknown) {
+  if (error instanceof Error) return error.message;
+  if (typeof error === 'string') return error;
+  return 'unknown-error';
 }
 
 function normalizeProfile(profile: HardwareProfile): HardwareProfile {

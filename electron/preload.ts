@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { ApprovalRequest, HardwareProfile, HardwareProtection, RoomSettings, ViewerSession } from './protocol.js';
+import type { AppLogEntry, ApprovalRequest, HardwareProfile, HardwareProtection, RoomSettings, ViewerSession } from './protocol.js';
 
 type ViewerStatus = {
   roomName: string;
@@ -56,6 +56,12 @@ contextBridge.exposeInMainWorld('hapticRelay', {
     const handler = (_event: Electron.IpcRendererEvent, status: RelayConnectionStatus) => listener(status);
     ipcRenderer.on('room:connection-status', handler);
     return () => ipcRenderer.removeListener('room:connection-status', handler);
+  },
+  getLogs: () => ipcRenderer.invoke('app:logs'),
+  onLog: (listener: (entry: AppLogEntry) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, entry: AppLogEntry) => listener(entry);
+    ipcRenderer.on('app:log', handler);
+    return () => ipcRenderer.removeListener('app:log', handler);
   },
   disconnectRoom: () => ipcRenderer.invoke('room:disconnect')
 });
