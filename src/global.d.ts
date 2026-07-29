@@ -54,6 +54,7 @@ declare global {
       onEmergencyStop: (listener: (signal: StopSignal) => void) => () => void;
       onConnectionStatus: (listener: (status: RelayConnectionStatus) => void) => () => void;
       getLogs: () => Promise<AppLogEntry[]>;
+      copyText: (text: string) => Promise<{ copied: boolean }>;
       onLog: (listener: (entry: AppLogEntry) => void) => () => void;
       disconnectRoom: () => Promise<unknown>;
     };

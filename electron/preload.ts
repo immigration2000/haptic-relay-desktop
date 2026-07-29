@@ -58,6 +58,7 @@ contextBridge.exposeInMainWorld('hapticRelay', {
     return () => ipcRenderer.removeListener('room:connection-status', handler);
   },
   getLogs: () => ipcRenderer.invoke('app:logs'),
+  copyText: (text: string) => ipcRenderer.invoke('app:copy-text', text),
   onLog: (listener: (entry: AppLogEntry) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, entry: AppLogEntry) => listener(entry);
     ipcRenderer.on('app:log', handler);

@@ -11,6 +11,13 @@ type AppStatus = {
   message: string;
 };
 
+type HostRoomInvite = {
+  roomName: string;
+  password?: string;
+  entryMode: EntryMode;
+  relayUrl: string;
+};
+
 const DEFAULT_HARDWARE_PROFILE: HardwareProfile = {
   baudRate: 115200,
   linearAxis: 'L0',
@@ -44,6 +51,7 @@ export default function App() {
   const [approvalRequests, setApprovalRequests] = useState<ApprovalRequest[]>([]);
   const [viewerSessions, setViewerSessions] = useState<ViewerSession[]>([]);
   const [logEntries, setLogEntries] = useState<AppLogEntry[]>([]);
+  const [hostRoomInvite, setHostRoomInvite] = useState<HostRoomInvite>();
 
   const canHost = useMemo(() => roomName.trim().length >= 3, [roomName]);
   const canJoin = useMemo(() => roomName.trim().length >= 3 && displayName.trim().length > 0, [displayName, roomName]);
@@ -192,9 +200,24 @@ export default function App() {
         password: password.trim() || undefined,
         entryMode
       });
+      setHostRoomInvite({
+        roomName: room.roomName,
+        password: password.trim() || undefined,
+        entryMode,
+        relayUrl: room.relayUrl
+      });
       setApprovalRequests([]);
       setViewerSessions(await window.hapticRelay.listViewers());
       setStatusMessage('ok', `? ???: ${room.roomName} / ${room.relayUrl}`);
+    });
+  }
+
+  async function copyInvite() {
+    if (!hostRoomInvite) return;
+
+    await runAction('room', '?? ?? ?? ?', async () => {
+      await window.hapticRelay.copyText(formatInviteText(hostRoomInvite));
+      setStatusMessage('ok', '? ?? ??? ????? ???');
     });
   }
 
@@ -351,6 +374,31 @@ export default function App() {
     </section>
   );
 
+  const invitePanel = hostRoomInvite ? (
+    <section className="panel">
+      <h2>? ?? ??</h2>
+      <div className="invite-grid">
+        <div>
+          <span>??</span>
+          <strong>{hostRoomInvite.relayUrl}</strong>
+        </div>
+        <div>
+          <span>? ??</span>
+          <strong>{hostRoomInvite.roomName}</strong>
+        </div>
+        <div>
+          <span>????</span>
+          <strong>{hostRoomInvite.password ?? '??'}</strong>
+        </div>
+        <div>
+          <span>?? ??</span>
+          <strong>{hostRoomInvite.entryMode === 'request' ? '????' : '????'}</strong>
+        </div>
+      </div>
+      <button disabled={isBusy} onClick={copyInvite}>?? ?? ??</button>
+    </section>
+  ) : null;
+
   return (
     <main className="app-shell">
       <aside className="sidebar">
@@ -398,6 +446,8 @@ export default function App() {
               </div>
               <button className="primary" disabled={!canHost || isBusy} onClick={createRoom}>? ??</button>
             </section>
+
+            {invitePanel}
 
             {hardwarePanel}
 
@@ -503,6 +553,16 @@ function updateProtectionValue(protection: HardwareProtection, patch: Partial<Ha
   };
 }
 
+function formatInviteText(invite: HostRoomInvite) {
+  return [
+    'Haptic Relay ? ?? ??',
+    `??: ${invite.relayUrl}`,
+    `? ??: ${invite.roomName}`,
+    `????: ${invite.password ?? '??'}`,
+    `?? ??: ${invite.entryMode === 'request' ? '????' : '????'}`
+  ].join('\n');
+}
+
 function normalizeRelayUrl(value: string) {
   try {
     const url = new URL(value.trim());
@@ -553,7 +613,8 @@ function formatLogMessage(message: string) {
     'room-create-requested': '? ?? ??',
     'room-join-requested': '? ?? ??',
     'emergency-stop-requested': '?? ?? ??',
-    'relay-disconnect-requested': 'relay ?? ?? ??'
+    'relay-disconnect-requested': 'relay ?? ?? ??',
+    'clipboard-copied': '???? ??'
   };
 
   return messages[message] ?? message;
