@@ -204,6 +204,11 @@ select {
   font-size: 14px;
 }
 
+.field-value {
+  color: #647684;
+  font-size: 13px;
+}
+
 @media (max-width: 860px) {
   .app-shell {
     grid-template-columns: 1fr;

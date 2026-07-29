@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { ApprovalRequest, HardwareProfile, RoomSettings, ViewerSession } from './protocol.js';
+import type { ApprovalRequest, HardwareProfile, HardwareProtection, RoomSettings, ViewerSession } from './protocol.js';
 
 type ViewerStatus = {
   roomName: string;
@@ -25,6 +25,7 @@ contextBridge.exposeInMainWorld('hapticRelay', {
   disconnectHardware: () => ipcRenderer.invoke('hardware:disconnect'),
   stopHardware: () => ipcRenderer.invoke('hardware:emergency-stop'),
   sendMotion: (intensity: number, position: number) => ipcRenderer.invoke('hardware:send', intensity, position),
+  setHardwareProtection: (protection: HardwareProtection) => ipcRenderer.invoke('hardware:set-protection', protection),
   startHostRoom: (relayUrl: string, settings: RoomSettings) => ipcRenderer.invoke('room:start-host', relayUrl, settings),
   joinRoom: (relayUrl: string, request: { displayName: string; roomName: string; password?: string }) => ipcRenderer.invoke('room:join', relayUrl, request),
   approveViewer: (socketId: string, approved: boolean) => ipcRenderer.invoke('room:approve', socketId, approved),

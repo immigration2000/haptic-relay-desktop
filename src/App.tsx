@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { ApprovalRequest, EntryMode, HardwareProfile, PortInfo, ViewerSession } from './shared/protocol';
+import type { ApprovalRequest, EntryMode, HardwareProfile, HardwareProtection, PortInfo, ViewerSession } from './shared/protocol';
 import './styles.css';
 
 type Role = 'host' | 'viewer';
@@ -19,6 +19,12 @@ const DEFAULT_HARDWARE_PROFILE: HardwareProfile = {
   strokeMax: 1,
   invertPosition: false
 };
+const DEFAULT_HARDWARE_PROTECTION: HardwareProtection = {
+  intensityLimit: 1,
+  positionMin: 0,
+  positionMax: 1,
+  paused: false
+};
 
 export default function App() {
   const [role, setRole] = useState<Role>('host');
@@ -30,6 +36,7 @@ export default function App() {
   const [ports, setPorts] = useState<PortInfo[]>([]);
   const [selectedPort, setSelectedPort] = useState('');
   const [hardwareProfile, setHardwareProfile] = useState<HardwareProfile>(DEFAULT_HARDWARE_PROFILE);
+  const [hardwareProtection, setHardwareProtection] = useState<HardwareProtection>(DEFAULT_HARDWARE_PROTECTION);
   const [status, setStatus] = useState<AppStatus>({ tone: 'idle', message: '대기 중' });
   const [busyAction, setBusyAction] = useState<BusyAction>();
   const [intensity, setIntensity] = useState(0.5);
@@ -121,6 +128,18 @@ export default function App() {
 
   function updateHardwareProfile(patch: Partial<HardwareProfile>) {
     setHardwareProfile(current => updateProfileValue(current, patch));
+  }
+
+  function updateHardwareProtection(patch: Partial<HardwareProtection>) {
+    setHardwareProtection(current => updateProtectionValue(current, patch));
+  }
+
+  async function applyHardwareProtection() {
+    await runAction('hardware', '보호 옵션 적용 중', async () => {
+      const result = await window.hapticRelay.setHardwareProtection(hardwareProtection);
+      setHardwareProtection(result.protection);
+      setStatusMessage(result.protection.paused ? 'warning' : 'ok', result.protection.paused ? '수신 일시정지 적용됨' : '보호 옵션 적용됨');
+    });
   }
 
   async function refreshPorts(silent = false) {
@@ -278,6 +297,32 @@ export default function App() {
     </section>
   );
 
+  const protectionPanel = (
+    <section className="panel">
+      <h2>시청자 보호</h2>
+      <div className="profile-grid">
+        <label>
+          강도 상한
+          <input type="range" min="0" max="1" step="0.01" value={hardwareProtection.intensityLimit} onChange={event => updateHardwareProtection({ intensityLimit: Number(event.target.value) })} />
+          <span className="field-value">{hardwareProtection.intensityLimit.toFixed(2)}</span>
+        </label>
+        <label>
+          최소 위치
+          <input type="number" min="0" max="1" step="0.01" value={hardwareProtection.positionMin} onChange={event => updateHardwareProtection({ positionMin: Number(event.target.value) })} />
+        </label>
+        <label>
+          최대 위치
+          <input type="number" min="0" max="1" step="0.01" value={hardwareProtection.positionMax} onChange={event => updateHardwareProtection({ positionMax: Number(event.target.value) })} />
+        </label>
+        <label className="checkbox-row">
+          <input type="checkbox" checked={hardwareProtection.paused} onChange={event => updateHardwareProtection({ paused: event.target.checked })} />
+          수신 일시정지
+        </label>
+      </div>
+      <button disabled={isBusy} onClick={applyHardwareProtection}>보호 옵션 적용</button>
+    </section>
+  );
+
   return (
     <main className="app-shell">
       <aside className="sidebar">
@@ -405,6 +450,7 @@ export default function App() {
             </section>
 
             {hardwarePanel}
+            {protectionPanel}
           </>
         )}
       </section>
@@ -415,6 +461,13 @@ export default function App() {
 function updateProfileValue(profile: HardwareProfile, patch: Partial<HardwareProfile>): HardwareProfile {
   return {
     ...profile,
+    ...patch
+  };
+}
+
+function updateProtectionValue(protection: HardwareProtection, patch: Partial<HardwareProtection>): HardwareProtection {
+  return {
+    ...protection,
     ...patch
   };
 }
@@ -465,6 +518,12 @@ function formatReason(reason: string) {
     'invalid-stroke-range': '최소 위치는 최대 위치보다 작아야 합니다',
     'invalid-strokeMin': '최소 위치는 0부터 1 사이여야 합니다',
     'invalid-strokeMax': '최대 위치는 0부터 1 사이여야 합니다',
+    'invalid-hardware-protection': '보호 옵션 설정이 올바르지 않습니다',
+    'invalid-protection-position-range': '보호 최소 위치는 최대 위치보다 작아야 합니다',
+    'invalid-protectionIntensityLimit': '강도 상한은 0부터 1 사이여야 합니다',
+    'invalid-protectionPositionMin': '보호 최소 위치는 0부터 1 사이여야 합니다',
+    'invalid-protectionPositionMax': '보호 최대 위치는 0부터 1 사이여야 합니다',
+    'protection-paused': '수신 일시정지 중입니다',
     'timeout': '요청 시간이 초과되었습니다'
   };
 

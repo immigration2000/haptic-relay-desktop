@@ -426,6 +426,16 @@ HAPTIC_HARDWARE_SAFETY_TIMEOUT_MS=1000
 
 수신 motion frame은 네트워크 프로토콜에서는 항상 `0.0-1.0` 정규화 값을 유지합니다. 하드웨어 프로필은 SerialPort 출력 직전에만 적용합니다.
 
+시청자 보호 옵션도 SerialPort 출력 전에 적용합니다.
+
+보호 항목:
+
+- intensity limit
+- position min/max range
+- receive pause
+
+`receive pause`가 켜지면 앱은 즉시 로컬 `DSTOP`을 실행하고, 이후 수신 motion frame을 하드웨어 queue에 넣지 않습니다. relay room 참여 상태는 유지되므로 시청자는 일시정지를 해제한 뒤 다시 수신할 수 있습니다.
+
 ## 12. 지연 최적화
 
 적용된 최적화:
@@ -440,6 +450,7 @@ HAPTIC_HARDWARE_SAFETY_TIMEOUT_MS=1000
 - token bucket rate limit
 - SerialPort backpressure 처리
 - 하드웨어 safety timeout
+- 시청자 로컬 보호 옵션
 
 핵심 판단:
 
