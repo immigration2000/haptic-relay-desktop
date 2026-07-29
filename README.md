@@ -24,6 +24,7 @@
 - 하드웨어 연결 시 T-Code `D1`/`D2` capability probe
 - baudrate, T-Code 축, stroke 범위, 방향 반전 하드웨어 프로필 설정
 - 시청자 강도 상한, 위치 범위 제한, 수신 일시정지 보호 옵션
+- relay, room, hardware, protection 최근 이벤트 로그
 - Socket.IO 기반 독립 릴레이 서버 골격
 - Control API 기반 방 생성/입장 토큰 발급
 - 시청자 수신 motion packet을 하드웨어 T-Code 출력으로 연결
@@ -190,6 +191,18 @@ DSTOP
 - 서버 rate limit은 token bucket으로 처리해 60Hz 근처의 타이머 지터를 과도하게 드롭하지 않습니다.
 - SerialPort 출력은 backpressure를 고려해 최신 프레임만 큐에 남깁니다.
 - 하드웨어는 새 motion frame이 일정 시간 없으면 자동으로 `DSTOP`과 0 위치 fallback을 출력합니다.
+- 앱은 최근 300개 이벤트를 main process 메모리 로그로 보관하고 UI에는 최근 80개를 표시합니다.
+
+## 이벤트 로그
+
+앱 UI의 이벤트 로그는 다음 이벤트를 추적합니다.
+
+- 하드웨어 연결/해제/연결 실패
+- SerialPort motion/stop write 실패
+- relay 연결, 끊김, 재연결, 오류
+- 방 생성/입장 요청, 승인 요청, 접속자 목록 갱신
+- room-wide stop 수신
+- safety timeout, protection pause, protection update
 
 ## 다음 구현 순서
 

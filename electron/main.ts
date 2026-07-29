@@ -2,7 +2,7 @@ import { app, BrowserWindow, ipcMain, session } from 'electron';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { IpcMainInvokeEvent } from 'electron';
-import type { HardwareProfile, HardwareProtection, RoomSettings } from './protocol.js';
+import type { AppLogEntry, HardwareProfile, HardwareProtection, RoomSettings } from './protocol.js';
 import { HardwareController } from './services/hardware-controller.js';
 import { RelayClient } from './services/relay-client.js';
 
@@ -19,21 +19,52 @@ const CONTENT_SECURITY_POLICY = [
   "form-action 'none'",
   "frame-ancestors 'none'"
 ].join('; ');
+const MAX_LOG_ENTRIES = 300;
 
 let mainWindow: BrowserWindow | undefined;
-const hardware = new HardwareController();
+let nextLogId = 1;
+const logEntries: AppLogEntry[] = [];
+const lastLogByKey = new Map<string, number>();
+
+function addLog(entry: Omit<AppLogEntry, 'id' | 'timestamp'>) {
+  const now = Date.now();
+  const key = `${entry.level}:${entry.source}:${entry.message}:${entry.details ?? ''}`;
+  const lastTimestamp = lastLogByKey.get(key) ?? 0;
+  if (now - lastTimestamp < 1000) return;
+  lastLogByKey.set(key, now);
+
+  const nextEntry: AppLogEntry = {
+    id: nextLogId++,
+    timestamp: now,
+    ...entry
+  };
+
+  logEntries.push(nextEntry);
+  if (logEntries.length > MAX_LOG_ENTRIES) logEntries.splice(0, logEntries.length - MAX_LOG_ENTRIES);
+  mainWindow?.webContents.send('app:log', nextEntry);
+}
+
+const hardware = new HardwareController(entry => addLog(entry));
 const relay = new RelayClient(frame => {
-  hardware.queueMotion(frame);
+  const result = hardware.queueMotion(frame);
+  if (result.queued === false && result.reason !== 'hardware-not-connected') {
+    addLog({ level: 'warning', source: 'hardware', message: 'motion-not-queued', details: result.reason });
+  }
 }, request => {
+  addLog({ level: 'info', source: 'room', message: 'approval-requested', details: `${request.displayName} / ${request.roomName}` });
   mainWindow?.webContents.send('room:approval-requested', request);
 }, status => {
+  addLog({ level: status.status === 'rejected' || status.status === 'removed' ? 'warning' : 'info', source: 'room', message: `viewer-${status.status}`, details: status.reason ?? status.roomName });
   mainWindow?.webContents.send('room:viewer-status', status);
 }, viewers => {
+  addLog({ level: 'info', source: 'room', message: 'viewer-list-updated', details: `${viewers.length}` });
   mainWindow?.webContents.send('room:viewers', viewers);
 }, signal => {
   void hardware.emergencyStop();
+  addLog({ level: 'warning', source: 'relay', message: 'room-stop-received', details: signal.roomName });
   mainWindow?.webContents.send('room:emergency-stop', signal);
 }, status => {
+  addLog({ level: status.status === 'error' ? 'error' : status.status === 'disconnected' || status.status === 'reconnecting' ? 'warning' : 'info', source: 'relay', message: `relay-${status.status}`, details: status.reason ?? status.roomName });
   mainWindow?.webContents.send('room:connection-status', status);
 });
 
@@ -104,9 +135,14 @@ ipcMain.handle('hardware:list', event => {
   assertTrustedSender(event);
   return hardware.listPorts();
 });
-ipcMain.handle('hardware:connect', (event, pathName: unknown, profile: unknown) => {
+ipcMain.handle('hardware:connect', async (event, pathName: unknown, profile: unknown) => {
   assertTrustedSender(event);
-  return hardware.connect(validatePortPath(pathName), validateHardwareProfile(profile));
+  try {
+    return await hardware.connect(validatePortPath(pathName), validateHardwareProfile(profile));
+  } catch (error) {
+    addLog({ level: 'error', source: 'hardware', message: 'hardware-connect-failed', details: formatError(error) });
+    throw error;
+  }
 });
 ipcMain.handle('hardware:disconnect', event => {
   assertTrustedSender(event);
@@ -130,11 +166,14 @@ ipcMain.handle('hardware:set-protection', (event, protection: unknown) => {
 
 ipcMain.handle('room:start-host', (event, relayUrl: unknown, settings: unknown) => {
   assertTrustedSender(event);
+  addLog({ level: 'info', source: 'room', message: 'room-create-requested' });
   return relay.createRoom(validateRelayUrl(relayUrl), validateRoomSettings(settings));
 });
 ipcMain.handle('room:join', (event, relayUrl: unknown, request: unknown) => {
   assertTrustedSender(event);
-  return relay.joinRoom(validateRelayUrl(relayUrl), validateJoinRequest(request));
+  const joinRequest = validateJoinRequest(request);
+  addLog({ level: 'info', source: 'room', message: 'room-join-requested', details: joinRequest.roomName });
+  return relay.joinRoom(validateRelayUrl(relayUrl), joinRequest);
 });
 ipcMain.handle('room:approve', (event, socketId: unknown, approved: unknown) => {
   assertTrustedSender(event);
@@ -150,13 +189,19 @@ ipcMain.handle('room:list-viewers', event => {
 });
 ipcMain.handle('room:emergency-stop', async event => {
   assertTrustedSender(event);
+  addLog({ level: 'warning', source: 'room', message: 'emergency-stop-requested' });
   const hardwareResult = await hardware.emergencyStop();
   const relayResult = await relay.emergencyStop();
   return { hardware: hardwareResult, relay: relayResult };
 });
 ipcMain.handle('room:disconnect', event => {
   assertTrustedSender(event);
+  addLog({ level: 'info', source: 'relay', message: 'relay-disconnect-requested' });
   return relay.disconnect();
+});
+ipcMain.handle('app:logs', event => {
+  assertTrustedSender(event);
+  return logEntries;
 });
 
 function getDevServerUrl() {
@@ -300,4 +345,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isLocalhost(hostname: string) {
   return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1' || hostname === '[::1]';
+}
+
+function formatError(error: unknown) {
+  if (error instanceof Error) return error.message;
+  if (typeof error === 'string') return error;
+  return 'unknown-error';
 }

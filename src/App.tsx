@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { ApprovalRequest, EntryMode, HardwareProfile, HardwareProtection, PortInfo, ViewerSession } from './shared/protocol';
+import type { AppLogEntry, ApprovalRequest, EntryMode, HardwareProfile, HardwareProtection, PortInfo, ViewerSession } from './shared/protocol';
 import './styles.css';
 
 type Role = 'host' | 'viewer';
@@ -43,6 +43,7 @@ export default function App() {
   const [position, setPosition] = useState(0.5);
   const [approvalRequests, setApprovalRequests] = useState<ApprovalRequest[]>([]);
   const [viewerSessions, setViewerSessions] = useState<ViewerSession[]>([]);
+  const [logEntries, setLogEntries] = useState<AppLogEntry[]>([]);
 
   const canHost = useMemo(() => roomName.trim().length >= 3, [roomName]);
   const canJoin = useMemo(() => roomName.trim().length >= 3 && displayName.trim().length > 0, [displayName, roomName]);
@@ -53,6 +54,12 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    void window.hapticRelay.getLogs().then(entries => {
+      setLogEntries(entries.slice(-80).reverse());
+    });
+    const removeLog = window.hapticRelay.onLog(entry => {
+      setLogEntries(current => [entry, ...current].slice(0, 80));
+    });
     const removeApprovalRequest = window.hapticRelay.onApprovalRequest(request => {
       setApprovalRequests(current => {
         if (current.some(item => item.socketId === request.socketId)) return current;
@@ -100,6 +107,7 @@ export default function App() {
     });
 
     return () => {
+      removeLog();
       removeApprovalRequest();
       removeViewerStatus();
       removeViewerList();
@@ -323,6 +331,26 @@ export default function App() {
     </section>
   );
 
+  const logPanel = (
+    <section className="panel">
+      <h2>이벤트 로그</h2>
+      {logEntries.length === 0 ? (
+        <p className="muted">아직 기록된 이벤트가 없습니다.</p>
+      ) : (
+        <div className="log-list">
+          {logEntries.map(entry => (
+            <div className={`log-row ${entry.level}`} key={entry.id}>
+              <span>{formatTime(entry.timestamp)}</span>
+              <strong>{entry.source}</strong>
+              <span>{formatLogMessage(entry.message)}</span>
+              {entry.details ? <em>{entry.details}</em> : null}
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+
   return (
     <main className="app-shell">
       <aside className="sidebar">
@@ -427,6 +455,8 @@ export default function App() {
               </label>
               <button className="primary" disabled={isBusy} onClick={sendMotion}>시청자에게 전송</button>
             </section>
+
+            {logPanel}
           </>
         ) : (
           <>
@@ -451,6 +481,7 @@ export default function App() {
 
             {hardwarePanel}
             {protectionPanel}
+            {logPanel}
           </>
         )}
       </section>
@@ -488,6 +519,44 @@ function formatError(error: unknown) {
   if (error instanceof Error) return formatReason(error.message);
   if (typeof error === 'string') return formatReason(error);
   return '알 수 없는 오류가 발생했습니다';
+}
+
+function formatTime(timestamp: number) {
+  return new Date(timestamp).toLocaleTimeString('ko-KR', { hour12: false });
+}
+
+function formatLogMessage(message: string) {
+  const messages: Record<string, string> = {
+    'hardware-connected': '하드웨어 연결',
+    'hardware-disconnected': '하드웨어 연결 해제',
+    'hardware-connect-failed': '하드웨어 연결 실패',
+    'hardware-stopped': '하드웨어 정지',
+    'hardware-stop-write-failed': '정지 명령 실패',
+    'hardware-motion-write-failed': '모션 출력 실패',
+    'hardware-safety-timeout': '하드웨어 safety timeout',
+    'hardware-probe-failed': 'T-Code probe 실패',
+    'receive-paused': '수신 일시정지',
+    'protection-updated': '보호 옵션 변경',
+    'motion-dropped-paused': 'pause 중 모션 드롭',
+    'motion-not-queued': '모션 queue 제외',
+    'approval-requested': '입장 신청',
+    'viewer-approved': '시청자 승인',
+    'viewer-rejected': '시청자 거절',
+    'viewer-removed': '시청자 제거',
+    'viewer-list-updated': '접속자 목록 갱신',
+    'room-stop-received': '방 정지 수신',
+    'relay-connected': 'relay 연결',
+    'relay-disconnected': 'relay 끊김',
+    'relay-reconnecting': 'relay 재연결 중',
+    'relay-rejoined': '방 재입장',
+    'relay-error': 'relay 오류',
+    'room-create-requested': '방 생성 요청',
+    'room-join-requested': '방 입장 요청',
+    'emergency-stop-requested': '긴급 정지 요청',
+    'relay-disconnect-requested': 'relay 연결 해제 요청'
+  };
+
+  return messages[message] ?? message;
 }
 
 function formatReason(reason: string) {
