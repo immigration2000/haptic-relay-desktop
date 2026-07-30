@@ -1,8 +1,9 @@
 import { app, BrowserWindow, clipboard, ipcMain, session } from 'electron';
+import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { IpcMainInvokeEvent } from 'electron';
-import type { AppLogEntry, HardwareProfile, HardwareProtection, RoomSettings } from './protocol.js';
+import type { AppLogEntry, AppSettings, HardwareProfile, HardwareProtection, RoomSettings } from './protocol.js';
 import { HardwareController } from './services/hardware-controller.js';
 import { RelayClient } from './services/relay-client.js';
 
@@ -20,6 +21,24 @@ const CONTENT_SECURITY_POLICY = [
   "frame-ancestors 'none'"
 ].join('; ');
 const MAX_LOG_ENTRIES = 300;
+const DEFAULT_HARDWARE_PROFILE: HardwareProfile = {
+  baudRate: 115200,
+  linearAxis: 'L0',
+  vibrationAxis: undefined,
+  strokeMin: 0,
+  strokeMax: 1,
+  invertPosition: false
+};
+const DEFAULT_HARDWARE_PROTECTION: HardwareProtection = {
+  intensityLimit: 1,
+  positionMin: 0,
+  positionMax: 1,
+  paused: false
+};
+const DEFAULT_SETTINGS: AppSettings = {
+  hardwareProfile: DEFAULT_HARDWARE_PROFILE,
+  hardwareProtection: DEFAULT_HARDWARE_PROTECTION
+};
 
 let mainWindow: BrowserWindow | undefined;
 let nextLogId = 1;
@@ -210,6 +229,17 @@ ipcMain.handle('app:copy-text', (event, text: unknown) => {
   addLog({ level: 'info', source: 'app', message: 'clipboard-copied' });
   return { copied: true };
 });
+ipcMain.handle('app:get-settings', async event => {
+  assertTrustedSender(event);
+  return readSettings();
+});
+ipcMain.handle('app:save-settings', async (event, settings: unknown) => {
+  assertTrustedSender(event);
+  const nextSettings = validateAppSettings(settings);
+  await writeSettings(nextSettings);
+  addLog({ level: 'info', source: 'app', message: 'settings-saved' });
+  return { settings: nextSettings };
+});
 
 function getDevServerUrl() {
   if (app.isPackaged || !process.env.VITE_DEV_SERVER_URL) return undefined;
@@ -304,6 +334,14 @@ function validateHardwareProtection(value: unknown): HardwareProtection {
   };
 }
 
+function validateAppSettings(value: unknown): AppSettings {
+  if (!isRecord(value)) throw new Error('invalid-app-settings');
+  return {
+    hardwareProfile: validateHardwareProfile(value.hardwareProfile),
+    hardwareProtection: validateHardwareProtection(value.hardwareProtection)
+  };
+}
+
 function validateBaudRate(value: unknown) {
   if (typeof value !== 'number' || !Number.isInteger(value) || value < 1200 || value > 1000000) {
     throw new Error('invalid-baud-rate');
@@ -358,4 +396,24 @@ function formatError(error: unknown) {
   if (error instanceof Error) return error.message;
   if (typeof error === 'string') return error;
   return 'unknown-error';
+}
+
+async function readSettings(): Promise<AppSettings> {
+  try {
+    const raw = await fs.readFile(getSettingsPath(), 'utf8');
+    return validateAppSettings(JSON.parse(raw));
+  } catch (error) {
+    addLog({ level: 'warning', source: 'app', message: 'settings-defaulted', details: formatError(error) });
+    return DEFAULT_SETTINGS;
+  }
+}
+
+async function writeSettings(settings: AppSettings) {
+  const settingsPath = getSettingsPath();
+  await fs.mkdir(path.dirname(settingsPath), { recursive: true });
+  await fs.writeFile(settingsPath, `${JSON.stringify(settings, null, 2)}\n`, 'utf8');
+}
+
+function getSettingsPath() {
+  return path.join(app.getPath('userData'), 'settings.json');
 }

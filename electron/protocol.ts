@@ -37,6 +37,11 @@ export type AppLogEntry = {
   details?: string;
 };
 
+export type AppSettings = {
+  hardwareProfile: HardwareProfile;
+  hardwareProtection: HardwareProtection;
+};
+
 export type ApprovalRequest = {
   socketId: string;
   displayName: string;

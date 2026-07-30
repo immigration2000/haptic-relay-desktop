@@ -25,6 +25,7 @@
 - 하드웨어 연결 시 T-Code `D1`/`D2` capability probe
 - baudrate, T-Code 축, stroke 범위, 방향 반전 하드웨어 프로필 설정
 - 시청자 강도 상한, 위치 범위 제한, 수신 일시정지 보호 옵션
+- 하드웨어 프로필 및 보호 옵션 저장/불러오기
 - relay, room, hardware, protection 최근 이벤트 로그
 - Socket.IO 기반 독립 릴레이 서버 골격
 - Control API 기반 방 생성/입장 토큰 발급
@@ -171,6 +172,8 @@ DSTOP
 - `강도 상한`: 수신 intensity를 지정한 상한 이하로 제한
 - `최소/최대 위치`: 수신 position을 시청자가 허용한 범위 안으로 재매핑
 - `수신 일시정지`: 새 motion frame을 하드웨어에 출력하지 않고 즉시 로컬 정지
+
+하드웨어 프로필과 보호 옵션은 Electron `userData` 경로의 `settings.json`에 저장합니다. 설정 파일이 없거나 깨져 있으면 기본값을 사용합니다.
 
 ## 제품 원칙
 

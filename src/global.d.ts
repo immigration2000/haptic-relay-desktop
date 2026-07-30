@@ -1,4 +1,4 @@
-import type { AppLogEntry, ApprovalRequest, HardwareProfile, HardwareProtection, PortInfo, RoomSettings, ViewerSession } from './shared/protocol';
+import type { AppLogEntry, AppSettings, ApprovalRequest, HardwareProfile, HardwareProtection, PortInfo, RoomSettings, ViewerSession } from './shared/protocol';
 
 type ViewerStatus = {
   roomName: string;
@@ -55,6 +55,8 @@ declare global {
       onConnectionStatus: (listener: (status: RelayConnectionStatus) => void) => () => void;
       getLogs: () => Promise<AppLogEntry[]>;
       copyText: (text: string) => Promise<{ copied: boolean }>;
+      getSettings: () => Promise<AppSettings>;
+      saveSettings: (settings: AppSettings) => Promise<{ settings: AppSettings }>;
       onLog: (listener: (entry: AppLogEntry) => void) => () => void;
       disconnectRoom: () => Promise<unknown>;
     };

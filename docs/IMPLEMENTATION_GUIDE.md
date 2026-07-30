@@ -46,7 +46,7 @@ src/App.tsx
   데스크톱 앱 UI. 스트리머/시청자 역할, 방 생성, 방 입장 정보 복사, 하드웨어 연결, 접속자 관리, 이벤트 로그 표시.
 
 electron/main.ts
-  Electron main process. Renderer와 native 기능 사이 IPC 연결, CSP, navigation/window-open 차단, IPC 입력값 검증, 최근 이벤트 로그 버퍼.
+  Electron main process. Renderer와 native 기능 사이 IPC 연결, CSP, navigation/window-open 차단, IPC 입력값 검증, settings.json 저장/불러오기, 최근 이벤트 로그 버퍼.
 
 electron/services/relay-client.ts
   Control API 호출, Socket.IO relay 연결, motion packet 송신/수신, 신청입장 승인 이벤트 처리.
@@ -436,7 +436,18 @@ HAPTIC_HARDWARE_SAFETY_TIMEOUT_MS=1000
 
 `receive pause`가 켜지면 앱은 즉시 로컬 `DSTOP`을 실행하고, 이후 수신 motion frame을 하드웨어 queue에 넣지 않습니다. relay room 참여 상태는 유지되므로 시청자는 일시정지를 해제한 뒤 다시 수신할 수 있습니다.
 
-## 11.1 이벤트 로그
+## 11.1 설정 저장
+
+하드웨어 프로필과 보호 옵션은 Electron `userData` 경로의 `settings.json`에 저장합니다.
+
+저장 대상:
+
+- hardware profile
+- hardware protection
+
+renderer는 시작 시 `app:get-settings` IPC로 설정을 읽고, `app:save-settings` IPC로 현재 값을 저장합니다. main process는 저장 전 `HardwareProfile`, `HardwareProtection`을 다시 검증합니다. 설정 파일이 없거나 JSON이 깨진 경우 기본값으로 복구합니다.
+
+## 11.2 이벤트 로그
 
 main process는 최근 300개 이벤트를 메모리 버퍼로 보관합니다. renderer는 시작 시 `app:logs` IPC로 현재 버퍼를 읽고, 이후 `app:log` push event를 받아 UI에 최근 80개를 표시합니다.
 

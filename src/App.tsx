@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { AppLogEntry, ApprovalRequest, EntryMode, HardwareProfile, HardwareProtection, PortInfo, ViewerSession } from './shared/protocol';
+import type { AppLogEntry, AppSettings, ApprovalRequest, EntryMode, HardwareProfile, HardwareProtection, PortInfo, ViewerSession } from './shared/protocol';
 import './styles.css';
 
 type Role = 'host' | 'viewer';
@@ -17,6 +17,8 @@ type HostRoomInvite = {
   entryMode: EntryMode;
   relayUrl: string;
 };
+
+type SavedSettings = AppSettings;
 
 const DEFAULT_HARDWARE_PROFILE: HardwareProfile = {
   baudRate: 115200,
@@ -52,12 +54,14 @@ export default function App() {
   const [viewerSessions, setViewerSessions] = useState<ViewerSession[]>([]);
   const [logEntries, setLogEntries] = useState<AppLogEntry[]>([]);
   const [hostRoomInvite, setHostRoomInvite] = useState<HostRoomInvite>();
+  const [savedSettings, setSavedSettings] = useState<SavedSettings>();
 
   const canHost = useMemo(() => roomName.trim().length >= 3, [roomName]);
   const canJoin = useMemo(() => roomName.trim().length >= 3 && displayName.trim().length > 0, [displayName, roomName]);
   const isBusy = busyAction !== undefined;
 
   useEffect(() => {
+    void loadSettings();
     void refreshPorts(true);
   }, []);
 
@@ -148,6 +152,31 @@ export default function App() {
 
   function updateHardwareProtection(patch: Partial<HardwareProtection>) {
     setHardwareProtection(current => updateProtectionValue(current, patch));
+  }
+
+  async function loadSettings() {
+    try {
+      const settings = await window.hapticRelay.getSettings();
+      const protectionResult = await window.hapticRelay.setHardwareProtection(settings.hardwareProtection);
+      setHardwareProfile(settings.hardwareProfile);
+      setHardwareProtection(protectionResult.protection);
+      setSavedSettings(settings);
+    } catch (error) {
+      setStatusMessage('warning', `설정 불러오기 실패: ${formatError(error)}`);
+    }
+  }
+
+  async function saveSettings() {
+    await runAction('hardware', '설정 저장 중', async () => {
+      const result = await window.hapticRelay.saveSettings({
+        hardwareProfile,
+        hardwareProtection
+      });
+      setHardwareProfile(result.settings.hardwareProfile);
+      setHardwareProtection(result.settings.hardwareProtection);
+      setSavedSettings(result.settings);
+      setStatusMessage('ok', '하드웨어/보호 설정 저장됨');
+    });
   }
 
   async function applyHardwareProtection() {
@@ -324,6 +353,10 @@ export default function App() {
           <input type="checkbox" checked={hardwareProfile.invertPosition} onChange={event => updateHardwareProfile({ invertPosition: event.target.checked })} />
           방향 반전
         </label>
+      </div>
+      <div className="button-row">
+        <button disabled={isBusy} onClick={saveSettings}>설정 저장</button>
+        <button disabled={isBusy || !savedSettings} onClick={loadSettings}>설정 불러오기</button>
       </div>
     </section>
   );
@@ -614,7 +647,9 @@ function formatLogMessage(message: string) {
     'room-join-requested': '방 입장 요청',
     'emergency-stop-requested': '긴급 정지 요청',
     'relay-disconnect-requested': 'relay 연결 해제 요청',
-    'clipboard-copied': '클립보드 복사'
+    'clipboard-copied': '클립보드 복사',
+    'settings-saved': '설정 저장',
+    'settings-defaulted': '기본 설정 사용'
   };
 
   return messages[message] ?? message;
