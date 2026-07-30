@@ -37,6 +37,11 @@ export type AppLogEntry = {
   details?: string;
 };
 
+export type AppSettings = {
+  hardwareProfile: HardwareProfile;
+  hardwareProtection: HardwareProtection;
+};
+
 export type PortInfo = {
   path: string;
   manufacturer?: string;

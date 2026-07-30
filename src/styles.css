@@ -159,6 +159,12 @@ select {
   gap: 10px;
 }
 
+.button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
 .profile-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
