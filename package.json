@@ -9,11 +9,13 @@
     "dev": "vite --host 127.0.0.1",
     "server:dev": "npm run build:server && node dist-server/server/src/relay-server.js",
     "load:relay": "node scripts/relay-load-test.mjs",
-    "build": "tsc --noEmit && npm run build:electron && npm run build:server && vite build",
+    "build": "tsc --noEmit && npm run build:electron && npm run build:server && npm run build:renderer",
+    "build:renderer": "vite build",
     "build:electron": "tsc -p tsconfig.electron.json",
     "build:server": "tsc -p tsconfig.server.json",
     "electron:dev": "npm run build:electron && concurrently -k \"vite --host 127.0.0.1\" \"wait-on tcp:5173 && cross-env VITE_DEV_SERVER_URL=http://127.0.0.1:5173 electron .\"",
-    "electron:build": "npm run build && electron-builder",
+    "electron:pack": "npm run build && electron-builder --dir",
+    "electron:build": "npm run build && electron-builder --win nsis",
     "lint": "tsc --noEmit"
   },
   "dependencies": {
@@ -41,6 +43,13 @@
   "build": {
     "appId": "com.hapticrelay.desktop",
     "productName": "Haptic Relay",
+    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
+    "asar": true,
+    "npmRebuild": false,
+    "asarUnpack": [
+      "node_modules/@serialport/bindings-cpp/**/*.node",
+      "node_modules/@serialport/bindings-cpp/prebuilds/**/*"
+    ],
     "files": [
       "dist/**/*",
       "dist-electron/**/*",
@@ -48,6 +57,18 @@
     ],
     "directories": {
       "output": "release"
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
     }
   }
 }

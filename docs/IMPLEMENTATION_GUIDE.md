@@ -73,6 +73,26 @@ scripts/relay-load-test.mjs
   500명/1000명 시청자 fanout 부하 테스트.
 ```
 
+패키징:
+
+```text
+npm.cmd run electron:pack
+  build 후 electron-builder --dir 실행. 설치 파일 없이 unpacked 앱 디렉터리를 만들어 패키징 구조를 빠르게 확인.
+
+npm.cmd run electron:build
+  build 후 electron-builder --win nsis 실행. Windows 설치 파일 생성.
+```
+
+패키징 설정:
+
+- `asar: true`
+- `asarUnpack`: SerialPort native binding `.node`와 prebuilds
+- `npmRebuild: false`: 현재 SerialPort prebuild 사용을 전제로 native rebuild를 생략
+- Windows target: `nsis`
+- output directory: `release`
+
+릴리스 빌드 환경에서는 Electron 런타임이 설치되어 있거나 다운로드 가능해야 한다. 샌드박스 검증처럼 `npm install --ignore-scripts`로 의존성을 설치하면 Electron postinstall이 실행되지 않으므로 `electron-builder`가 Electron 바이너리를 찾거나 내려받는 단계에서 실패할 수 있다.
+
 ## 4. 서버 구조
 
 현재는 개발 편의를 위해 Control API와 Relay Node가 같은 Node 프로세스 안에 있습니다. 하지만 코드 경계는 나중에 분리할 수 있게 잡았습니다.
