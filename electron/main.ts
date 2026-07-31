@@ -35,7 +35,9 @@ const DEFAULT_HARDWARE_PROTECTION: HardwareProtection = {
   positionMax: 1,
   paused: false
 };
+const CURRENT_SETTINGS_SCHEMA_VERSION = 1;
 const DEFAULT_SETTINGS: AppSettings = {
+  schemaVersion: CURRENT_SETTINGS_SCHEMA_VERSION,
   hardwareProfile: DEFAULT_HARDWARE_PROFILE,
   hardwareProtection: DEFAULT_HARDWARE_PROTECTION
 };
@@ -367,10 +369,27 @@ function validateHardwareProtection(value: unknown): HardwareProtection {
 
 function validateAppSettings(value: unknown): AppSettings {
   if (!isRecord(value)) throw new Error('invalid-app-settings');
+  if (value.schemaVersion !== CURRENT_SETTINGS_SCHEMA_VERSION) throw new Error('unsupported-settings-version');
   return {
+    schemaVersion: CURRENT_SETTINGS_SCHEMA_VERSION,
     hardwareProfile: validateHardwareProfile(value.hardwareProfile),
     hardwareProtection: validateHardwareProtection(value.hardwareProtection)
   };
+}
+
+function migrateAppSettings(value: unknown): AppSettings {
+  if (!isRecord(value)) throw new Error('invalid-app-settings');
+  if (value.schemaVersion === CURRENT_SETTINGS_SCHEMA_VERSION) return validateAppSettings(value);
+  if (value.schemaVersion === undefined) {
+    const migrated = {
+      schemaVersion: CURRENT_SETTINGS_SCHEMA_VERSION,
+      hardwareProfile: value.hardwareProfile,
+      hardwareProtection: value.hardwareProtection
+    };
+    return validateAppSettings(migrated);
+  }
+
+  throw new Error('unsupported-settings-version');
 }
 
 function validateBaudRate(value: unknown) {
@@ -436,7 +455,12 @@ function formatFileTimestamp(date: Date) {
 async function readSettings(): Promise<AppSettings> {
   try {
     const raw = await fs.readFile(getSettingsPath(), 'utf8');
-    return validateAppSettings(JSON.parse(raw));
+    const settings = migrateAppSettings(JSON.parse(raw));
+    if (!raw.includes('"schemaVersion"')) {
+      await writeSettings(settings);
+      addLog({ level: 'info', source: 'app', message: 'settings-migrated', details: `v${settings.schemaVersion}` });
+    }
+    return settings;
   } catch (error) {
     addLog({ level: 'warning', source: 'app', message: 'settings-defaulted', details: formatError(error) });
     return DEFAULT_SETTINGS;

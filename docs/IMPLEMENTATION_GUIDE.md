@@ -524,12 +524,29 @@ fallback stop position
 
 저장 대상:
 
+- schema version
 - hardware profile
 - hardware protection
 
-renderer는 시작 시 `app:get-settings` IPC로 설정을 읽고, `app:save-settings` IPC로 현재 값을 저장합니다. main process는 저장 전 `HardwareProfile`, `HardwareProtection`을 다시 검증합니다. 설정 파일이 없거나 JSON이 깨진 경우 기본값으로 복구합니다.
+renderer는 시작 시 `app:get-settings` IPC로 설정을 읽고, `app:save-settings` IPC로 현재 값을 저장합니다. main process는 저장 전 schema version, `HardwareProfile`, `HardwareProtection`을 다시 검증합니다. 설정 파일이 없거나 JSON이 깨진 경우 기본값으로 복구합니다.
 
-## 11.2 이벤트 로그
+현재 schema:
+
+```json
+{
+  "schemaVersion": 1,
+  "hardwareProfile": {},
+  "hardwareProtection": {}
+}
+```
+
+마이그레이션 규칙:
+
+- `schemaVersion`이 없으면 v0 파일로 보고 v1로 감싼 뒤 다시 저장
+- `schemaVersion: 1`이면 그대로 검증
+- 지원하지 않는 version이면 기본 설정으로 복구하고 이벤트 로그에 이유를 남김
+
+## 11.3 이벤트 로그
 
 main process는 최근 300개 이벤트를 메모리 버퍼로 보관합니다. renderer는 시작 시 `app:logs` IPC로 현재 버퍼를 읽고, 이후 `app:log` push event를 받아 UI에 최근 80개를 표시합니다.
 

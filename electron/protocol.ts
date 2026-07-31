@@ -38,6 +38,7 @@ export type AppLogEntry = {
 };
 
 export type AppSettings = {
+  schemaVersion: 1;
   hardwareProfile: HardwareProfile;
   hardwareProtection: HardwareProtection;
 };
