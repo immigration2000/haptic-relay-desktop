@@ -217,6 +217,18 @@ export default function App() {
     });
   }
 
+  async function testHardware() {
+    await runAction('hardware', '하드웨어 테스트 중', async () => {
+      const result = await window.hapticRelay.testHardware();
+      if (!result.tested) {
+        setStatusMessage('warning', formatReason(result.reason ?? 'hardware-test-failed'));
+        return;
+      }
+
+      setStatusMessage('ok', `하드웨어 테스트 완료: ${result.steps ?? 0}단계`);
+    });
+  }
+
   async function createRoom() {
     if (!canHost) {
       setStatusMessage('warning', '방 이름은 3자 이상이어야 합니다');
@@ -321,6 +333,7 @@ export default function App() {
         </select>
         <button disabled={isBusy} onClick={() => refreshPorts()}>새로고침</button>
         <button disabled={isBusy || !selectedPort} onClick={connectHardware}>연결</button>
+        <button disabled={isBusy} onClick={testHardware}>테스트</button>
       </div>
       <div className="profile-grid">
         <label>
@@ -628,6 +641,9 @@ function formatLogMessage(message: string) {
     'hardware-motion-write-failed': '모션 출력 실패',
     'hardware-safety-timeout': '하드웨어 safety timeout',
     'hardware-probe-failed': 'T-Code probe 실패',
+    'hardware-test-started': '하드웨어 테스트 시작',
+    'hardware-test-failed': '하드웨어 테스트 실패',
+    'hardware-test-finished': '하드웨어 테스트 종료',
     'receive-paused': '수신 일시정지',
     'protection-updated': '보호 옵션 변경',
     'motion-dropped-paused': 'pause 중 모션 드롭',
@@ -676,6 +692,7 @@ function formatReason(reason: string) {
     'ping timeout': '릴레이 응답 시간이 초과되었습니다',
     'room-rejoin-failed': '방 재입장에 실패했습니다',
     'room-stop-failed': '긴급 정지 전송에 실패했습니다',
+    'hardware-test-failed': '하드웨어 테스트에 실패했습니다',
     'invalid-hardware-profile': '하드웨어 프로필 설정이 올바르지 않습니다',
     'invalid-baud-rate': 'baudrate 값이 올바르지 않습니다',
     'invalid-linearAxis': 'stroke 축은 L0, R0, V0, A0 형식이어야 합니다',
