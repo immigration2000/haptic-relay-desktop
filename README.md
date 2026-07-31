@@ -217,7 +217,15 @@ DSTOP
 - `최소/최대 위치`: 수신 position을 시청자가 허용한 범위 안으로 재매핑
 - `수신 일시정지`: 새 motion frame을 하드웨어에 출력하지 않고 즉시 로컬 정지
 
-하드웨어 프로필과 보호 옵션은 Electron `userData` 경로의 `settings.json`에 저장합니다. 설정 파일이 없거나 깨져 있으면 기본값을 사용합니다.
+하드웨어 프로필과 보호 옵션은 Electron `userData` 경로의 `settings.json`에 저장합니다. 설정 파일이 없거나 깨져 있으면 기본값을 사용합니다. 현재 설정 schema는 v1이며, `schemaVersion`이 없는 기존 설정 파일은 자동으로 v1로 마이그레이션합니다.
+
+```json
+{
+  "schemaVersion": 1,
+  "hardwareProfile": {},
+  "hardwareProtection": {}
+}
+```
 
 ## 제품 원칙
 

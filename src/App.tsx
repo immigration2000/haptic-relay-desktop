@@ -38,6 +38,7 @@ const DEFAULT_HARDWARE_PROTECTION: HardwareProtection = {
   positionMax: 1,
   paused: false
 };
+const CURRENT_SETTINGS_SCHEMA_VERSION = 1;
 
 export default function App() {
   const [role, setRole] = useState<Role>('host');
@@ -175,6 +176,7 @@ export default function App() {
   async function saveSettings() {
     await runAction('hardware', '설정 저장 중', async () => {
       const result = await window.hapticRelay.saveSettings({
+        schemaVersion: CURRENT_SETTINGS_SCHEMA_VERSION,
         hardwareProfile,
         hardwareProtection
       });
@@ -786,6 +788,7 @@ function formatLogMessage(message: string) {
     'clipboard-copied': '클립보드 복사',
     'logs-exported': '로그 저장',
     'settings-saved': '설정 저장',
+    'settings-migrated': '설정 마이그레이션',
     'settings-defaulted': '기본 설정 사용'
   };
 
@@ -823,6 +826,7 @@ function formatReason(reason: string) {
     'invalid-strokeMin': '최소 위치는 0부터 1 사이여야 합니다',
     'invalid-strokeMax': '최대 위치는 0부터 1 사이여야 합니다',
     'invalid-hardware-protection': '보호 옵션 설정이 올바르지 않습니다',
+    'unsupported-settings-version': '지원하지 않는 설정 파일 버전입니다',
     'invalid-protection-position-range': '보호 최소 위치는 최대 위치보다 작아야 합니다',
     'invalid-protectionIntensityLimit': '강도 상한은 0부터 1 사이여야 합니다',
     'invalid-protectionPositionMin': '보호 최소 위치는 0부터 1 사이여야 합니다',
