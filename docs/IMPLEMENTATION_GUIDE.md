@@ -73,6 +73,30 @@ scripts/relay-load-test.mjs
   500명/1000명 시청자 fanout 부하 테스트.
 ```
 
+## 3.1 초대 코드
+
+방 생성 후 host UI는 일반 텍스트 입장 정보와 함께 `HRS1.` 초대 코드를 표시합니다. viewer UI는 초대 코드를 decode한 뒤 relay URL, room name, password, entry mode를 입력값에 반영합니다.
+
+payload:
+
+```json
+{
+  "v": 1,
+  "relayUrl": "http://localhost:4174",
+  "roomName": "studio-main",
+  "password": "optional",
+  "entryMode": "open"
+}
+```
+
+코드 형식:
+
+```text
+HRS1.<base64url(utf8-json)>
+```
+
+QR 이미지를 추가할 때도 같은 `HRS1.` 문자열을 QR payload로 사용합니다.
+
 패키징:
 
 ```text

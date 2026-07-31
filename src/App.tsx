@@ -17,6 +17,9 @@ type HostRoomInvite = {
   entryMode: EntryMode;
   relayUrl: string;
 };
+type InvitePayload = HostRoomInvite & {
+  v: 1;
+};
 
 type SavedSettings = AppSettings;
 
@@ -54,6 +57,7 @@ export default function App() {
   const [viewerSessions, setViewerSessions] = useState<ViewerSession[]>([]);
   const [logEntries, setLogEntries] = useState<AppLogEntry[]>([]);
   const [hostRoomInvite, setHostRoomInvite] = useState<HostRoomInvite>();
+  const [inviteCodeInput, setInviteCodeInput] = useState('');
   const [savedSettings, setSavedSettings] = useState<SavedSettings>();
 
   const canHost = useMemo(() => roomName.trim().length >= 3, [roomName]);
@@ -262,6 +266,28 @@ export default function App() {
     });
   }
 
+  async function copyInviteCode() {
+    if (!hostRoomInvite) return;
+
+    await runAction('room', '초대 코드 복사 중', async () => {
+      await window.hapticRelay.copyText(encodeInviteCode(hostRoomInvite));
+      setStatusMessage('ok', '초대 코드가 클립보드에 복사됨');
+    });
+  }
+
+  function applyInviteCode() {
+    try {
+      const invite = decodeInviteCode(inviteCodeInput);
+      setRelayUrl(invite.relayUrl);
+      setRoomName(invite.roomName);
+      setPassword(invite.password ?? '');
+      setEntryMode(invite.entryMode);
+      setStatusMessage('ok', `초대 코드 적용됨: ${invite.roomName}`);
+    } catch (error) {
+      setStatusMessage('error', formatError(error));
+    }
+  }
+
   async function joinRoom() {
     if (!canJoin) {
       setStatusMessage('warning', '표시 이름과 3자 이상의 방 이름이 필요합니다');
@@ -456,7 +482,14 @@ export default function App() {
           <strong>{hostRoomInvite.entryMode === 'request' ? '신청입장' : '자유입장'}</strong>
         </div>
       </div>
-      <button disabled={isBusy} onClick={copyInvite}>입장 정보 복사</button>
+      <div className="invite-code">
+        <span>초대 코드</span>
+        <code>{encodeInviteCode(hostRoomInvite)}</code>
+      </div>
+      <div className="button-row">
+        <button disabled={isBusy} onClick={copyInvite}>입장 정보 복사</button>
+        <button disabled={isBusy} onClick={copyInviteCode}>초대 코드 복사</button>
+      </div>
     </section>
   ) : null;
 
@@ -572,6 +605,15 @@ export default function App() {
         ) : (
           <>
             <section className="panel">
+              <h2>초대 코드</h2>
+              <label>
+                스트리머가 공유한 코드
+                <textarea value={inviteCodeInput} onChange={event => setInviteCodeInput(event.target.value)} rows={3} />
+              </label>
+              <button disabled={isBusy || inviteCodeInput.trim().length === 0} onClick={applyInviteCode}>적용</button>
+            </section>
+
+            <section className="panel">
               <h2>방 입장</h2>
               <div className="form-grid">
                 <label>
@@ -620,8 +662,60 @@ function formatInviteText(invite: HostRoomInvite) {
     `서버: ${invite.relayUrl}`,
     `방 이름: ${invite.roomName}`,
     `비밀번호: ${invite.password ?? '없음'}`,
-    `입장 방식: ${invite.entryMode === 'request' ? '신청입장' : '자유입장'}`
+    `입장 방식: ${invite.entryMode === 'request' ? '신청입장' : '자유입장'}`,
+    `초대 코드: ${encodeInviteCode(invite)}`
   ].join('\n');
+}
+
+function encodeInviteCode(invite: HostRoomInvite) {
+  const payload: InvitePayload = {
+    v: 1,
+    relayUrl: invite.relayUrl,
+    roomName: invite.roomName,
+    password: invite.password,
+    entryMode: invite.entryMode
+  };
+  return `HRS1.${base64UrlEncode(JSON.stringify(payload))}`;
+}
+
+function decodeInviteCode(value: string): HostRoomInvite {
+  try {
+    const trimmed = value.trim();
+    const encoded = trimmed.startsWith('HRS1.') ? trimmed.slice(5) : trimmed;
+    const payload = JSON.parse(base64UrlDecode(encoded)) as Partial<InvitePayload>;
+
+    if (payload.v !== 1) throw new Error('invalid-invite-code');
+    if (typeof payload.relayUrl !== 'string') throw new Error('invalid-invite-code');
+    if (typeof payload.roomName !== 'string' || payload.roomName.trim().length < 3) throw new Error('invalid-invite-code');
+    if (payload.entryMode !== 'open' && payload.entryMode !== 'request') throw new Error('invalid-invite-code');
+    const password = typeof payload.password === 'string' && payload.password.length > 0 ? payload.password : undefined;
+
+    return {
+      relayUrl: normalizeRelayUrl(payload.relayUrl),
+      roomName: payload.roomName.trim(),
+      password,
+      entryMode: payload.entryMode
+    };
+  } catch {
+    throw new Error('invalid-invite-code');
+  }
+}
+
+function base64UrlEncode(value: string) {
+  const bytes = new TextEncoder().encode(value);
+  let binary = '';
+  bytes.forEach(byte => {
+    binary += String.fromCharCode(byte);
+  });
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
+
+function base64UrlDecode(value: string) {
+  const normalized = value.replace(/-/g, '+').replace(/_/g, '/');
+  const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
+  const binary = atob(padded);
+  const bytes = Uint8Array.from(binary, char => char.charCodeAt(0));
+  return new TextDecoder().decode(bytes);
 }
 
 function normalizeRelayUrl(value: string) {
@@ -690,6 +784,7 @@ function formatLogMessage(message: string) {
 function formatReason(reason: string) {
   const messages: Record<string, string> = {
     'invalid-relay-url': '릴레이 서버 URL은 http 또는 https 주소여야 합니다',
+    'invalid-invite-code': '초대 코드가 올바르지 않습니다',
     'hardware-not-connected': '하드웨어가 연결되어 있지 않습니다',
     'relay-not-connected': '릴레이 서버에 연결되어 있지 않습니다',
     'room-not-found': '방을 찾을 수 없습니다',
