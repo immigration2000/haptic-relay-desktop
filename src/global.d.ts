@@ -55,6 +55,7 @@ declare global {
       onEmergencyStop: (listener: (signal: StopSignal) => void) => () => void;
       onConnectionStatus: (listener: (status: RelayConnectionStatus) => void) => () => void;
       getLogs: () => Promise<AppLogEntry[]>;
+      exportLogs: () => Promise<{ exported: boolean; canceled: boolean; path?: string; count: number }>;
       copyText: (text: string) => Promise<{ copied: boolean }>;
       getSettings: () => Promise<AppSettings>;
       saveSettings: (settings: AppSettings) => Promise<{ settings: AppSettings }>;

@@ -59,6 +59,7 @@ contextBridge.exposeInMainWorld('hapticRelay', {
     return () => ipcRenderer.removeListener('room:connection-status', handler);
   },
   getLogs: () => ipcRenderer.invoke('app:logs'),
+  exportLogs: () => ipcRenderer.invoke('app:export-logs'),
   copyText: (text: string) => ipcRenderer.invoke('app:copy-text', text),
   getSettings: () => ipcRenderer.invoke('app:get-settings'),
   saveSettings: (settings: AppSettings) => ipcRenderer.invoke('app:save-settings', settings),

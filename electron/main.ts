@@ -1,4 +1,4 @@
-import { app, BrowserWindow, clipboard, ipcMain, session } from 'electron';
+import { app, BrowserWindow, clipboard, dialog, ipcMain, session } from 'electron';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -226,6 +226,33 @@ ipcMain.handle('app:logs', event => {
   assertTrustedSender(event);
   return logEntries;
 });
+ipcMain.handle('app:export-logs', async event => {
+  assertTrustedSender(event);
+  if (!mainWindow) throw new Error('window-not-ready');
+
+  const result = await dialog.showSaveDialog(mainWindow, {
+    title: 'Export Haptic Relay Logs',
+    defaultPath: `haptic-relay-logs-${formatFileTimestamp(new Date())}.json`,
+    filters: [
+      { name: 'JSON', extensions: ['json'] }
+    ]
+  });
+
+  if (result.canceled || !result.filePath) {
+    return { exported: false, canceled: true, count: logEntries.length };
+  }
+
+  const payload = {
+    app: 'Haptic Relay',
+    version: app.getVersion(),
+    exportedAt: new Date().toISOString(),
+    entries: logEntries
+  };
+
+  await fs.writeFile(result.filePath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
+  addLog({ level: 'info', source: 'app', message: 'logs-exported', details: `${logEntries.length}` });
+  return { exported: true, canceled: false, path: result.filePath, count: logEntries.length };
+});
 ipcMain.handle('app:copy-text', (event, text: unknown) => {
   assertTrustedSender(event);
   const value = validateShortText(text, 'clipboardText', 1, 1000);
@@ -400,6 +427,10 @@ function formatError(error: unknown) {
   if (error instanceof Error) return error.message;
   if (typeof error === 'string') return error;
   return 'unknown-error';
+}
+
+function formatFileTimestamp(date: Date) {
+  return date.toISOString().replace(/[:.]/g, '-');
 }
 
 async function readSettings(): Promise<AppSettings> {

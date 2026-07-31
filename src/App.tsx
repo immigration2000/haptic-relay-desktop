@@ -4,7 +4,7 @@ import './styles.css';
 
 type Role = 'host' | 'viewer';
 type StatusTone = 'idle' | 'busy' | 'ok' | 'warning' | 'error';
-type BusyAction = 'ports' | 'hardware' | 'room' | 'join' | 'approval' | 'moderation' | 'motion' | 'stop';
+type BusyAction = 'ports' | 'hardware' | 'room' | 'join' | 'approval' | 'moderation' | 'motion' | 'stop' | 'logs';
 
 type AppStatus = {
   tone: StatusTone;
@@ -322,6 +322,18 @@ export default function App() {
     }
   }
 
+  async function exportLogs() {
+    await runAction('logs', '로그 저장 중', async () => {
+      const result = await window.hapticRelay.exportLogs();
+      if (result.canceled) {
+        setStatusMessage('warning', '로그 저장이 취소됨');
+        return;
+      }
+
+      setStatusMessage('ok', `로그 저장 완료: ${result.count}개`);
+    });
+  }
+
   const hardwarePanel = (
     <section className="panel">
       <h2>{role === 'host' ? '스트리머 하드웨어' : '시청자 하드웨어'}</h2>
@@ -402,7 +414,10 @@ export default function App() {
 
   const logPanel = (
     <section className="panel">
-      <h2>이벤트 로그</h2>
+      <div className="panel-header">
+        <h2>이벤트 로그</h2>
+        <button disabled={isBusy || logEntries.length === 0} onClick={exportLogs}>저장</button>
+      </div>
       {logEntries.length === 0 ? (
         <p className="muted">아직 기록된 이벤트가 없습니다.</p>
       ) : (
@@ -664,6 +679,7 @@ function formatLogMessage(message: string) {
     'emergency-stop-requested': '긴급 정지 요청',
     'relay-disconnect-requested': 'relay 연결 해제 요청',
     'clipboard-copied': '클립보드 복사',
+    'logs-exported': '로그 저장',
     'settings-saved': '설정 저장',
     'settings-defaulted': '기본 설정 사용'
   };
@@ -706,7 +722,8 @@ function formatReason(reason: string) {
     'invalid-protectionPositionMin': '보호 최소 위치는 0부터 1 사이여야 합니다',
     'invalid-protectionPositionMax': '보호 최대 위치는 0부터 1 사이여야 합니다',
     'protection-paused': '수신 일시정지 중입니다',
-    'timeout': '요청 시간이 초과되었습니다'
+    'timeout': '요청 시간이 초과되었습니다',
+    'window-not-ready': '앱 창이 아직 준비되지 않았습니다'
   };
 
   return messages[reason] ?? reason;

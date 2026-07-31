@@ -46,7 +46,7 @@ src/App.tsx
   데스크톱 앱 UI. 스트리머/시청자 역할, 방 생성, 방 입장 정보 복사, 하드웨어 연결, 접속자 관리, 이벤트 로그 표시.
 
 electron/main.ts
-  Electron main process. Renderer와 native 기능 사이 IPC 연결, CSP, navigation/window-open 차단, IPC 입력값 검증, settings.json 저장/불러오기, 최근 이벤트 로그 버퍼.
+  Electron main process. Renderer와 native 기능 사이 IPC 연결, CSP, navigation/window-open 차단, IPC 입력값 검증, settings.json 저장/불러오기, 최근 이벤트 로그 버퍼, 로그 export.
 
 electron/services/relay-client.ts
   Control API 호출, Socket.IO relay 연결, motion packet 송신/수신, 신청입장 승인 이벤트 처리.
@@ -530,8 +530,20 @@ main process는 최근 300개 이벤트를 메모리 버퍼로 보관합니다. 
 - hardware safety timeout
 - protection update/pause/motion dropped while paused
 - clipboard copy
+- logs exported
 
-현재 로그는 앱 프로세스 메모리에만 보관합니다. 영구 파일 로그와 export는 별도 작업으로 분리합니다.
+사용자가 이벤트 로그의 `저장` 버튼을 누르면 renderer는 `app:export-logs` IPC를 호출합니다. 파일 경로 선택과 파일 쓰기는 main process의 save dialog에서 처리합니다.
+
+export JSON:
+
+```json
+{
+  "app": "Haptic Relay",
+  "version": "0.1.0",
+  "exportedAt": "2026-07-31T00:00:00.000Z",
+  "entries": []
+}
+```
 
 ## 12. 지연 최적화
 
