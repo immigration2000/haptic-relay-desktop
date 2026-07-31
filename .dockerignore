@@ -1,0 +1,14 @@
+node_modules/
+dist/
+dist-electron/
+dist-server/
+release/
+.npm-cache/
+.git/
+.env
+.env.*
+!.env.example
+npm-debug.log*
+*.local
+.DS_Store
+Thumbs.db

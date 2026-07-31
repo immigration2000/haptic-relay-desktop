@@ -110,6 +110,17 @@ npm.cmd run release:check
   Electron 런타임, SerialPort native binding, app.asar, app.asar.unpacked, NSIS 산출물 존재 여부를 점검.
 ```
 
+서버 배포:
+
+```text
+npm.cmd run build:server
+npm.cmd run server:start
+  dist-server/server/src/relay-server.js 실행.
+
+Dockerfile.server
+  Node 22 기반 서버 컨테이너 이미지. 자세한 rollout은 docs/DEPLOYMENT.md 참고.
+```
+
 패키징 설정:
 
 - `asar: true`
@@ -765,12 +776,11 @@ dd0a0f7 feat: route viewer motion to hardware
 
 1. adaptive Hz 자동 조절
 2. Redis live integration test
-3. Dockerfile / production deployment
-4. TLS termination / reverse proxy 설정
-5. Prometheus metrics 또는 structured logging
-6. Control API를 별도 서비스로 분리
-7. Postgres user/account/billing/moderation schema
-8. 영구 차단/세션 로그 저장소
+3. TLS termination / reverse proxy 설정
+4. Prometheus metrics 또는 structured logging
+5. Control API를 별도 서비스로 분리
+6. Postgres user/account/billing/moderation schema
+7. 영구 차단/세션 로그 저장소
 
 ## 20. 중요한 설계 원칙
 

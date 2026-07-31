@@ -38,6 +38,8 @@ const relayDirectory = RelayDirectory.fromEnv(publicRelayUrl, maxViewersPerRoom)
 let roomRegistry: RoomRegistry;
 const activeRooms = new Map<string, RoomRecord>();
 
+validateRuntimeConfig();
+
 const httpServer = createServer((request, response) => {
   void handleControlRequest(request, response).catch(error => {
     console.error('control request failed', error);
@@ -464,4 +466,31 @@ function refillMotionTokens(room: RoomRecord) {
   const refill = elapsedMs * (relayMaxHz / 1000);
   room.motionTokens = Math.min(burstFrames, room.motionTokens + refill);
   room.lastTokenRefillAt = now;
+}
+
+function validateRuntimeConfig() {
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error('invalid-relay-port');
+  }
+  if (!Number.isFinite(tokenTtlMs) || tokenTtlMs <= 0) {
+    throw new Error('invalid-token-ttl');
+  }
+  if (!Number.isFinite(maxViewersPerRoom) || maxViewersPerRoom < 1) {
+    throw new Error('invalid-max-viewers');
+  }
+  if (!Number.isFinite(relayMaxHz) || relayMaxHz < 1 || relayMaxHz > 240) {
+    throw new Error('invalid-relay-max-hz');
+  }
+  if (!Number.isFinite(burstFrames) || burstFrames < 1 || burstFrames > 10) {
+    throw new Error('invalid-relay-burst-frames');
+  }
+
+  if (process.env.NODE_ENV === 'production') {
+    if (tokenSecret === 'dev-only-change-me' || tokenSecret === 'change-me-before-production' || tokenSecret.length < 32) {
+      throw new Error('insecure-production-token-secret');
+    }
+    if (publicRelayUrl.startsWith('http://localhost') || publicRelayUrl.startsWith('http://127.0.0.1')) {
+      throw new Error('invalid-production-public-relay-url');
+    }
+  }
 }

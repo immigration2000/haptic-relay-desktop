@@ -56,6 +56,13 @@ npm.cmd run server:dev
 npm.cmd run electron:dev
 ```
 
+운영형 서버 실행:
+
+```powershell
+npm.cmd run build:server
+npm.cmd run server:start
+```
+
 ## 데스크톱 패키징
 
 검증용 unpacked 앱 디렉터리:
@@ -163,6 +170,8 @@ HAPTIC_ROOM_TTL_SECONDS=28800
 ```
 
 Redis는 room metadata와 relay node assignment 저장에만 사용합니다. 고주파 motion fanout은 relay node의 active room cache에서 처리해서 Redis를 매 프레임 치지 않습니다.
+
+컨테이너 배포와 rollout 단계는 [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)를 기준으로 합니다.
 
 ## 릴레이 모션 프로토콜
 

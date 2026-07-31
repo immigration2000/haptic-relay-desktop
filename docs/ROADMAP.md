@@ -12,7 +12,7 @@
 
 ## Phase 2: Production Relay
 
-- Hosted relay service
+- Hosted relay service deployment shape
 - Website low-latency backend remains separate from app relay
 - Authenticated streamer accounts
 - Room password hashing
