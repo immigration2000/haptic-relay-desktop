@@ -40,6 +40,7 @@ declare global {
       connectHardware: (pathName: string, profile: HardwareProfile) => Promise<HardwareConnectResult>;
       disconnectHardware: () => Promise<unknown>;
       stopHardware: () => Promise<unknown>;
+      testHardware: () => Promise<{ tested: boolean; steps?: number; reason?: string }>;
       sendMotion: (intensity: number, position: number) => Promise<unknown>;
       setHardwareProtection: (protection: HardwareProtection) => Promise<{ protection: HardwareProtection }>;
       startHostRoom: (relayUrl: string, settings: RoomSettings) => Promise<{ roomName: string; entryMode: string; relayUrl: string }>;

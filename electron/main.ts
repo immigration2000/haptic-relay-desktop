@@ -171,6 +171,10 @@ ipcMain.handle('hardware:emergency-stop', event => {
   assertTrustedSender(event);
   return hardware.emergencyStop();
 });
+ipcMain.handle('hardware:test', event => {
+  assertTrustedSender(event);
+  return hardware.runTestPattern();
+});
 ipcMain.handle('hardware:send', async (event, intensity: unknown, position: unknown) => {
   assertTrustedSender(event);
   const frame = { intensity: validateUnitInterval(intensity, 'intensity'), position: validateUnitInterval(position, 'position'), timestamp: Date.now() };

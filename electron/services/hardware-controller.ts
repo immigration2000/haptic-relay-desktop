@@ -13,6 +13,8 @@ import {
 import { encodeTCodeMotion, encodeTCodeProbe, encodeTCodeStop, parseTCodeProbe } from './tcode-encoder.js';
 
 const TCODE_PROBE_TIMEOUT_MS = 350;
+const HARDWARE_TEST_STEP_DELAY_MS = 180;
+const HARDWARE_TEST_POSITIONS = [0.2, 0.5, 0.8, 0.5];
 const DEFAULT_HARDWARE_PROFILE: HardwareProfile = {
   baudRate: 115200,
   linearAxis: TCODE_LINEAR_AXIS,
@@ -149,6 +151,52 @@ export class HardwareController {
     return { stopped: true };
   }
 
+  async runTestPattern() {
+    if (this.flushTimer) {
+      clearTimeout(this.flushTimer);
+      this.flushTimer = undefined;
+    }
+    this.clearSafetyTimer();
+    this.latestFrame = undefined;
+
+    if (!this.port?.isOpen) {
+      return { tested: false, reason: 'hardware-not-connected' };
+    }
+
+    this.onLog?.({ level: 'info', source: 'hardware', message: 'hardware-test-started' });
+
+    try {
+      for (const position of HARDWARE_TEST_POSITIONS) {
+        const protectedFrame = applyProtection({
+          intensity: 0.25,
+          position,
+          timestamp: Date.now()
+        }, this.protection);
+
+        if (!protectedFrame) {
+          return { tested: false, reason: 'protection-paused' };
+        }
+
+        const payload = encodeTCodeMotion(applyProfile(protectedFrame, this.profile), {
+          linearAxis: this.profile.linearAxis,
+          vibrationAxis: this.profile.vibrationAxis,
+          intervalMs: HARDWARE_TEST_STEP_DELAY_MS
+        });
+        await this.writePayload(payload);
+        await delay(HARDWARE_TEST_STEP_DELAY_MS);
+      }
+
+      return { tested: true, steps: HARDWARE_TEST_POSITIONS.length };
+    } catch (error) {
+      console.error('hardware test pattern failed', error);
+      this.onLog?.({ level: 'error', source: 'hardware', message: 'hardware-test-failed', details: formatError(error) });
+      throw error;
+    } finally {
+      await this.emergencyStop();
+      this.onLog?.({ level: 'info', source: 'hardware', message: 'hardware-test-finished' });
+    }
+  }
+
   private scheduleFlush() {
     if (this.flushTimer || this.writing) return;
 
@@ -248,6 +296,10 @@ function formatError(error: unknown) {
   if (error instanceof Error) return error.message;
   if (typeof error === 'string') return error;
   return 'unknown-error';
+}
+
+function delay(ms: number) {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 function normalizeProfile(profile: HardwareProfile): HardwareProfile {

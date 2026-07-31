@@ -24,6 +24,7 @@ contextBridge.exposeInMainWorld('hapticRelay', {
   connectHardware: (pathName: string, profile: HardwareProfile) => ipcRenderer.invoke('hardware:connect', pathName, profile),
   disconnectHardware: () => ipcRenderer.invoke('hardware:disconnect'),
   stopHardware: () => ipcRenderer.invoke('hardware:emergency-stop'),
+  testHardware: () => ipcRenderer.invoke('hardware:test'),
   sendMotion: (intensity: number, position: number) => ipcRenderer.invoke('hardware:send', intensity, position),
   setHardwareProtection: (protection: HardwareProtection) => ipcRenderer.invoke('hardware:set-protection', protection),
   startHostRoom: (relayUrl: string, settings: RoomSettings) => ipcRenderer.invoke('room:start-host', relayUrl, settings),
