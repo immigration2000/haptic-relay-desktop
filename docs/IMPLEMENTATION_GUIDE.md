@@ -95,7 +95,7 @@ payload:
 HRS1.<base64url(utf8-json)>
 ```
 
-QR 이미지를 추가할 때도 같은 `HRS1.` 문자열을 QR payload로 사용합니다.
+host UI는 같은 `HRS1.` 문자열을 로컬 QR 이미지로 생성해 표시합니다. QR 생성은 외부 네트워크 호출 없이 renderer 내부에서 처리합니다.
 
 패키징:
 

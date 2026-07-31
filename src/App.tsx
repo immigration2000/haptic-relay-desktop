@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { AppLogEntry, AppSettings, ApprovalRequest, EntryMode, HardwareProfile, HardwareProtection, PortInfo, ViewerSession } from './shared/protocol';
+import { createQrMatrix } from './qr-code';
 import './styles.css';
 
 type Role = 'host' | 'viewer';
@@ -63,6 +64,7 @@ export default function App() {
   const canHost = useMemo(() => roomName.trim().length >= 3, [roomName]);
   const canJoin = useMemo(() => roomName.trim().length >= 3 && displayName.trim().length > 0, [displayName, roomName]);
   const isBusy = busyAction !== undefined;
+  const inviteQrMatrix = useMemo(() => hostRoomInvite ? createQrMatrix(encodeInviteCode(hostRoomInvite)) : undefined, [hostRoomInvite]);
 
   useEffect(() => {
     void loadSettings();
@@ -486,6 +488,15 @@ export default function App() {
         <span>초대 코드</span>
         <code>{encodeInviteCode(hostRoomInvite)}</code>
       </div>
+      {inviteQrMatrix ? (
+        <div className="qr-card" aria-label="초대 QR 코드">
+          <div className="qr-grid" style={{ gridTemplateColumns: `repeat(${inviteQrMatrix.length}, 1fr)` }}>
+            {inviteQrMatrix.flatMap((row, rowIndex) => row.map((dark, colIndex) => (
+              <span className={dark ? 'dark' : ''} key={`${rowIndex}-${colIndex}`} />
+            )))}
+          </div>
+        </div>
+      ) : null}
       <div className="button-row">
         <button disabled={isBusy} onClick={copyInvite}>입장 정보 복사</button>
         <button disabled={isBusy} onClick={copyInviteCode}>초대 코드 복사</button>

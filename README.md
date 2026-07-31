@@ -111,7 +111,7 @@ $env:VIEWERS=500; $env:HZ=30; $env:DURATION_MS=30000; npm.cmd run load:relay
 }
 ```
 
-코드는 UTF-8 JSON을 base64url로 인코딩한 값입니다. QR 이미지를 추가할 때도 같은 `HRS1.` 코드를 QR payload로 사용합니다.
+코드는 UTF-8 JSON을 base64url로 인코딩한 값입니다. 앱은 같은 `HRS1.` 코드를 로컬 QR 이미지로도 표시합니다.
 
 ## 운영 서버 구조
 
