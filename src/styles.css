@@ -151,13 +151,18 @@ label {
 }
 
 input,
-select {
+select,
+textarea {
   min-width: 0;
   border: 1px solid #cbd5de;
   border-radius: 6px;
   padding: 10px 12px;
   color: #1e2933;
   background: #ffffff;
+}
+
+textarea {
+  resize: vertical;
 }
 
 .hardware-row {
@@ -238,6 +243,28 @@ select {
 }
 
 .invite-grid strong {
+  overflow-wrap: anywhere;
+}
+
+.invite-code {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid #d7e0e7;
+  border-radius: 6px;
+  background: #f8fafb;
+}
+
+.invite-code span {
+  color: #647684;
+  font-size: 13px;
+}
+
+.invite-code code {
+  color: #1e2933;
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 13px;
   overflow-wrap: anywhere;
 }
 

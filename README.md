@@ -95,6 +95,24 @@ Windows PowerShell:
 $env:VIEWERS=500; $env:HZ=30; $env:DURATION_MS=30000; npm.cmd run load:relay
 ```
 
+## 초대 코드
+
+스트리머가 방을 만들면 앱은 방 입장 정보와 함께 `HRS1.` 초대 코드를 표시합니다. 시청자는 이 코드를 앱의 `초대 코드` 입력칸에 붙여넣고 `적용`을 누르면 서버 URL, 방 이름, 비밀번호, 입장 방식이 자동 입력됩니다.
+
+초대 코드 payload:
+
+```json
+{
+  "v": 1,
+  "relayUrl": "http://localhost:4174",
+  "roomName": "studio-main",
+  "password": "optional",
+  "entryMode": "open"
+}
+```
+
+코드는 UTF-8 JSON을 base64url로 인코딩한 값입니다. QR 이미지를 추가할 때도 같은 `HRS1.` 코드를 QR payload로 사용합니다.
+
 ## 운영 서버 구조
 
 현재 서버 프로세스는 Control API와 Relay Node를 함께 실행합니다. 운영에서는 같은 API 계약을 유지한 채 Control API를 별도 서비스로 분리할 수 있습니다.
