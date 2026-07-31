@@ -81,6 +81,9 @@ npm.cmd run electron:pack
 
 npm.cmd run electron:build
   build 후 electron-builder --win nsis 실행. Windows 설치 파일 생성.
+
+npm.cmd run release:check
+  Electron 런타임, SerialPort native binding, app.asar, app.asar.unpacked, NSIS 산출물 존재 여부를 점검.
 ```
 
 패키징 설정:

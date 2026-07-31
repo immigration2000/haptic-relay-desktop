@@ -70,6 +70,12 @@ Windows 설치 파일:
 npm.cmd run electron:build
 ```
 
+패키징 결과 점검:
+
+```powershell
+npm.cmd run release:check
+```
+
 패키징 산출물은 `release/`에 생성합니다. SerialPort native binding은 ASAR 안에 넣지 않고 `app.asar.unpacked`로 풀어 배포하도록 `asarUnpack`을 설정했습니다.
 
 릴리스 머신에서는 Electron 런타임이 설치되어 있거나 다운로드 가능해야 합니다. 이 저장소를 샌드박스처럼 `npm install --ignore-scripts`로 설치하면 Electron postinstall이 실행되지 않아 `electron-builder`가 Electron 바이너리를 찾거나 내려받아야 합니다.
