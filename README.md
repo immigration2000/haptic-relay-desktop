@@ -222,6 +222,7 @@ DSTOP
 - SerialPort 출력은 backpressure를 고려해 최신 프레임만 큐에 남깁니다.
 - 하드웨어는 새 motion frame이 일정 시간 없으면 자동으로 `DSTOP`과 0 위치 fallback을 출력합니다.
 - 앱은 최근 300개 이벤트를 main process 메모리 로그로 보관하고 UI에는 최근 80개를 표시합니다.
+- 이벤트 로그는 UI의 `저장` 버튼으로 JSON 파일로 export할 수 있습니다.
 
 ## 이벤트 로그
 
@@ -235,6 +236,18 @@ DSTOP
 - room-wide stop 수신
 - safety timeout, protection pause, protection update
 - 클립보드 복사
+- 로그 저장
+
+로그 저장 파일은 사용자가 선택한 경로에 JSON으로 저장합니다.
+
+```json
+{
+  "app": "Haptic Relay",
+  "version": "0.1.0",
+  "exportedAt": "2026-07-31T00:00:00.000Z",
+  "entries": []
+}
+```
 
 ## 다음 구현 순서
 
