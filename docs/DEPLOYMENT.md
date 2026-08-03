@@ -30,6 +30,7 @@ Required:
 ```text
 NODE_ENV=production
 HAPTIC_RELAY_PORT=4174
+HAPTIC_RELAY_HOST=0.0.0.0
 HAPTIC_PUBLIC_RELAY_URL=https://relay.example.com
 HAPTIC_RELAY_NODE_ID=relay-seoul-1
 HAPTIC_CONTROL_TOKEN_SECRET=<32+ char random secret>
@@ -39,6 +40,7 @@ HAPTIC_ROOM_TTL_SECONDS=28800
 HAPTIC_MAX_VIEWERS_PER_ROOM=500
 HAPTIC_RELAY_MAX_HZ=30
 HAPTIC_RELAY_BURST_FRAMES=2
+HAPTIC_HOST_RECONNECT_GRACE_MS=15000
 ```
 
 For a single MVP node, `HAPTIC_RELAY_NODES` can be omitted. For multiple nodes:
@@ -99,6 +101,27 @@ Track at minimum:
 - forwarded frames
 - dropped frames
 - effective max Hz
+
+## Redis Live Test
+
+Run this before using `HAPTIC_ROOM_REGISTRY_DRIVER=redis` in a hosted environment:
+
+```powershell
+$env:HAPTIC_REDIS_URL="redis://localhost:6379"
+$env:HAPTIC_ROOM_TTL_SECONDS="60"
+npm.cmd run test:redis
+```
+
+The test verifies:
+
+- room create
+- room read
+- host socket attach
+- room count/list
+- room TTL
+- host disconnect cleanup
+
+It requires a real Redis server. If Redis is not running or not installed, the test fails with a connection error.
 
 ## Rollout Path
 

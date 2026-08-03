@@ -11,4 +11,3 @@ assert.match(preloadSource, /require\(['"]electron['"]\)/);
 assert.doesNotMatch(preloadSource, /^\s*import\s/m);
 
 console.log('sandbox preload format: commonjs');
-

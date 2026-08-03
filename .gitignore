@@ -3,6 +3,7 @@ dist/
 dist-electron/
 dist-server/
 release/
+test-kit/
 .npm-cache/
 .env
 .env.*

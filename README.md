@@ -117,6 +117,12 @@ curl http://localhost:4174/metrics
 
 서버를 띄운 상태에서 소켓 fanout까지 확인하려면 [릴레이 부하 테스트](#릴레이-부하-테스트)를 실행합니다.
 
+핵심 릴레이 흐름 자동 점검:
+
+```powershell
+npm.cmd run test:smoke
+```
+
 ### 운영형 서버 실행
 
 ```powershell
@@ -125,6 +131,25 @@ npm.cmd run server:start
 ```
 
 로컬 셋팅 절차, 렌더러 부팅 관련 함정, 진단 방법은 [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)에 정리했습니다.
+
+## PC + 노트북 로컬 테스트
+
+두 장치를 같은 네트워크에 연결하고, 서버를 실행할 PC의 사설 IPv4 주소를 확인합니다. 예시는 `192.168.0.10`입니다.
+
+서버 PC PowerShell:
+
+```powershell
+$env:HAPTIC_RELAY_HOST="0.0.0.0"
+$env:HAPTIC_PUBLIC_RELAY_URL="http://192.168.0.10:4174"
+npm.cmd run server:dev
+```
+
+Windows 방화벽에서 Node.js의 개인 네트워크 인바운드 연결을 허용한 뒤, PC와 노트북 앱의 `서버 URL`에 모두 `http://192.168.0.10:4174`를 입력합니다. 공용 인터넷 주소의 평문 HTTP는 앱에서 계속 차단됩니다.
+
+1. PC 앱에서 스트리머 역할로 방을 만듭니다.
+2. 노트북 앱에서 시청자 역할로 같은 방에 입장합니다.
+3. 먼저 장비 없이 모션 전송, 긴급 정지, 승인/강퇴 흐름을 확인합니다.
+4. 장비를 연결한 뒤 낮은 강도와 제한된 위치 범위로 하드웨어 테스트를 실행합니다.
 
 ## 데스크톱 패키징
 
@@ -233,6 +258,16 @@ HAPTIC_ROOM_TTL_SECONDS=28800
 ```
 
 Redis는 room metadata와 relay node assignment 저장에만 사용합니다. 고주파 motion fanout은 relay node의 active room cache에서 처리해서 Redis를 매 프레임 치지 않습니다.
+
+Redis registry live test:
+
+```powershell
+$env:HAPTIC_REDIS_URL="redis://localhost:6379"
+$env:HAPTIC_ROOM_TTL_SECONDS="60"
+npm.cmd run test:redis
+```
+
+이 테스트는 실제 Redis 서버가 실행 중이어야 합니다.
 
 컨테이너 배포와 rollout 단계는 [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)를 기준으로 합니다.
 
