@@ -115,6 +115,8 @@ export class InMemoryRoomRegistry implements RoomRegistry {
   async saveRoom(room: RoomRecord) {
     this.rooms.set(room.roomName, room);
   }
+
+  async close() {}
 }
 
 export interface RoomRegistry {
@@ -126,6 +128,7 @@ export interface RoomRegistry {
   roomCount(): Promise<number>;
   listRelayNodes(): RelayNode[];
   saveRoom(room: RoomRecord): Promise<void>;
+  close?(): Promise<void>;
 }
 
 export async function createRoomRegistry(relayDirectory: RelayDirectory, burstFrames: number): Promise<RoomRegistry> {
@@ -217,6 +220,12 @@ export class RedisRoomRegistry implements RoomRegistry {
       }),
       this.requiredClient().sAdd(roomIndexKey(), room.roomName)
     ]);
+  }
+
+  async close() {
+    if (this.client?.isOpen) {
+      await this.client.quit();
+    }
   }
 
   private async deleteRoom(roomName: string) {
