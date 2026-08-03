@@ -8,7 +8,7 @@ import { HardwareController } from './services/hardware-controller.js';
 import { RelayClient } from './services/relay-client.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const CONTENT_SECURITY_POLICY = [
+const CONTENT_SECURITY_POLICY_DIRECTIVES = [
   "default-src 'self'",
   "script-src 'self'",
   "style-src 'self' 'unsafe-inline'",
@@ -19,7 +19,14 @@ const CONTENT_SECURITY_POLICY = [
   "base-uri 'none'",
   "form-action 'none'",
   "frame-ancestors 'none'"
-].join('; ');
+];
+// The Vite dev server injects an inline react-refresh preamble and uses a blob:
+// worker for HMR reconnects. Only the dev-server run relaxes those directives;
+// the packaged app keeps the strict policy.
+const DEV_CSP_OVERRIDES: Record<string, string> = {
+  "script-src 'self'": "script-src 'self' 'unsafe-inline'",
+  "default-src 'self'": "default-src 'self' blob:"
+};
 const MAX_LOG_ENTRIES = 300;
 const DEFAULT_HARDWARE_PROFILE: HardwareProfile = {
   baudRate: 115200,
@@ -89,6 +96,13 @@ const relay = new RelayClient(frame => {
   mainWindow?.webContents.send('room:connection-status', status);
 });
 
+function contentSecurityPolicy() {
+  const relaxForDevServer = getDevServerUrl() !== undefined;
+  return CONTENT_SECURITY_POLICY_DIRECTIVES
+    .map(directive => (relaxForDevServer ? DEV_CSP_OVERRIDES[directive] ?? directive : directive))
+    .join('; ');
+}
+
 function configureSecurityPolicy() {
   session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => {
     callback(false);
@@ -98,7 +112,7 @@ function configureSecurityPolicy() {
     callback({
       responseHeaders: {
         ...details.responseHeaders,
-        'Content-Security-Policy': [CONTENT_SECURITY_POLICY]
+        'Content-Security-Policy': [contentSecurityPolicy()]
       }
     });
   });
@@ -119,7 +133,7 @@ function createWindow() {
     minHeight: 640,
     title: 'Haptic Relay',
     webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
+      preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
