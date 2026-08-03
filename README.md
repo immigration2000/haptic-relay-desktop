@@ -34,39 +34,94 @@
 
 ## 실행
 
-릴레이 서버:
+릴레이 서버와 데스크톱 앱은 별도 프로세스입니다. 터미널 두 개를 사용합니다.
+
+### 사전 요구사항
+
+- Node.js `^20.19.0 || >=22.12.0` (Vite 7 요구사항). 검증 환경은 v24.12.0입니다.
+- Windows에서 PowerShell `npm.ps1` 실행 정책 문제가 있으면 `npm` 대신 `npm.cmd`를 사용합니다.
+
+### 1. 설치
 
 ```bash
 npm install
+```
+
+`--ignore-scripts`로 설치하면 Electron postinstall이 실행되지 않아 앱을 띄울 수 없습니다. 설치 후 아래 두 경로가 있는지 확인합니다.
+
+- `node_modules/electron/dist/electron.exe`
+- `node_modules/@serialport/bindings-cpp/prebuilds/`
+
+### 2. 환경변수
+
+`.env.example`을 `.env`로 복사하고 `HAPTIC_CONTROL_TOKEN_SECRET`을 랜덤 값으로 바꿉니다.
+
+```bash
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+```
+
+`.env`를 읽는 로더는 코드에 없습니다. Vite는 `VITE_`로 시작하는 값만 읽고, 서버 프로세스는 `.env`를 읽지 않습니다. 로컬 테스트에서 `.env` 값을 서버에 적용하려면 3단계의 `server:test`를 사용합니다.
+
+### 3. 릴레이 서버 실행 (터미널 1)
+
+```bash
 npm run server:dev
 ```
 
-데스크톱 앱:
+`.env` 값을 적용하려면:
 
 ```bash
-npm install
+npm run server:test
+```
+
+`http://localhost:4174/healthz`가 `{"ok":true, ...}`를 반환하면 정상입니다.
+
+### 4. 데스크톱 앱 실행 (터미널 2)
+
+```bash
 npm run electron:dev
 ```
 
-PowerShell에서 `npm.ps1` 실행 정책 문제가 있으면 Windows의 `npm.cmd`를 사용합니다.
+Vite dev 서버(5173)가 뜬 뒤 Electron 창이 열립니다. 창이 뜨는데 내용이 비어 있으면 [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)를 확인합니다.
 
-```powershell
-npm.cmd install
-npm.cmd run server:dev
-npm.cmd run electron:dev
+빌드된 렌더러로 실행하려면:
+
+```bash
+npm run build
+npx electron .
 ```
 
-운영형 서버 실행:
+### 5. 방 만들고 연결하기
+
+스트리머 쪽:
+
+1. 앱에서 `스트리머`를 선택합니다.
+2. `서버 URL`에 릴레이 서버 주소를 입력합니다. 기본값은 `http://localhost:4174`입니다.
+3. 방 이름, 비밀번호, 입장 방식을 정하고 `방 생성`을 누릅니다.
+4. 표시된 초대 코드나 QR을 시청자에게 전달합니다.
+5. `스트리머 하드웨어`에서 포트를 고르고 `연결`을 누릅니다. `테스트` 버튼은 릴레이로 전송하지 않고 로컬 장비만 확인합니다.
+
+시청자 쪽:
+
+1. 앱에서 `시청자`를 선택합니다.
+2. 초대 코드를 `초대 코드` 칸에 붙여넣고 `적용`을 누르면 서버 URL, 방 이름, 비밀번호가 자동 입력됩니다.
+3. `방 입장`에서 표시 이름을 확인하고 `입장 요청`을 누릅니다. 신청입장 방이면 스트리머의 승인을 기다립니다.
+4. 자신의 하드웨어를 연결하면 수신한 모션이 로컬 장비로 출력됩니다.
+
+### 6. 동작 확인
+
+```bash
+curl http://localhost:4174/healthz
+curl http://localhost:4174/metrics
+```
+
+서버를 띄운 상태에서 소켓 fanout까지 확인하려면 [릴레이 부하 테스트](#릴레이-부하-테스트)를 실행합니다.
+
+### 운영형 서버 실행
 
 ```powershell
 npm.cmd run build:server
 npm.cmd run server:start
-```
-
-`.env`를 읽는 로더는 코드에 없습니다. 로컬 테스트에서 `.env` 값을 서버에 적용하려면 `server:test`를 사용합니다.
-
-```powershell
-npm.cmd run server:test
 ```
 
 로컬 셋팅 절차, 렌더러 부팅 관련 함정, 진단 방법은 [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)에 정리했습니다.
