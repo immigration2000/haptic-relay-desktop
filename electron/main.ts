@@ -311,7 +311,7 @@ function validateRelayUrl(value: unknown) {
   const parsed = new URL(value);
   if (parsed.username || parsed.password) throw new Error('invalid-relay-url');
 
-  const isLocalHttp = parsed.protocol === 'http:' && isLocalhost(parsed.hostname);
+  const isLocalHttp = parsed.protocol === 'http:' && isLocalNetworkHost(parsed.hostname);
   if (parsed.protocol !== 'https:' && !isLocalHttp) throw new Error('invalid-relay-url');
 
   return parsed.toString().replace(/\/$/, '');
@@ -454,6 +454,20 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isLocalhost(hostname: string) {
   return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1' || hostname === '[::1]';
+}
+
+function isLocalNetworkHost(hostname: string) {
+  if (isLocalhost(hostname)) return true;
+
+  const octets = hostname.split('.').map(Number);
+  if (octets.length !== 4 || octets.some(octet => !Number.isInteger(octet) || octet < 0 || octet > 255)) {
+    return false;
+  }
+
+  return octets[0] === 10
+    || (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31)
+    || (octets[0] === 192 && octets[1] === 168)
+    || (octets[0] === 169 && octets[1] === 254);
 }
 
 function formatError(error: unknown) {

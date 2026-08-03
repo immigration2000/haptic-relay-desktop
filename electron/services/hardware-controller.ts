@@ -142,10 +142,15 @@ export class HardwareController {
       stopPosition: this.profile.strokeMin
     });
 
-    await this.writePayload(payload).catch(error => {
+    const writeError = await this.writePayload(payload).then(() => undefined).catch(error => {
       console.error('hardware emergency stop failed', error);
       this.onLog?.({ level: 'error', source: 'hardware', message: 'hardware-stop-write-failed', details: formatError(error) });
+      return error;
     });
+
+    if (writeError) {
+      return { stopped: false, reason: 'hardware-stop-write-failed' };
+    }
 
     this.onLog?.({ level: 'warning', source: 'hardware', message: 'hardware-stopped' });
     return { stopped: true };
