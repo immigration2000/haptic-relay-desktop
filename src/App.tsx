@@ -339,7 +339,14 @@ export default function App() {
     setBusyAction('stop');
     setStatusMessage('busy', '긴급 정지 처리 중');
     try {
-      const result = await window.hapticRelay.emergencyStop() as { relay?: { sent?: boolean; reason?: string } };
+      const result = await window.hapticRelay.emergencyStop() as {
+        hardware?: { stopped?: boolean; reason?: string };
+        relay?: { sent?: boolean; reason?: string };
+      };
+      if (result.hardware?.stopped === false && result.hardware.reason === 'hardware-stop-write-failed') {
+        setStatusMessage('error', '긴급 정지 명령을 하드웨어에 쓰지 못했습니다. 장비 전원을 직접 차단하세요.');
+        return;
+      }
       if (result.relay?.sent === false && result.relay.reason !== 'invalid-host-room') {
         setStatusMessage('warning', `긴급 정지: 로컬 정지, relay ${formatReason(result.relay.reason ?? 'room-stop-failed')}`);
         return;
@@ -797,7 +804,7 @@ function formatLogMessage(message: string) {
 
 function formatReason(reason: string) {
   const messages: Record<string, string> = {
-    'invalid-relay-url': '릴레이 서버 URL은 http 또는 https 주소여야 합니다',
+    'invalid-relay-url': '릴레이 서버 URL은 https 또는 localhost/사설 IP의 http 주소여야 합니다',
     'invalid-invite-code': '초대 코드가 올바르지 않습니다',
     'hardware-not-connected': '하드웨어가 연결되어 있지 않습니다',
     'relay-not-connected': '릴레이 서버에 연결되어 있지 않습니다',
@@ -817,6 +824,8 @@ function formatReason(reason: string) {
     'ping timeout': '릴레이 응답 시간이 초과되었습니다',
     'room-rejoin-failed': '방 재입장에 실패했습니다',
     'room-stop-failed': '긴급 정지 전송에 실패했습니다',
+    'host-disconnected': '스트리머 연결이 종료되었습니다',
+    'hardware-stop-write-failed': '긴급 정지 명령을 하드웨어에 쓰지 못했습니다',
     'hardware-test-failed': '하드웨어 테스트에 실패했습니다',
     'invalid-hardware-profile': '하드웨어 프로필 설정이 올바르지 않습니다',
     'invalid-baud-rate': 'baudrate 값이 올바르지 않습니다',
