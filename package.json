@@ -9,6 +9,7 @@
     "dev": "vite --host 127.0.0.1",
     "server:dev": "npm run build:server && node dist-server/server/src/relay-server.js",
     "server:start": "node dist-server/server/src/relay-server.js",
+    "server:test": "npm run build:server && node --env-file=.env dist-server/server/src/relay-server.js",
     "server:prod": "npm run build:server && npm run server:start",
     "load:relay": "node scripts/relay-load-test.mjs",
     "build": "tsc --noEmit && npm run build:electron && npm run build:server && npm run build:renderer",
