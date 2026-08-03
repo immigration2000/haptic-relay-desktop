@@ -63,6 +63,14 @@ npm.cmd run build:server
 npm.cmd run server:start
 ```
 
+`.env`를 읽는 로더는 코드에 없습니다. 로컬 테스트에서 `.env` 값을 서버에 적용하려면 `server:test`를 사용합니다.
+
+```powershell
+npm.cmd run server:test
+```
+
+로컬 셋팅 절차, 렌더러 부팅 관련 함정, 진단 방법은 [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)에 정리했습니다.
+
 ## 데스크톱 패키징
 
 검증용 unpacked 앱 디렉터리:
