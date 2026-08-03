@@ -65,6 +65,17 @@ $env:VIEWERS=10; $env:HZ=30; $env:DURATION_MS=5000; npm.cmd run load:relay
 
 `receiveRate`가 `1`이면 정상입니다. 확인 당시 10 viewers / 30Hz / 5초 조건에서 1500 프레임 전송, 1500 프레임 수신이었습니다.
 
+자동 점검 스크립트도 있습니다.
+
+```powershell
+npm.cmd run test:smoke
+npm.cmd run test:electron
+```
+
+`test:smoke`는 릴레이 서버를 직접 띄워 방 생성, 입장, 승인, 강퇴, 긴급 정지, host 재접속, 만료 정리까지 13개 항목을 확인합니다. 별도로 서버를 실행해 둘 필요는 없습니다. `test:electron`은 빌드된 preload가 CommonJS인지 검사하는 회귀 테스트입니다.
+
+`test:redis`는 실제 Redis 서버가 떠 있어야 합니다.
+
 ## 2. 앱 창이 흰 화면으로 뜨던 문제
 
 앱은 실행되고 창과 메뉴바까지 나오지만 내용이 완전히 비어 있었습니다. 원인은 하나가 아니라 **서로 독립적인 결함 4개**가 겹친 것이었고, 앞의 것을 고쳐야 뒤의 것이 드러나는 구조였습니다.
@@ -139,7 +150,33 @@ const ws = new WebSocket(page.webSocketDebuggerUrl);
 - 앱 시작 직후 상태 문구가 `포트 확인 중`에 머무릅니다. `refreshPorts(true)`의 `silent` 분기가 완료 메시지를 의도적으로 갱신하지 않는 기존 동작이며, 포트 목록 자체는 정상적으로 채워집니다.
 - `npm audit`에 high 2건이 있습니다. `electron@37`(해소하려면 43으로 breaking 업그레이드)과 `brace-expansion` DoS(`npm audit fix`로 해소 가능). 임의로 올리지 않았습니다.
 
-## 5. 확인한 범위와 확인하지 못한 범위
+## 5. 교차검증 결과
+
+`test/pc-laptop-readiness` 브랜치에서 다른 장비로 같은 문제를 독립적으로 조사한 기록이 있습니다. 두 히스토리는 공통 조상이 없어(`no merge base`) 서로의 결과를 보지 않은 상태에서 진행됐고, 그만큼 겹치는 결론은 신뢰도가 높습니다.
+
+양쪽이 독립적으로 같은 결론에 도달한 항목:
+
+- preload를 CommonJS(`preload.cts` → `preload.cjs`)로 전환하되 `sandbox: true`는 유지
+- `tsconfig.electron.json`의 `include`에 `.cts` 추가
+- `src/main.tsx` 엔트리를 만들어 `createRoot(...).render(<App />)` 호출
+- `index.html`이 `main.tsx`를 가리키도록 변경
+
+두 `src/main.tsx`는 에러 문자열만 달랐습니다. 통합할 때는 저장소의 kebab-case 에러 코드 관례에 맞는 `root-element-not-found` 쪽을 남겼습니다.
+
+한쪽에만 있던 항목:
+
+| 항목 | 출처 | 없을 때의 증상 |
+| --- | --- | --- |
+| `vite.config.ts`의 `base: './'` | 이쪽 | dev 서버에서는 정상, 빌드 결과만 `file://`에서 흰 화면 |
+| dev 실행 한정 CSP 완화 | 이쪽 | `electron:dev`에서 preamble 예외로 흰 화면 |
+| 사설 IP 대역 http relay URL 허용 | pc-laptop | PC와 노트북을 LAN으로 붙일 수 없음 |
+| 긴급 정지 write 실패 노출 | pc-laptop | 하드웨어에 정지 명령이 실패해도 성공으로 표시 |
+| host 재접속 유예와 room 유지 | pc-laptop | 스트리머가 잠깐 끊기면 방과 시청자 세션이 즉시 사라짐 |
+| `test:smoke` / `test:electron` | pc-laptop | 위 결함들의 회귀를 잡을 자동 점검이 없음 |
+
+교훈: 렌더러가 뜨지 않는 문제는 **dev 경로와 `file://` 경로를 모두 확인해야** 원인이 다 드러납니다. 한쪽만 보면 두 개를 고치고 두 개를 놓칩니다. 실제로 양쪽 작업 모두 각자 놓친 항목이 정확히 자기가 확인하지 않은 실행 경로에 몰려 있었습니다.
+
+## 6. 확인한 범위와 확인하지 못한 범위
 
 확인함:
 
@@ -149,10 +186,13 @@ const ws = new WebSocket(page.webSocketDebuggerUrl);
 - 소켓 fanout 수신률 1.0
 - dev 서버 경로와 `file://` 빌드 경로 양쪽에서 렌더러 마운트
 - preload IPC를 통한 SerialPort 포트 목록 조회(실제 `COM1` 인식)
+- `npm run test:smoke` 13/13 통과 (방 생성, 입장, 승인, 강퇴, 긴급 정지, host 재접속, 만료 정리)
+- `npm run test:electron` 통과 (빌드된 preload가 CommonJS)
 
 확인하지 못함:
 
 - 실제 햅틱 장비 연결 및 T-Code 출력
 - `electron:build` 패키징 산출물과 `release:check`
 - Docker 이미지 빌드
-- Redis registry 드라이버 경로
+- Redis registry 드라이버 경로. `test:redis`가 있으나 Redis 서버가 없어 실행하지 못했습니다.
+- 실제 두 대(PC + 노트북) LAN 연동. 사설 IP 허용 로직은 코드로만 확인했습니다.
