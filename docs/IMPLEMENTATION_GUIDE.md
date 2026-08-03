@@ -71,6 +71,9 @@ src/shared/motion-packet.ts
 
 scripts/relay-load-test.mjs
   500명/1000명 시청자 fanout 부하 테스트.
+
+scripts/redis-registry-test.mjs
+  실제 Redis 서버를 사용해 RedisRoomRegistry create/get/attach/list/count/TTL/remove 동작 검증.
 ```
 
 ## 3.1 초대 코드
@@ -682,6 +685,16 @@ $env:DURATION_MS=30000
 npm.cmd run load:relay
 ```
 
+Redis registry live test:
+
+```powershell
+$env:HAPTIC_REDIS_URL="redis://localhost:6379"
+$env:HAPTIC_ROOM_TTL_SECONDS="60"
+npm.cmd run test:redis
+```
+
+실제 Redis 서버가 필요합니다. Redis가 없으면 연결 오류로 실패합니다.
+
 결과 예:
 
 ```json
@@ -775,12 +788,11 @@ dd0a0f7 feat: route viewer motion to hardware
 ## 19. 아직 남은 작업
 
 1. adaptive Hz 자동 조절
-2. Redis live integration test
-3. TLS termination / reverse proxy 설정
-4. Prometheus metrics 또는 structured logging
-5. Control API를 별도 서비스로 분리
-6. Postgres user/account/billing/moderation schema
-7. 영구 차단/세션 로그 저장소
+2. TLS termination / reverse proxy 설정
+3. Prometheus metrics 또는 structured logging
+4. Control API를 별도 서비스로 분리
+5. Postgres user/account/billing/moderation schema
+6. 영구 차단/세션 로그 저장소
 
 ## 20. 중요한 설계 원칙
 
