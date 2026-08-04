@@ -2,6 +2,9 @@ import { io, Socket } from 'socket.io-client';
 import type { ApprovalRequest, MotionFrame, RoomSettings, ViewerSession } from '../protocol.js';
 import { clamp01, maxHzToInterval, RELAY_MAX_HZ } from '../tuning.js';
 import { decodeMotionPacket, encodeMotionPacket } from '../motion-packet.js';
+import { MotionDelayBuffer } from './motion-delay-buffer.js';
+
+export { MotionDelayBuffer } from './motion-delay-buffer.js';
 
 type ViewerStatus = {
   roomName: string;
