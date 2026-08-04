@@ -5,6 +5,7 @@ dist-server/
 release/
 test-kit/
 .npm-cache/
+.worktrees/
 .env
 .env.*
 !.env.example
