@@ -149,7 +149,7 @@ internal/relay
   room actor, viewer session, host session, fanout policy
 
 internal/protocol
-  4-byte motion packet, stop event, join/control messages
+  V2 20-byte motion packet, legacy V1 decoder, stop event, join/control messages
 
 internal/auth
   HMAC token verification compatible with current Control API tokens
@@ -162,7 +162,7 @@ Room actor model:
 
 ```text
 Host socket read loop
-  -> decode 4-byte motion packet
+  -> decode V2 motion packet or legacy V1 packet
   -> room inbox channel, latest-frame wins
   -> room actor rate gate
   -> nonblocking write to viewer send queues
@@ -186,7 +186,7 @@ The app relay optimizes for stable perceived motion rather than guaranteed deliv
 
 - WebSocket-only transport avoids long-polling overhead.
 - Compression is disabled for tiny motion frames.
-- Motion frames use a 4-byte binary packet instead of JSON.
+- Motion frames use a 20-byte V2 binary packet instead of JSON.
 - Motion broadcasts use volatile events so slow clients drop stale frames.
 - Server-side token bucket max Hz protects viewers, devices, and relay cost without over-dropping timer jitter.
 - Desktop-side coalescing keeps serial hardware and network output from building queues.
@@ -195,7 +195,7 @@ The app relay optimizes for stable perceived motion rather than guaranteed deliv
 
 The relay protocol and hardware protocol are intentionally different.
 
-- Relay payload: 4-byte binary packet derived from normalized app-level `MotionFrame`.
+- Relay payload: 20-byte V2 binary packet derived from normalized app-level `MotionFrame`; legacy 4-byte V1 packets are accepted for compatibility.
 - Hardware output: T-Code ASCII over UART serial.
 - Default output axis: `L0`, matching OSR/SR6 stroke control.
 - Optional output axis: `V0` can map normalized intensity to vibration when a connected device supports it.

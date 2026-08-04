@@ -1,5 +1,6 @@
 import process from 'node:process';
 import { io } from 'socket.io-client';
+import { decodeMotionPacket, encodeMotionPacket } from '../dist-server/src/shared/motion-packet.js';
 
 const port = Number(process.env.HAPTIC_SMOKE_TEST_PORT ?? 4210);
 const baseUrl = `http://127.0.0.1:${port}`;
@@ -65,10 +66,32 @@ async function runSmokeTest() {
   });
   record('viewer join', joined.status === 200 && viewerBound.ok === true, JSON.stringify(viewerBound));
 
-  const motionPromise = onceEvent(viewer, 'm');
+  const legacyMotionPromise = onceEvent(viewer, 'm');
   host.volatile.compress(false).emit('m', Uint8Array.from([0x80, 0x00, 0x40, 0x00]));
-  const motionBytes = Buffer.from(await motionPromise);
-  record('binary motion relay', motionBytes.equals(Buffer.from([0x80, 0x00, 0x40, 0x00])), motionBytes.toString('hex'));
+  const legacyMotion = decodeMotionPacket(await legacyMotionPromise);
+  record(
+    'legacy V1 motion relay',
+    legacyMotion.protocolVersion === 2 && almostEqual(legacyMotion.position, 32768 / 65535) && almostEqual(legacyMotion.intensity, 16384 / 65535),
+    JSON.stringify(legacyMotion)
+  );
+
+  const sourceTimeMs = Date.now() - 120;
+  const motionPromise = onceEvent(viewer, 'm');
+  host.volatile.compress(false).emit('m', encodeMotionPacket({
+    protocolVersion: 2,
+    sequence: 77,
+    sourceTimeMs,
+    timestamp: sourceTimeMs,
+    durationMs: 45,
+    position: 0.35,
+    intensity: 0.65
+  }));
+  const motion = decodeMotionPacket(await motionPromise);
+  record(
+    'V2 motion metadata relay',
+    motion.protocolVersion === 2 && motion.sequence === 77 && motion.sourceTimeMs === sourceTimeMs && motion.durationMs === 45,
+    JSON.stringify(motion)
+  );
 
   const viewers = await emitWithAck(host, 'room:viewers', {});
   record('host viewer list', viewers.ok === true && viewers.viewers?.some(item => item.displayName === 'viewer-one'), JSON.stringify(viewers));
@@ -206,6 +229,10 @@ function uniqueRoomName(suffix) {
 
 function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function almostEqual(actual, expected) {
+  return Math.abs(actual - expected) < 0.000_01;
 }
 
 function formatError(error) {

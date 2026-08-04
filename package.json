@@ -11,6 +11,7 @@
     "server:start": "node dist-server/server/src/relay-server.js",
     "server:prod": "npm run build:server && npm run server:start",
     "load:relay": "node scripts/relay-load-test.mjs",
+    "test:motion": "npm run build:server && npm run build:electron && node scripts/motion-packet-test.mjs",
     "test:smoke": "npm run build:server && node scripts/relay-smoke-test.mjs",
     "test:electron": "npm run build:electron && node scripts/preload-format-test.mjs",
     "test:redis": "npm run build:server && node scripts/redis-registry-test.mjs",

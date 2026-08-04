@@ -206,11 +206,31 @@ npm.cmd run test:redis
 
 이 테스트는 실제 Redis 서버가 실행 중이어야 합니다.
 
+Motion packet compatibility test:
+
+```powershell
+npm.cmd run test:motion
+```
+
 컨테이너 배포와 rollout 단계는 [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)를 기준으로 합니다.
 
 ## 릴레이 모션 프로토콜
 
-앱 내부에서는 정규화된 `MotionFrame`을 사용하지만, 네트워크 전송은 4바이트 바이너리 motion packet을 기본으로 사용합니다.
+앱 내부에서는 정규화된 `MotionFrame`을 사용하지만, 네트워크 전송은 V2 20바이트 바이너리 motion packet을 기본으로 사용합니다. 기존 V1 4바이트 packet은 수신 호환만 유지합니다.
+
+V2:
+
+```text
+byte 0:    version = 2
+byte 1:    flags
+byte 2-5:  sequence uint32, big-endian
+byte 6-13: sourceTimeMs uint64, big-endian
+byte 14-15: durationMs uint16, big-endian
+byte 16-17: position uint16, big-endian, 0-65535
+byte 18-19: intensity uint16, big-endian, 0-65535
+```
+
+Legacy V1:
 
 ```text
 byte 0-1: position uint16, big-endian, 0-65535
@@ -219,7 +239,9 @@ byte 2-3: intensity uint16, big-endian, 0-65535
 
 - `intensity`: 0.0-1.0 강도
 - `position`: 0.0-1.0 정규화 위치
-- `timestamp`: 네트워크 payload에서는 제거하고 수신 시각으로 계산
+- `sequence`: 송신자 기준 증가 순번
+- `sourceTimeMs`: 송신자 기준 모션 발생 시각
+- `durationMs`: 해당 목표값까지 이동할 권장 시간
 
 ## 하드웨어 출력 프로토콜
 
@@ -285,7 +307,7 @@ DSTOP
 
 - 릴레이 서버와 앱 클라이언트는 WebSocket 전용으로 연결합니다.
 - 모션 이벤트는 ack를 기다리지 않고 최신 프레임 위주로 전송합니다.
-- 모션 payload는 JSON 대신 4바이트 바이너리 packet으로 전송합니다.
+- 모션 payload는 JSON 대신 20바이트 V2 바이너리 packet으로 전송합니다.
 - 느린 네트워크나 클라이언트에는 오래된 모션 프레임을 쌓지 않도록 volatile 이벤트를 사용합니다.
 - 서버, 앱 릴레이, 하드웨어 출력은 각각 최대 Hz를 환경변수로 제한합니다.
 - 서버 rate limit은 token bucket으로 처리해 60Hz 근처의 타이머 지터를 과도하게 드롭하지 않습니다.

@@ -10,6 +10,11 @@ export type MotionFrame = {
   intensity: number;
   position: number;
   timestamp: number;
+  protocolVersion?: 1 | 2;
+  flags?: number;
+  sequence?: number;
+  sourceTimeMs?: number;
+  durationMs?: number;
 };
 
 export type HardwareProfile = {
