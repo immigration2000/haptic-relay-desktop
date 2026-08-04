@@ -34,9 +34,13 @@ const tokenTtlMs = Number(process.env.HAPTIC_CONTROL_TOKEN_TTL_MS ?? 1000 * 60 *
 const maxViewersPerRoom = Number(process.env.HAPTIC_MAX_VIEWERS_PER_ROOM ?? 500);
 const relayMaxHz = Number(process.env.HAPTIC_RELAY_MAX_HZ ?? DEFAULT_RELAY_MAX_HZ);
 const burstFrames = Number(process.env.HAPTIC_RELAY_BURST_FRAMES ?? 2);
+const hostReconnectGraceMs = Number(process.env.HAPTIC_HOST_RECONNECT_GRACE_MS ?? 15_000);
+const relayHost = process.env.HAPTIC_RELAY_HOST ?? '0.0.0.0';
 const relayDirectory = RelayDirectory.fromEnv(publicRelayUrl, maxViewersPerRoom);
 let roomRegistry: RoomRegistry;
 const activeRooms = new Map<string, RoomRecord>();
+const hostCleanupTimers = new Map<string, NodeJS.Timeout>();
+let shuttingDown = false;
 
 validateRuntimeConfig();
 
@@ -103,18 +107,31 @@ io.on('connection', socket => {
 
   socket.on('disconnect', () => {
     const roomName = hostRoomsBySocket.get(socket.id);
-    if (roomName) activeRooms.delete(roomName);
+    if (roomName) scheduleHostCleanup(roomName, socket.id);
     pendingApprovals.delete(socket.id);
     hostRoomsBySocket.delete(socket.id);
     removeViewerSession(socket.id);
-    void roomRegistry.removeHostSocket(socket.id);
   });
 });
 
 roomRegistry = await createRoomRegistry(relayDirectory, burstFrames);
-httpServer.listen(port, () => {
-  console.log(`Haptic Relay server listening on ws://localhost:${port} at ${relayMaxHz}Hz max`);
+export const relayServerReady = new Promise<void>((resolve, reject) => {
+  httpServer.once('error', reject);
+  httpServer.listen(port, relayHost, () => {
+    console.log(`Haptic Relay server listening on ${relayHost}:${port} at ${relayMaxHz}Hz max`);
+    resolve();
+  });
 });
+await relayServerReady;
+
+export async function closeRelayServer() {
+  shuttingDown = true;
+  for (const timer of hostCleanupTimers.values()) clearTimeout(timer);
+  hostCleanupTimers.clear();
+  io.disconnectSockets(true);
+  await new Promise<void>(resolve => io.close(() => resolve()));
+  await roomRegistry.close?.();
+}
 
 async function handleHostRoomCreate(socket: Socket, request: HostRoomRequest, ack?: (response: unknown) => void) {
   const token = verifyRelayToken(request.token, tokenSecret);
@@ -129,9 +146,15 @@ async function handleHostRoomCreate(socket: Socket, request: HostRoomRequest, ac
     return;
   }
 
+  cancelHostCleanup(token.roomName);
   hostRoomsBySocket.set(socket.id, token.roomName);
   activeRooms.set(token.roomName, room);
   socket.join(token.roomName);
+  for (const [socketId, pending] of pendingApprovals) {
+    if (pending.roomName === token.roomName) {
+      socket.emit('viewer:approval-requested', { socketId, ...pending });
+    }
+  }
   ack?.({ ok: true, roomName: token.roomName, entryMode: room.entryMode });
 }
 
@@ -401,6 +424,56 @@ function removeViewerSession(socketId: string) {
   emitViewerList(session.roomName);
 }
 
+function scheduleHostCleanup(roomName: string, socketId: string) {
+  activeRooms.delete(roomName);
+  if (shuttingDown) return;
+
+  cancelHostCleanup(roomName);
+  const timer = setTimeout(() => {
+    void finalizeHostCleanup(roomName, socketId, timer);
+  }, hostReconnectGraceMs);
+  timer.unref();
+  hostCleanupTimers.set(roomName, timer);
+}
+
+function cancelHostCleanup(roomName: string) {
+  const timer = hostCleanupTimers.get(roomName);
+  if (!timer) return;
+  clearTimeout(timer);
+  hostCleanupTimers.delete(roomName);
+}
+
+async function finalizeHostCleanup(roomName: string, socketId: string, timer: NodeJS.Timeout) {
+  try {
+    const room = await roomRegistry.getRoom(roomName);
+    if (!room || room.hostSocketId !== socketId) return;
+
+    closeViewerSessions(roomName);
+    await roomRegistry.removeHostSocket(socketId);
+  } catch (error) {
+    console.error('host room cleanup failed', error);
+  } finally {
+    if (hostCleanupTimers.get(roomName) === timer) hostCleanupTimers.delete(roomName);
+  }
+}
+
+function closeViewerSessions(roomName: string) {
+  for (const [socketId, pending] of pendingApprovals) {
+    if (pending.roomName === roomName) pendingApprovals.delete(socketId);
+  }
+
+  for (const [socketId, session] of viewerSessions) {
+    if (session.roomName !== roomName) continue;
+    const viewerSocket = io.sockets.sockets.get(socketId);
+    viewerSocket?.leave(roomName);
+    viewerSocket?.emit('viewer:removed', { roomName, reason: 'host-disconnected' });
+    viewerSessions.delete(socketId);
+  }
+
+  blockedViewersByRoom.delete(roomName);
+  approvedViewersByRoom.delete(roomName);
+}
+
 function getRoomViewers(roomName: string) {
   return [...viewerSessions.values()].filter(session => session.roomName === roomName);
 }
@@ -483,6 +556,9 @@ function validateRuntimeConfig() {
   }
   if (!Number.isFinite(burstFrames) || burstFrames < 1 || burstFrames > 10) {
     throw new Error('invalid-relay-burst-frames');
+  }
+  if (!Number.isFinite(hostReconnectGraceMs) || hostReconnectGraceMs < 0 || hostReconnectGraceMs > 300_000) {
+    throw new Error('invalid-host-reconnect-grace');
   }
 
   if (process.env.NODE_ENV === 'production') {
