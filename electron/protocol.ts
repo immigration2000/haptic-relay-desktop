@@ -33,6 +33,10 @@ export type HardwareProtection = {
   paused: boolean;
 };
 
+export type PlaybackSettings = {
+  motionDelayMs: number;
+};
+
 export type AppLogEntry = {
   id: number;
   timestamp: number;
@@ -43,9 +47,10 @@ export type AppLogEntry = {
 };
 
 export type AppSettings = {
-  schemaVersion: 1;
+  schemaVersion: 2;
   hardwareProfile: HardwareProfile;
   hardwareProtection: HardwareProtection;
+  playback: PlaybackSettings;
 };
 
 export type ApprovalRequest = {

@@ -3,7 +3,17 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { IpcMainInvokeEvent } from 'electron';
-import type { AppLogEntry, AppSettings, HardwareProfile, HardwareProtection, RoomSettings } from './protocol.js';
+import {
+  CURRENT_SETTINGS_SCHEMA_VERSION,
+  DEFAULT_SETTINGS,
+  migrateAppSettings,
+  validateAppSettings,
+  validateBoolean,
+  validateHardwareProfile,
+  validateHardwareProtection,
+  validateUnitInterval
+} from './app-settings.js';
+import type { AppLogEntry, AppSettings, RoomSettings } from './protocol.js';
 import { HardwareController } from './services/hardware-controller.js';
 import { RelayClient } from './services/relay-client.js';
 
@@ -21,26 +31,6 @@ const CONTENT_SECURITY_POLICY = [
   "frame-ancestors 'none'"
 ].join('; ');
 const MAX_LOG_ENTRIES = 300;
-const DEFAULT_HARDWARE_PROFILE: HardwareProfile = {
-  baudRate: 115200,
-  linearAxis: 'L0',
-  vibrationAxis: undefined,
-  strokeMin: 0,
-  strokeMax: 1,
-  invertPosition: false
-};
-const DEFAULT_HARDWARE_PROTECTION: HardwareProtection = {
-  intensityLimit: 1,
-  positionMin: 0,
-  positionMax: 1,
-  paused: false
-};
-const CURRENT_SETTINGS_SCHEMA_VERSION = 1;
-const DEFAULT_SETTINGS: AppSettings = {
-  schemaVersion: CURRENT_SETTINGS_SCHEMA_VERSION,
-  hardwareProfile: DEFAULT_HARDWARE_PROFILE,
-  hardwareProtection: DEFAULT_HARDWARE_PROTECTION
-};
 
 let mainWindow: BrowserWindow | undefined;
 let nextLogId = 1;
@@ -331,95 +321,8 @@ function validatePortPath(value: unknown) {
   return validateShortText(value, 'pathName', 1, 260);
 }
 
-function validateHardwareProfile(value: unknown): HardwareProfile {
-  if (!isRecord(value)) throw new Error('invalid-hardware-profile');
-
-  const strokeMin = validateUnitInterval(value.strokeMin, 'strokeMin');
-  const strokeMax = validateUnitInterval(value.strokeMax, 'strokeMax');
-  if (strokeMin >= strokeMax) throw new Error('invalid-stroke-range');
-
-  const vibrationAxis = value.vibrationAxis === undefined || value.vibrationAxis === ''
-    ? undefined
-    : validateTCodeAxis(value.vibrationAxis, 'vibrationAxis');
-
-  return {
-    baudRate: validateBaudRate(value.baudRate),
-    linearAxis: validateTCodeAxis(value.linearAxis, 'linearAxis'),
-    vibrationAxis,
-    strokeMin,
-    strokeMax,
-    invertPosition: validateBoolean(value.invertPosition, 'invertPosition')
-  };
-}
-
-function validateHardwareProtection(value: unknown): HardwareProtection {
-  if (!isRecord(value)) throw new Error('invalid-hardware-protection');
-
-  const positionMin = validateUnitInterval(value.positionMin, 'protectionPositionMin');
-  const positionMax = validateUnitInterval(value.positionMax, 'protectionPositionMax');
-  if (positionMin >= positionMax) throw new Error('invalid-protection-position-range');
-
-  return {
-    intensityLimit: validateUnitInterval(value.intensityLimit, 'protectionIntensityLimit'),
-    positionMin,
-    positionMax,
-    paused: validateBoolean(value.paused, 'protectionPaused')
-  };
-}
-
-function validateAppSettings(value: unknown): AppSettings {
-  if (!isRecord(value)) throw new Error('invalid-app-settings');
-  if (value.schemaVersion !== CURRENT_SETTINGS_SCHEMA_VERSION) throw new Error('unsupported-settings-version');
-  return {
-    schemaVersion: CURRENT_SETTINGS_SCHEMA_VERSION,
-    hardwareProfile: validateHardwareProfile(value.hardwareProfile),
-    hardwareProtection: validateHardwareProtection(value.hardwareProtection)
-  };
-}
-
-function migrateAppSettings(value: unknown): AppSettings {
-  if (!isRecord(value)) throw new Error('invalid-app-settings');
-  if (value.schemaVersion === CURRENT_SETTINGS_SCHEMA_VERSION) return validateAppSettings(value);
-  if (value.schemaVersion === undefined) {
-    const migrated = {
-      schemaVersion: CURRENT_SETTINGS_SCHEMA_VERSION,
-      hardwareProfile: value.hardwareProfile,
-      hardwareProtection: value.hardwareProtection
-    };
-    return validateAppSettings(migrated);
-  }
-
-  throw new Error('unsupported-settings-version');
-}
-
-function validateBaudRate(value: unknown) {
-  if (typeof value !== 'number' || !Number.isInteger(value) || value < 1200 || value > 1000000) {
-    throw new Error('invalid-baud-rate');
-  }
-  return value;
-}
-
-function validateTCodeAxis(value: unknown, fieldName: string) {
-  if (typeof value !== 'string') throw new Error(`invalid-${fieldName}`);
-  const axis = value.trim().toUpperCase();
-  if (!/^[LRVA][0-9]$/.test(axis)) throw new Error(`invalid-${fieldName}`);
-  return axis;
-}
-
-function validateUnitInterval(value: unknown, fieldName: string) {
-  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 1) {
-    throw new Error(`invalid-${fieldName}`);
-  }
-  return value;
-}
-
 function validateSocketId(value: unknown) {
   return validateShortText(value, 'socketId', 1, 128);
-}
-
-function validateBoolean(value: unknown, fieldName: string) {
-  if (typeof value !== 'boolean') throw new Error(`invalid-${fieldName}`);
-  return value;
 }
 
 function validateModerationAction(value: unknown) {
@@ -469,8 +372,9 @@ function formatFileTimestamp(date: Date) {
 async function readSettings(): Promise<AppSettings> {
   try {
     const raw = await fs.readFile(getSettingsPath(), 'utf8');
-    const settings = migrateAppSettings(JSON.parse(raw));
-    if (!raw.includes('"schemaVersion"')) {
+    const parsed = JSON.parse(raw) as { schemaVersion?: unknown };
+    const settings = migrateAppSettings(parsed);
+    if (parsed.schemaVersion !== CURRENT_SETTINGS_SCHEMA_VERSION) {
       await writeSettings(settings);
       addLog({ level: 'info', source: 'app', message: 'settings-migrated', details: `v${settings.schemaVersion}` });
     }
