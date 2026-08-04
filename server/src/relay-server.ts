@@ -397,7 +397,7 @@ async function forwardMotion(socket: Socket, roomName: string, frame: MotionFram
     timestamp: frame.sourceTimeMs ?? frame.timestamp ?? now,
     protocolVersion: frame.protocolVersion,
     flags: frame.flags,
-    sequence: frame.sequence,
+    sequence: frame.sequence ?? ((room.forwardedFrames - 1) >>> 0),
     sourceTimeMs: frame.sourceTimeMs ?? frame.timestamp ?? now,
     durationMs: frame.durationMs ?? 0
   };

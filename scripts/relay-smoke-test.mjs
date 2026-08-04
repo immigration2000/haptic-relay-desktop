@@ -12,6 +12,7 @@ process.env.HAPTIC_RELAY_HOST = '127.0.0.1';
 process.env.HAPTIC_PUBLIC_RELAY_URL = baseUrl;
 process.env.HAPTIC_CONTROL_TOKEN_SECRET = 'smoke-test-secret-that-is-longer-than-32-characters';
 process.env.HAPTIC_HOST_RECONNECT_GRACE_MS = '250';
+process.env.HAPTIC_RELAY_BURST_FRAMES = '4';
 
 const { closeRelayServer, relayServerReady } = await import('../dist-server/server/src/relay-server.js');
 await relayServerReady;
@@ -69,10 +70,17 @@ async function runSmokeTest() {
   const legacyMotionPromise = onceEvent(viewer, 'm');
   host.volatile.compress(false).emit('m', Uint8Array.from([0x80, 0x00, 0x40, 0x00]));
   const legacyMotion = decodeMotionPacket(await legacyMotionPromise);
+  const nextLegacyMotionPromise = onceEvent(viewer, 'm');
+  host.volatile.compress(false).emit('m', Uint8Array.from([0x90, 0x00, 0x50, 0x00]));
+  const nextLegacyMotion = decodeMotionPacket(await nextLegacyMotionPromise);
   record(
     'legacy V1 motion relay',
-    legacyMotion.protocolVersion === 2 && almostEqual(legacyMotion.position, 32768 / 65535) && almostEqual(legacyMotion.intensity, 16384 / 65535),
-    JSON.stringify(legacyMotion)
+    legacyMotion.protocolVersion === 2
+      && nextLegacyMotion.protocolVersion === 2
+      && nextLegacyMotion.sequence === legacyMotion.sequence + 1
+      && almostEqual(legacyMotion.position, 32768 / 65535)
+      && almostEqual(legacyMotion.intensity, 16384 / 65535),
+    JSON.stringify({ legacyMotion, nextLegacyMotion })
   );
 
   const sourceTimeMs = Date.now() - 120;
