@@ -433,6 +433,14 @@ packet = [
 
 기존 JSON 방식은 매 프레임 수십~100바이트급이 될 수 있습니다. 현재 V2 packet payload는 20바이트입니다.
 
+### Sequence 처리
+
+- 송신 앱은 latest-frame 병합 이후 실제 Socket.IO 전송 시점에만 `sequence`를 1 증가시킵니다.
+- 시청자 앱은 하드웨어 출력 전에 중복 및 역순 V2 패킷을 제거합니다.
+- 순번 간격은 누락 프레임 수로 누적하며 `receivedFrames`, `acceptedFrames`, `duplicateFrames`, `outOfOrderFrames`, `lostFrames`를 조회할 수 있습니다.
+- uint32 순환을 지원하므로 `4294967295` 다음 순번은 `0`입니다.
+- V1 패킷에는 순번이 없으므로 릴레이 서버가 전달 순서에 맞춰 V2 순번을 부여합니다.
+
 ## 11. 하드웨어 출력 프로토콜
 
 네트워크 packet과 실제 하드웨어 명령은 다릅니다.

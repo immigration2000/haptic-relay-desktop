@@ -29,6 +29,20 @@ Host hardware -> Desktop app -> Relay server -> Viewer desktop app -> Viewer har
 
 For local testing, run the relay server on `localhost:4174`. For production, deploy this relay server separately from the website's low-latency in-site hardware sync backend.
 
+## Motion Sequence Handling
+
+The host desktop app assigns a uint32 sequence only when a motion frame is actually flushed to the socket. Samples replaced by the local latest-frame policy do not consume sequence numbers and therefore do not appear as network loss.
+
+The viewer relay client validates V2 sequences before handing frames to the hardware queue:
+
+- first and forward-moving sequences are accepted;
+- duplicate and out-of-order sequences are dropped;
+- forward gaps increment the estimated lost-frame counter;
+- wraparound from `4294967295` to `0` is treated as forward progress;
+- legacy V1 input is assigned a forwarding sequence by the relay server.
+
+Current receive metrics are `receivedFrames`, `acceptedFrames`, `duplicateFrames`, `outOfOrderFrames`, `lostFrames`, and `lastSequence`. Renderer quality indicators can consume these counters in a later UI step.
+
 ## Control Plane
 
 The current Node process serves both the Control API and Relay Node so local development stays simple. The API contract is intentionally separable.

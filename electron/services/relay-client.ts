@@ -37,6 +37,73 @@ type ViewerSessionState = {
 
 type RelaySession = HostSession | ViewerSessionState;
 
+export type MotionSequenceStats = {
+  receivedFrames: number;
+  acceptedFrames: number;
+  duplicateFrames: number;
+  outOfOrderFrames: number;
+  lostFrames: number;
+  lastSequence?: number;
+};
+
+export class MotionSequenceTracker {
+  private stats: MotionSequenceStats = emptyMotionSequenceStats();
+
+  accept(frame: MotionFrame) {
+    this.stats.receivedFrames += 1;
+
+    if (frame.protocolVersion !== 2 || frame.sequence === undefined) {
+      this.stats.acceptedFrames += 1;
+      return true;
+    }
+
+    const sequence = frame.sequence >>> 0;
+    if (this.stats.lastSequence === undefined) {
+      this.stats.lastSequence = sequence;
+      this.stats.acceptedFrames += 1;
+      return true;
+    }
+
+    const forwardDistance = (sequence - this.stats.lastSequence) >>> 0;
+    if (forwardDistance === 0) {
+      this.stats.duplicateFrames += 1;
+      return false;
+    }
+    if (forwardDistance >= 0x8000_0000) {
+      this.stats.outOfOrderFrames += 1;
+      return false;
+    }
+
+    this.stats.lostFrames += forwardDistance - 1;
+    this.stats.lastSequence = sequence;
+    this.stats.acceptedFrames += 1;
+    return true;
+  }
+
+  snapshot(): MotionSequenceStats {
+    return { ...this.stats };
+  }
+
+  reset() {
+    this.stats = emptyMotionSequenceStats();
+  }
+}
+
+export function nextMotionSequence(sequence: number) {
+  return (sequence + 1) >>> 0;
+}
+
+function emptyMotionSequenceStats(): MotionSequenceStats {
+  return {
+    receivedFrames: 0,
+    acceptedFrames: 0,
+    duplicateFrames: 0,
+    outOfOrderFrames: 0,
+    lostFrames: 0,
+    lastSequence: undefined
+  };
+}
+
 export class RelayClient {
   private socket: Socket | undefined;
   private roomName = '';
@@ -47,6 +114,8 @@ export class RelayClient {
   private latestFrame: MotionFrame | undefined;
   private flushTimer: NodeJS.Timeout | undefined;
   private readonly minIntervalMs = maxHzToInterval(RELAY_MAX_HZ);
+  private readonly incomingSequenceTracker = new MotionSequenceTracker();
+  private outgoingSequence = 0;
 
   constructor(
     private readonly onMotion?: (frame: MotionFrame) => void,
@@ -83,7 +152,8 @@ export class RelayClient {
     });
     this.socket.on('m', payload => {
       try {
-        this.onMotion?.(decodeMotionPacket(payload));
+        const frame = decodeMotionPacket(payload);
+        if (this.incomingSequenceTracker.accept(frame)) this.onMotion?.(frame);
       } catch (error) {
         console.error('invalid relay motion packet', error);
       }
@@ -98,11 +168,13 @@ export class RelayClient {
     this.socket.on('viewer:rejected', response => {
       this.session = undefined;
       this.roomName = '';
+      this.incomingSequenceTracker.reset();
       this.onViewerStatus?.({ roomName: response.roomName, status: 'rejected', reason: response.reason });
     });
     this.socket.on('viewer:removed', response => {
       this.roomName = '';
       this.session = undefined;
+      this.incomingSequenceTracker.reset();
       this.onViewerStatus?.({ roomName: response.roomName, status: 'removed', reason: response.reason });
     });
     this.socket.on('room:viewers', viewers => {
@@ -110,6 +182,8 @@ export class RelayClient {
     });
     this.socket.on('room:stop', signal => {
       this.latestFrame = undefined;
+      this.incomingSequenceTracker.reset();
+      this.outgoingSequence = 0;
       this.onEmergencyStop?.(signal);
     });
 
@@ -130,6 +204,8 @@ export class RelayClient {
 
     this.roomName = room.roomName;
     this.hostToken = room.hostToken;
+    this.incomingSequenceTracker.reset();
+    this.outgoingSequence = 0;
     this.session = {
       role: 'host',
       roomName: room.roomName,
@@ -157,6 +233,7 @@ export class RelayClient {
     }
 
     this.roomName = join.roomName;
+    this.incomingSequenceTracker.reset();
     this.session = {
       role: 'viewer',
       roomName: join.roomName,
@@ -221,6 +298,10 @@ export class RelayClient {
     return { queued: true };
   }
 
+  getMotionSequenceStats() {
+    return this.incomingSequenceTracker.snapshot();
+  }
+
   disconnect() {
     if (this.flushTimer) {
       clearTimeout(this.flushTimer);
@@ -234,6 +315,8 @@ export class RelayClient {
     this.session = undefined;
     this.rejoining = false;
     this.latestFrame = undefined;
+    this.incomingSequenceTracker.reset();
+    this.outgoingSequence = 0;
     return { connected: false };
   }
 
@@ -288,7 +371,14 @@ export class RelayClient {
 
     const frame = this.latestFrame;
     this.latestFrame = undefined;
-    this.socket.volatile.compress(false).emit('m', encodeMotionPacket(frame));
+    this.socket.volatile.compress(false).emit('m', encodeMotionPacket({
+      ...frame,
+      protocolVersion: 2,
+      sequence: this.outgoingSequence,
+      sourceTimeMs: frame.sourceTimeMs ?? frame.timestamp,
+      durationMs: frame.durationMs ?? this.minIntervalMs
+    }));
+    this.outgoingSequence = nextMotionSequence(this.outgoingSequence);
   }
 
   private emitWithAck(eventName: string, payload: unknown) {
