@@ -38,7 +38,7 @@ const DEFAULT_HARDWARE_PROTECTION: HardwareProtection = {
   positionMax: 1,
   paused: false
 };
-const CURRENT_SETTINGS_SCHEMA_VERSION = 1;
+const CURRENT_SETTINGS_SCHEMA_VERSION = 2;
 
 export default function App() {
   const [role, setRole] = useState<Role>('host');
@@ -174,11 +174,14 @@ export default function App() {
   }
 
   async function saveSettings() {
+    if (!savedSettings) throw new Error('settings-not-loaded');
+
     await runAction('hardware', '설정 저장 중', async () => {
       const result = await window.hapticRelay.saveSettings({
         schemaVersion: CURRENT_SETTINGS_SCHEMA_VERSION,
         hardwareProfile,
-        hardwareProtection
+        hardwareProtection,
+        playback: savedSettings.playback
       });
       setHardwareProfile(result.settings.hardwareProfile);
       setHardwareProtection(result.settings.hardwareProtection);
@@ -417,7 +420,7 @@ export default function App() {
         </label>
       </div>
       <div className="button-row">
-        <button disabled={isBusy} onClick={saveSettings}>설정 저장</button>
+        <button disabled={isBusy || !savedSettings} onClick={saveSettings}>설정 저장</button>
         <button disabled={isBusy || !savedSettings} onClick={loadSettings}>설정 불러오기</button>
       </div>
     </section>
