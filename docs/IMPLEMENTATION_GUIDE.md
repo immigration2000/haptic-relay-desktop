@@ -34,7 +34,7 @@ Haptic Relay 서버 = 방 생성, 입장 제어, 모션 fanout
 10. 신청입장 방이면 viewer socket이 승인 대기 상태가 됨
 11. 스트리머 앱에서 입장 신청을 승인하거나 거절
 12. 승인된 viewer 앱이 relay node room에 참여
-13. 스트리머 하드웨어 모션을 4바이트 packet으로 relay
+13. 스트리머 하드웨어 모션을 V2 20바이트 packet으로 relay
 14. viewer 앱이 packet을 decode
 15. viewer 앱이 수신 motion frame을 연결된 하드웨어에 T-Code로 출력
 ```
@@ -67,7 +67,7 @@ server/src/room-registry.ts
   방 metadata 저장, relay node 배정, memory/Redis registry 구현.
 
 src/shared/motion-packet.ts
-  네트워크용 4바이트 binary motion packet encode/decode.
+  네트워크용 V2 20바이트 binary motion packet encode/decode. 기존 V1 4바이트 packet 수신 호환 유지.
 
 scripts/relay-load-test.mjs
   500명/1000명 시청자 fanout 부하 테스트.
@@ -395,11 +395,16 @@ HAPTIC_RELAY_NODES=[
 
 앱과 서버 사이 motion payload는 JSON이 아닙니다.
 
-4바이트 binary packet입니다.
+기본은 V2 20바이트 binary packet입니다. 기존 V1 4바이트 packet은 수신 호환만 유지합니다.
 
 ```text
-byte 0-1: position uint16, big-endian, 0-65535
-byte 2-3: intensity uint16, big-endian, 0-65535
+byte 0:    version = 2
+byte 1:    flags
+byte 2-5:  sequence uint32, big-endian
+byte 6-13: sourceTimeMs uint64, big-endian
+byte 14-15: durationMs uint16, big-endian
+byte 16-17: position uint16, big-endian, 0-65535
+byte 18-19: intensity uint16, big-endian, 0-65535
 ```
 
 예:
@@ -408,18 +413,25 @@ byte 2-3: intensity uint16, big-endian, 0-65535
 position = 0.42
 intensity = 0.8
 
-packet = [107, 133, 204, 204]
+packet = [
+  2, 0,
+  sequence 4 bytes,
+  sourceTimeMs 8 bytes,
+  durationMs 2 bytes,
+  position 2 bytes,
+  intensity 2 bytes
+]
 ```
 
 이렇게 한 이유:
 
 - JSON field name 제거
-- timestamp 제거
+- sourceTimeMs/durationMs/sequence를 고정 폭 binary field로 압축
 - roomName 제거
 - float 문자열 제거
 - viewer 수만큼 곱해지는 outbound traffic 감소
 
-기존 JSON 방식은 매 프레임 수십~100바이트급이 될 수 있습니다. 현재 packet payload는 4바이트입니다.
+기존 JSON 방식은 매 프레임 수십~100바이트급이 될 수 있습니다. 현재 V2 packet payload는 20바이트입니다.
 
 ## 11. 하드웨어 출력 프로토콜
 
@@ -428,7 +440,7 @@ packet = [107, 133, 204, 204]
 Relay protocol:
 
 ```text
-4-byte binary packet
+V2 20-byte binary packet
 ```
 
 Hardware protocol:
@@ -610,7 +622,7 @@ export JSON:
 - motion event ack 없음
 - `volatile` event 사용
 - 최신 frame 중심 coalescing
-- 4바이트 binary packet
+- V2 20바이트 binary packet
 - token bucket rate limit
 - SerialPort backpressure 처리
 - 하드웨어 safety timeout

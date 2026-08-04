@@ -394,7 +394,12 @@ async function forwardMotion(socket: Socket, roomName: string, frame: MotionFram
   const safeFrame = {
     intensity: clamp01(frame.intensity),
     position: clamp01(frame.position),
-    timestamp: now
+    timestamp: frame.sourceTimeMs ?? frame.timestamp ?? now,
+    protocolVersion: frame.protocolVersion,
+    flags: frame.flags,
+    sequence: frame.sequence,
+    sourceTimeMs: frame.sourceTimeMs ?? frame.timestamp ?? now,
+    durationMs: frame.durationMs ?? 0
   };
 
   socket.to(room.roomName).volatile.compress(false).emit('m', encodeMotionPacket(safeFrame));

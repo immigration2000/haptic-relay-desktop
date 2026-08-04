@@ -13,11 +13,16 @@ let received = 0;
 let sent = 0;
 let host;
 
-function encodeMotion(position, intensity) {
-  const packet = new Uint8Array(4);
+function encodeMotion(position, intensity, sequence, durationMs) {
+  const packet = new Uint8Array(20);
   const view = new DataView(packet.buffer);
-  view.setUint16(0, Math.round(clamp01(position) * 65535), false);
-  view.setUint16(2, Math.round(clamp01(intensity) * 65535), false);
+  view.setUint8(0, 2);
+  view.setUint8(1, 0);
+  view.setUint32(2, sequence, false);
+  view.setBigUint64(6, BigInt(Date.now()), false);
+  view.setUint16(14, Math.max(0, Math.min(65535, Math.trunc(durationMs))), false);
+  view.setUint16(16, Math.round(clamp01(position) * 65535), false);
+  view.setUint16(18, Math.round(clamp01(intensity) * 65535), false);
   return packet;
 }
 
@@ -99,7 +104,7 @@ async function main() {
 
       if (now >= nextSendAt) {
         const phase = sent / Math.max(1, hz);
-        host.volatile.compress(false).emit('m', encodeMotion((Math.sin(phase) + 1) / 2, 0.7));
+        host.volatile.compress(false).emit('m', encodeMotion((Math.sin(phase) + 1) / 2, 0.7, sent, intervalMs));
         sent += 1;
         nextSendAt += intervalMs;
       }
