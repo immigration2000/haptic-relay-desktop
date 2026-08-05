@@ -1,4 +1,5 @@
 import { io, Socket } from 'socket.io-client';
+import { performance } from 'node:perf_hooks';
 import type { ApprovalRequest, MotionFrame, RoomSettings, ViewerSession } from '../protocol.js';
 import { clamp01, maxHzToInterval, RELAY_MAX_HZ } from '../tuning.js';
 import { decodeMotionPacket, encodeMotionPacket } from '../motion-packet.js';
@@ -118,6 +119,8 @@ export class RelayClient {
   private flushTimer: NodeJS.Timeout | undefined;
   private readonly minIntervalMs = maxHzToInterval(RELAY_MAX_HZ);
   private readonly incomingSequenceTracker = new MotionSequenceTracker();
+  private readonly incomingMotionDelayBuffer = new MotionDelayBuffer();
+  private incomingMotionTimer: NodeJS.Timeout | undefined;
   private outgoingSequence = 0;
 
   constructor(
@@ -148,6 +151,7 @@ export class RelayClient {
       this.onConnectionStatus?.({ status: 'reconnecting', role: this.session?.role, roomName: this.session?.roomName });
     });
     this.socket.on('disconnect', reason => {
+      this.clearDelayedMotion();
       this.onConnectionStatus?.({ status: 'disconnected', role: this.session?.role, roomName: this.session?.roomName, reason });
     });
     this.socket.on('connect_error', error => {
@@ -156,7 +160,11 @@ export class RelayClient {
     this.socket.on('m', payload => {
       try {
         const frame = decodeMotionPacket(payload);
-        if (this.incomingSequenceTracker.accept(frame)) this.onMotion?.(frame);
+        if (!this.incomingSequenceTracker.accept(frame)) return;
+        for (const dueFrame of this.incomingMotionDelayBuffer.enqueue(frame, performance.now())) {
+          this.onMotion?.(dueFrame);
+        }
+        this.scheduleDelayedMotion();
       } catch (error) {
         console.error('invalid relay motion packet', error);
       }
@@ -169,12 +177,14 @@ export class RelayClient {
       this.onViewerStatus?.({ roomName: response.roomName, status: 'approved' });
     });
     this.socket.on('viewer:rejected', response => {
+      this.clearDelayedMotion();
       this.session = undefined;
       this.roomName = '';
       this.incomingSequenceTracker.reset();
       this.onViewerStatus?.({ roomName: response.roomName, status: 'rejected', reason: response.reason });
     });
     this.socket.on('viewer:removed', response => {
+      this.clearDelayedMotion();
       this.roomName = '';
       this.session = undefined;
       this.incomingSequenceTracker.reset();
@@ -184,6 +194,7 @@ export class RelayClient {
       this.onViewerList?.(viewers);
     });
     this.socket.on('room:stop', signal => {
+      this.clearDelayedMotion();
       this.latestFrame = undefined;
       this.incomingSequenceTracker.reset();
       this.outgoingSequence = 0;
@@ -205,6 +216,7 @@ export class RelayClient {
       throw new Error(response.reason ?? 'room-create-failed');
     }
 
+    this.clearDelayedMotion();
     this.roomName = room.roomName;
     this.hostToken = room.hostToken;
     this.incomingSequenceTracker.reset();
@@ -235,6 +247,7 @@ export class RelayClient {
       throw new Error(response.reason ?? 'room-join-failed');
     }
 
+    this.clearDelayedMotion();
     this.roomName = join.roomName;
     this.incomingSequenceTracker.reset();
     this.session = {
@@ -283,6 +296,7 @@ export class RelayClient {
     if (!response.ok) {
       return { sent: false, reason: response.reason ?? 'room-stop-failed' };
     }
+    this.clearDelayedMotion();
     this.latestFrame = undefined;
     return { sent: true, roomName: response.roomName };
   }
@@ -305,11 +319,23 @@ export class RelayClient {
     return this.incomingSequenceTracker.snapshot();
   }
 
+  setMotionDelay(delayMs: number) {
+    const previousDelayMs = this.incomingMotionDelayBuffer.stats().motionDelayMs;
+    const stats = this.incomingMotionDelayBuffer.setDelayMs(delayMs);
+    if (stats.motionDelayMs !== previousDelayMs) this.clearDelayedMotionTimer();
+    return stats;
+  }
+
+  getMotionDelayStats() {
+    return this.incomingMotionDelayBuffer.stats();
+  }
+
   disconnect() {
     if (this.flushTimer) {
       clearTimeout(this.flushTimer);
       this.flushTimer = undefined;
     }
+    this.clearDelayedMotion();
     this.socket?.disconnect();
     this.socket = undefined;
     this.roomName = '';
@@ -332,6 +358,7 @@ export class RelayClient {
         const response = await this.emitWithAck('room:create', { token: this.session.token });
         if (!response.ok) throw new Error(response.reason ?? 'room-rejoin-failed');
 
+        this.clearDelayedMotion();
         this.roomName = this.session.roomName;
         this.hostToken = this.session.token;
         void this.refreshViewers();
@@ -345,6 +372,7 @@ export class RelayClient {
       });
       if (!response.ok && response.reason !== 'approval-required') throw new Error(response.reason ?? 'room-rejoin-failed');
 
+      this.clearDelayedMotion();
       this.roomName = this.session.roomName;
       this.session.waitingForApproval = response.reason === 'approval-required';
       this.onConnectionStatus?.({ status: 'rejoined', role: 'viewer', roomName: this.session.roomName, reason: response.reason });
@@ -367,6 +395,34 @@ export class RelayClient {
       this.flushTimer = undefined;
       this.flushLatest();
     }, this.minIntervalMs);
+  }
+
+  private scheduleDelayedMotion() {
+    if (this.incomingMotionTimer) return;
+    const waitMs = this.incomingMotionDelayBuffer.nextWaitMs(performance.now());
+    if (waitMs === undefined) return;
+
+    const timer = setTimeout(() => {
+      if (this.incomingMotionTimer !== timer) return;
+      this.incomingMotionTimer = undefined;
+      for (const dueFrame of this.incomingMotionDelayBuffer.drain(performance.now())) {
+        this.onMotion?.(dueFrame);
+      }
+      this.scheduleDelayedMotion();
+    }, waitMs);
+    this.incomingMotionTimer = timer;
+  }
+
+  private clearDelayedMotion() {
+    this.clearDelayedMotionTimer();
+    this.incomingMotionDelayBuffer.clear();
+  }
+
+  private clearDelayedMotionTimer() {
+    if (this.incomingMotionTimer) {
+      clearTimeout(this.incomingMotionTimer);
+      this.incomingMotionTimer = undefined;
+    }
   }
 
   private flushLatest() {
