@@ -13,6 +13,7 @@ import {
   validateHardwareProtection,
   validateUnitInterval
 } from './app-settings.js';
+import { SettingsFileStore } from './settings-file-store.js';
 import type { AppLogEntry, AppSettings, RoomSettings } from './protocol.js';
 import { HardwareController } from './services/hardware-controller.js';
 import { RelayClient } from './services/relay-client.js';
@@ -43,6 +44,7 @@ let mainWindow: BrowserWindow | undefined;
 let nextLogId = 1;
 const logEntries: AppLogEntry[] = [];
 const lastLogByKey = new Map<string, number>();
+let settingsStore: SettingsFileStore | undefined;
 
 function addLog(entry: Omit<AppLogEntry, 'id' | 'timestamp'>) {
   const now = Date.now();
@@ -384,27 +386,54 @@ function formatFileTimestamp(date: Date) {
 }
 
 async function readSettings(): Promise<AppSettings> {
-  try {
-    const raw = await fs.readFile(getSettingsPath(), 'utf8');
-    const parsed = JSON.parse(raw) as { schemaVersion?: unknown };
-    const settings = migrateAppSettings(parsed);
-    if (parsed.schemaVersion !== CURRENT_SETTINGS_SCHEMA_VERSION) {
-      await writeSettings(settings);
-      addLog({ level: 'info', source: 'app', message: 'settings-migrated', details: `v${settings.schemaVersion}` });
+  return getSettingsStore().exclusive(async writeAtomically => {
+    let raw: string;
+    try {
+      raw = await fs.readFile(getSettingsPath(), 'utf8');
+    } catch (error) {
+      if (isMissingFileError(error)) {
+        addLog({ level: 'warning', source: 'app', message: 'settings-defaulted', details: formatError(error) });
+        return DEFAULT_SETTINGS;
+      }
+      addLog({ level: 'error', source: 'app', message: 'settings-read-failed', details: formatError(error) });
+      throw error;
     }
+
+    let parsed: { schemaVersion?: unknown };
+    let settings: AppSettings;
+    try {
+      parsed = JSON.parse(raw) as { schemaVersion?: unknown };
+      settings = migrateAppSettings(parsed);
+    } catch (error) {
+      addLog({ level: 'warning', source: 'app', message: 'settings-invalid', details: formatError(error) });
+      throw error;
+    }
+
+    if (parsed.schemaVersion !== CURRENT_SETTINGS_SCHEMA_VERSION) {
+      try {
+        await writeAtomically(settings);
+        addLog({ level: 'info', source: 'app', message: 'settings-migrated', details: `v${settings.schemaVersion}` });
+      } catch (error) {
+        addLog({ level: 'error', source: 'app', message: 'settings-migration-persist-failed', details: formatError(error) });
+      }
+    }
+
     return settings;
-  } catch (error) {
-    addLog({ level: 'warning', source: 'app', message: 'settings-defaulted', details: formatError(error) });
-    return DEFAULT_SETTINGS;
-  }
+  });
 }
 
 async function writeSettings(settings: AppSettings) {
-  const settingsPath = getSettingsPath();
-  await fs.mkdir(path.dirname(settingsPath), { recursive: true });
-  await fs.writeFile(settingsPath, `${JSON.stringify(settings, null, 2)}\n`, 'utf8');
+  await getSettingsStore().write(settings);
+}
+
+function getSettingsStore() {
+  return settingsStore ??= new SettingsFileStore(getSettingsPath());
 }
 
 function getSettingsPath() {
   return path.join(app.getPath('userData'), 'settings.json');
+}
+
+function isMissingFileError(error: unknown) {
+  return isRecord(error) && error.code === 'ENOENT';
 }
