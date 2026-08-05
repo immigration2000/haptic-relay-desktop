@@ -2,6 +2,13 @@
 
 방송 플랫폼과 분리된 하드웨어 릴레이 시스템입니다. 데스크톱 앱은 하드웨어 연결과 방 UI를 담당하고, 별도 릴레이 서버가 방 생성/입장/모션 중계를 담당합니다.
 
+## 문서
+
+- [아키텍처](docs/ARCHITECTURE.md)
+- [구현 설명서](docs/IMPLEMENTATION_GUIDE.md)
+- [배포 가이드](docs/DEPLOYMENT.md)
+- [로드맵](docs/ROADMAP.md)
+
 ## 핵심 워크플로우
 
 1. 스트리머가 외부 방송 플랫폼에서 방송을 시작합니다.
@@ -30,6 +37,7 @@
 - Socket.IO 기반 독립 릴레이 서버 골격
 - Control API 기반 방 생성/입장 토큰 발급
 - 시청자 수신 motion packet을 하드웨어 T-Code 출력으로 연결
+- 시청자 로컬 수신 시각 기준 모션 지연
 - MVP 프로토콜 타입 정의
 
 ## 실행
@@ -308,6 +316,20 @@ byte 2-3: intensity uint16, big-endian, 0-65535
 
 시청자 앱은 하드웨어 출력 큐에 넣기 전에 V2 `sequence`를 검사합니다. 중복과 역순 프레임은 제거하고, 순번 간격은 `lostFrames`로 누적합니다. 로컬 latest-frame 병합으로 버린 샘플은 송신 순번을 소비하지 않으므로 네트워크 손실로 잘못 계산되지 않습니다. 순번은 uint32 최댓값 이후 0으로 순환합니다. V1 입력은 릴레이 서버가 전달 시점의 연속 순번을 부여해 기존 송신기와 호환됩니다.
 
+### 시청자 모션 지연
+
+시청자 수신 경로는 다음 순서를 유지합니다.
+
+```text
+decode -> sequence filter -> local receipt-time delay queue -> hardware queue
+```
+
+- 지연 범위: `0-10000ms`
+- 조정 단위: `100ms`
+- 기본값과 기존 설정 마이그레이션 값: `0ms`
+- 지연값 변경과 세션/안전 이벤트는 지연 큐에 남은 프레임을 삭제합니다.
+- 로컬 보간은 다음 독립적인 Phase 1 작업으로 남아 있습니다.
+
 ## 하드웨어 출력 프로토콜
 
 SerialPort로 장비에 쓰는 데이터는 OSR/SR6 계열 T-Code ASCII 라인입니다. 기본 출력은 L0 스트로크 축입니다.
@@ -348,13 +370,16 @@ DSTOP
 - `최소/최대 위치`: 수신 position을 시청자가 허용한 범위 안으로 재매핑
 - `수신 일시정지`: 새 motion frame을 하드웨어에 출력하지 않고 즉시 로컬 정지
 
-하드웨어 프로필과 보호 옵션은 Electron `userData` 경로의 `settings.json`에 저장합니다. 설정 파일이 없거나 깨져 있으면 기본값을 사용합니다. 현재 설정 schema는 v1이며, `schemaVersion`이 없는 기존 설정 파일은 자동으로 v1로 마이그레이션합니다.
+하드웨어 프로필, 보호 옵션, 재생 설정은 Electron `userData` 경로의 `settings.json`에 저장합니다. 현재 설정 schema는 v2입니다. 설정 파일이 없으면 기본값을 사용하고, `schemaVersion`이 없거나 v1인 기존 설정 파일은 하드웨어 설정을 유지한 채 v2로 마이그레이션합니다. 모션 지연의 기본값과 마이그레이션 값은 모두 `0ms`입니다.
 
 ```json
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "hardwareProfile": {},
-  "hardwareProtection": {}
+  "hardwareProtection": {},
+  "playback": {
+    "motionDelayMs": 0
+  }
 }
 ```
 
@@ -408,7 +433,8 @@ DSTOP
 
 ## 다음 구현 순서
 
-1. 앱용 공용 릴레이 서버 배포
-2. 영구 차단/세션 로그 저장소
-3. 하드웨어별 어댑터 분리
-4. 속도 제한, 연령/동의 확인
+1. 시청자 로컬 모션 보간
+2. 앱용 공용 릴레이 서버 배포
+3. 영구 차단/세션 로그 저장소
+4. 하드웨어별 어댑터 분리
+5. 속도 제한, 연령/동의 확인

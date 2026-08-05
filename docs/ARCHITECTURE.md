@@ -10,6 +10,7 @@ Haptic Relay extracts hardware control from the live-streaming website. The live
 - `electron/services/hardware-controller.ts`: serial hardware access and normalized motion output.
 - `electron/services/tcode-encoder.ts`: converts normalized motion frames to OSR/SR6 compatible T-Code lines.
 - `electron/services/relay-client.ts`: Socket.IO client used by the desktop app.
+- `electron/services/motion-delay-buffer.ts`: bounded FIFO for viewer motion delayed by local receipt time.
 - `server/src/relay-server.ts`: standalone Socket.IO relay server for rooms and motion frames.
 - `server/src/control-token.ts`: HMAC signed token helper for host/viewer relay authorization.
 - `server/src/room-registry.ts`: room metadata registry and relay node assignment boundary.
@@ -42,6 +43,16 @@ The viewer relay client validates V2 sequences before handing frames to the hard
 - legacy V1 input is assigned a forwarding sequence by the relay server.
 
 Current receive metrics are `receivedFrames`, `acceptedFrames`, `duplicateFrames`, `outOfOrderFrames`, `lostFrames`, and `lastSequence`. Renderer quality indicators can consume these counters in a later UI step.
+
+## Viewer Motion Delay
+
+The viewer receive path is:
+
+```text
+decode -> sequence filter -> local receipt-time delay queue -> hardware queue
+```
+
+The local delay accepts `0-10000ms` in `100ms` steps. Its default is `0ms`, and unversioned or schema-v1 settings migrate to `0ms`. A configured delay change and session or safety events clear queued frames so stale motion cannot cross those boundaries. Local interpolation remains the next independent Phase 1 task.
 
 ## Control Plane
 

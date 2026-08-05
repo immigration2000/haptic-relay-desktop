@@ -35,8 +35,8 @@ Haptic Relay 서버 = 방 생성, 입장 제어, 모션 fanout
 11. 스트리머 앱에서 입장 신청을 승인하거나 거절
 12. 승인된 viewer 앱이 relay node room에 참여
 13. 스트리머 하드웨어 모션을 V2 20바이트 packet으로 relay
-14. viewer 앱이 packet을 decode
-15. viewer 앱이 수신 motion frame을 연결된 하드웨어에 T-Code로 출력
+14. viewer 앱이 `decode -> sequence filter -> local receipt-time delay queue -> hardware queue` 순서로 수신 frame을 처리
+15. hardware queue가 연결된 하드웨어에 T-Code로 출력
 ```
 
 ## 3. 주요 컴포넌트
@@ -49,7 +49,10 @@ electron/main.ts
   Electron main process. Renderer와 native 기능 사이 IPC 연결, CSP, navigation/window-open 차단, IPC 입력값 검증, settings.json 저장/불러오기, 최근 이벤트 로그 버퍼, 로그 export.
 
 electron/services/relay-client.ts
-  Control API 호출, Socket.IO relay 연결, motion packet 송신/수신, 신청입장 승인 이벤트 처리.
+  Control API 호출, Socket.IO relay 연결, motion packet 송신/수신, sequence 검사, 시청자 지연 queue scheduling, 신청입장 승인 이벤트 처리.
+
+electron/services/motion-delay-buffer.ts
+  로컬 수신 시각을 기준으로 승인된 viewer motion frame을 보관하고 due frame을 FIFO로 반환하는 bounded queue.
 
 electron/services/hardware-controller.ts
   SerialPort 연결, 하드웨어 프로필 적용, T-Code D1/D2 capability probe, 하드웨어 출력 queue, backpressure 처리, 로컬 테스트 패턴 출력.
@@ -274,8 +277,7 @@ Viewer:
   kick은 즉시 room에서 제거, block은 제거 후 같은 표시 이름의 현재 방 재입장을 차단
   room:stop 수신 시 motion queue 삭제 후 하드웨어에 0 T-Code 출력
   motion packet receive: "m"
-  packet decode
-  HardwareController.queueMotion()
+  decode -> sequence filter -> local receipt-time delay queue -> hardware queue
   T-Code serial output
 ```
 
@@ -441,6 +443,21 @@ packet = [
 - uint32 순환을 지원하므로 `4294967295` 다음 순번은 `0`입니다.
 - V1 패킷에는 순번이 없으므로 릴레이 서버가 전달 순서에 맞춰 V2 순번을 부여합니다.
 
+### 시청자 모션 지연
+
+승인된 frame은 송신자 wall clock이 아니라 viewer의 로컬 monotonic 수신 시각을 기준으로 지연합니다.
+
+```text
+decode -> sequence filter -> local receipt-time delay queue -> hardware queue
+```
+
+- 허용 범위는 `0-10000ms`입니다.
+- 조정 단위는 `100ms`입니다.
+- 기본값과 `schemaVersion`이 없거나 v1인 설정의 마이그레이션 값은 `0ms`입니다.
+- 지연값 변경과 연결 해제, 방 입장/재입장, 시청자 제거 같은 세션 이벤트는 queued frame을 삭제합니다.
+- 방 전체 정지와 긴급 정지 같은 안전 이벤트도 queued frame을 삭제합니다.
+- 로컬 보간은 다음 독립적인 Phase 1 작업으로 남아 있습니다.
+
 ## 11. 하드웨어 출력 프로토콜
 
 네트워크 packet과 실제 하드웨어 명령은 다릅니다.
@@ -554,31 +571,35 @@ fallback stop position
 
 ## 11.2 설정 저장
 
-하드웨어 프로필과 보호 옵션은 Electron `userData` 경로의 `settings.json`에 저장합니다.
+하드웨어 프로필, 보호 옵션, 시청자 재생 설정은 Electron `userData` 경로의 `settings.json`에 저장합니다.
 
 저장 대상:
 
 - schema version
 - hardware profile
 - hardware protection
+- playback motion delay
 
-renderer는 시작 시 `app:get-settings` IPC로 설정을 읽고, `app:save-settings` IPC로 현재 값을 저장합니다. main process는 저장 전 schema version, `HardwareProfile`, `HardwareProtection`을 다시 검증합니다. 설정 파일이 없거나 JSON이 깨진 경우 기본값으로 복구합니다.
+renderer는 시작 시 `app:get-settings` IPC로 설정을 읽고, `app:save-settings` IPC로 현재 값을 저장합니다. 시청자 지연은 `viewer:set-motion-delay` IPC로 별도 적용하고 같은 설정 파일에 저장합니다. main process는 저장 전 schema version, `HardwareProfile`, `HardwareProtection`, `PlaybackSettings`를 다시 검증합니다. 설정 파일이 없으면 기본값을 사용하고, 유효하지 않은 설정은 거부합니다.
 
 현재 schema:
 
 ```json
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "hardwareProfile": {},
-  "hardwareProtection": {}
+  "hardwareProtection": {},
+  "playback": {
+    "motionDelayMs": 0
+  }
 }
 ```
 
 마이그레이션 규칙:
 
-- `schemaVersion`이 없으면 v0 파일로 보고 v1로 감싼 뒤 다시 저장
-- `schemaVersion: 1`이면 그대로 검증
-- 지원하지 않는 version이면 기본 설정으로 복구하고 이벤트 로그에 이유를 남김
+- `schemaVersion`이 없거나 `schemaVersion: 1`이면 하드웨어 설정을 유지하고 `playback.motionDelayMs: 0`을 추가해 v2로 다시 저장
+- `schemaVersion: 2`이면 playback을 포함한 전체 설정을 검증
+- 지원하지 않는 version이면 설정 읽기를 거부하고 이벤트 로그에 이유를 남김
 
 ## 11.3 이벤트 로그
 
