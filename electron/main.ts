@@ -16,6 +16,7 @@ import {
 import { SettingsFileStore } from './settings-file-store.js';
 import type { AppLogEntry, AppSettings, RoomSettings } from './protocol.js';
 import { HardwareController } from './services/hardware-controller.js';
+import { validateMotionDelayMs } from './services/motion-delay-buffer.js';
 import { RelayClient } from './services/relay-client.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -270,14 +271,34 @@ ipcMain.handle('app:copy-text', (event, text: unknown) => {
 });
 ipcMain.handle('app:get-settings', async event => {
   assertTrustedSender(event);
-  return readSettings();
+  const settings = await readSettings();
+  relay.setMotionDelay(settings.playback.motionDelayMs);
+  return settings;
 });
 ipcMain.handle('app:save-settings', async (event, settings: unknown) => {
   assertTrustedSender(event);
   const nextSettings = validateAppSettings(settings);
   await writeSettings(nextSettings);
+  relay.setMotionDelay(nextSettings.playback.motionDelayMs);
   addLog({ level: 'info', source: 'app', message: 'settings-saved' });
   return { settings: nextSettings };
+});
+ipcMain.handle('viewer:set-motion-delay', async (event, delayMs: unknown) => {
+  assertTrustedSender(event);
+  const motionDelayMs = validateMotionDelayMs(delayMs as number);
+  return getSettingsStore().exclusive(async writeAtomically => {
+    const currentSettings = await readSettingsInTransaction(writeAtomically);
+    const settings: AppSettings = {
+      schemaVersion: CURRENT_SETTINGS_SCHEMA_VERSION,
+      hardwareProfile: currentSettings.hardwareProfile,
+      hardwareProtection: currentSettings.hardwareProtection,
+      playback: { motionDelayMs }
+    };
+    await writeAtomically(settings);
+    const buffer = relay.setMotionDelay(motionDelayMs);
+    addLog({ level: 'info', source: 'app', message: 'motion-delay-applied', details: `${motionDelayMs}ms` });
+    return { settings, buffer };
+  });
 });
 
 function getDevServerUrl() {
@@ -386,40 +407,42 @@ function formatFileTimestamp(date: Date) {
 }
 
 async function readSettings(): Promise<AppSettings> {
-  return getSettingsStore().exclusive(async writeAtomically => {
-    let raw: string;
+  return getSettingsStore().exclusive(readSettingsInTransaction);
+}
+
+async function readSettingsInTransaction(writeAtomically: (settings: unknown) => Promise<void>): Promise<AppSettings> {
+  let raw: string;
+  try {
+    raw = await fs.readFile(getSettingsPath(), 'utf8');
+  } catch (error) {
+    if (isMissingFileError(error)) {
+      addLog({ level: 'warning', source: 'app', message: 'settings-defaulted', details: formatError(error) });
+      return DEFAULT_SETTINGS;
+    }
+    addLog({ level: 'error', source: 'app', message: 'settings-read-failed', details: formatError(error) });
+    throw error;
+  }
+
+  let parsed: { schemaVersion?: unknown };
+  let settings: AppSettings;
+  try {
+    parsed = JSON.parse(raw) as { schemaVersion?: unknown };
+    settings = migrateAppSettings(parsed);
+  } catch (error) {
+    addLog({ level: 'warning', source: 'app', message: 'settings-invalid', details: formatError(error) });
+    throw error;
+  }
+
+  if (parsed.schemaVersion !== CURRENT_SETTINGS_SCHEMA_VERSION) {
     try {
-      raw = await fs.readFile(getSettingsPath(), 'utf8');
+      await writeAtomically(settings);
+      addLog({ level: 'info', source: 'app', message: 'settings-migrated', details: `v${settings.schemaVersion}` });
     } catch (error) {
-      if (isMissingFileError(error)) {
-        addLog({ level: 'warning', source: 'app', message: 'settings-defaulted', details: formatError(error) });
-        return DEFAULT_SETTINGS;
-      }
-      addLog({ level: 'error', source: 'app', message: 'settings-read-failed', details: formatError(error) });
-      throw error;
+      addLog({ level: 'error', source: 'app', message: 'settings-migration-persist-failed', details: formatError(error) });
     }
+  }
 
-    let parsed: { schemaVersion?: unknown };
-    let settings: AppSettings;
-    try {
-      parsed = JSON.parse(raw) as { schemaVersion?: unknown };
-      settings = migrateAppSettings(parsed);
-    } catch (error) {
-      addLog({ level: 'warning', source: 'app', message: 'settings-invalid', details: formatError(error) });
-      throw error;
-    }
-
-    if (parsed.schemaVersion !== CURRENT_SETTINGS_SCHEMA_VERSION) {
-      try {
-        await writeAtomically(settings);
-        addLog({ level: 'info', source: 'app', message: 'settings-migrated', details: `v${settings.schemaVersion}` });
-      } catch (error) {
-        addLog({ level: 'error', source: 'app', message: 'settings-migration-persist-failed', details: formatError(error) });
-      }
-    }
-
-    return settings;
-  });
+  return settings;
 }
 
 async function writeSettings(settings: AppSettings) {

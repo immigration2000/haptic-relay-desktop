@@ -63,6 +63,7 @@ contextBridge.exposeInMainWorld('hapticRelay', {
   copyText: (text: string) => ipcRenderer.invoke('app:copy-text', text),
   getSettings: () => ipcRenderer.invoke('app:get-settings'),
   saveSettings: (settings: AppSettings) => ipcRenderer.invoke('app:save-settings', settings),
+  setMotionDelay: (delayMs: number) => ipcRenderer.invoke('viewer:set-motion-delay', delayMs),
   onLog: (listener: (entry: AppLogEntry) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, entry: AppLogEntry) => listener(entry);
     ipcRenderer.on('app:log', handler);
