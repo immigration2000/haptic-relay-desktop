@@ -33,6 +33,12 @@ type HardwareConnectResult = {
   probe: TCodeProbeResult;
 };
 
+type MotionDelayBuffer = {
+  motionDelayMs: number;
+  bufferedFrames: number;
+  overflowFrames: number;
+};
+
 declare global {
   interface Window {
     hapticRelay: {
@@ -59,6 +65,7 @@ declare global {
       copyText: (text: string) => Promise<{ copied: boolean }>;
       getSettings: () => Promise<AppSettings>;
       saveSettings: (settings: AppSettings) => Promise<{ settings: AppSettings }>;
+      setMotionDelay: (delayMs: number) => Promise<{ settings: AppSettings; buffer: MotionDelayBuffer }>;
       onLog: (listener: (entry: AppLogEntry) => void) => () => void;
       disconnectRoom: () => Promise<unknown>;
     };

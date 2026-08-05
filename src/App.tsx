@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { AppLogEntry, AppSettings, ApprovalRequest, EntryMode, HardwareProfile, HardwareProtection, PortInfo, ViewerSession } from './shared/protocol';
 import { createQrMatrix } from './qr-code';
 import './styles.css';
 
 type Role = 'host' | 'viewer';
 type StatusTone = 'idle' | 'busy' | 'ok' | 'warning' | 'error';
-type BusyAction = 'ports' | 'hardware' | 'room' | 'join' | 'approval' | 'moderation' | 'motion' | 'stop' | 'logs';
+type BusyAction = 'ports' | 'hardware' | 'room' | 'join' | 'approval' | 'moderation' | 'motion' | 'stop' | 'logs' | 'delay';
 
 type AppStatus = {
   tone: StatusTone;
@@ -61,6 +61,10 @@ export default function App() {
   const [hostRoomInvite, setHostRoomInvite] = useState<HostRoomInvite>();
   const [inviteCodeInput, setInviteCodeInput] = useState('');
   const [savedSettings, setSavedSettings] = useState<SavedSettings>();
+  const [motionDelayMs, setMotionDelayMs] = useState(0);
+  const [appliedMotionDelayMs, setAppliedMotionDelayMs] = useState(0);
+  const [settingsLoading, setSettingsLoading] = useState(false);
+  const settingsLoadRequestId = useRef(0);
 
   const canHost = useMemo(() => roomName.trim().length >= 3, [roomName]);
   const canJoin = useMemo(() => roomName.trim().length >= 3 && displayName.trim().length > 0, [displayName, roomName]);
@@ -162,14 +166,26 @@ export default function App() {
   }
 
   async function loadSettings() {
+    const requestId = ++settingsLoadRequestId.current;
+    setSettingsLoading(true);
     try {
       const settings = await window.hapticRelay.getSettings();
+      if (requestId !== settingsLoadRequestId.current) return;
       const protectionResult = await window.hapticRelay.setHardwareProtection(settings.hardwareProtection);
+      if (requestId !== settingsLoadRequestId.current) return;
       setHardwareProfile(settings.hardwareProfile);
       setHardwareProtection(protectionResult.protection);
+      setMotionDelayMs(settings.playback.motionDelayMs);
+      setAppliedMotionDelayMs(settings.playback.motionDelayMs);
       setSavedSettings(settings);
     } catch (error) {
-      setStatusMessage('warning', `설정 불러오기 실패: ${formatError(error)}`);
+      if (requestId === settingsLoadRequestId.current) {
+        setStatusMessage('warning', `설정 불러오기 실패: ${formatError(error)}`);
+      }
+    } finally {
+      if (requestId === settingsLoadRequestId.current) {
+        setSettingsLoading(false);
+      }
     }
   }
 
@@ -181,12 +197,23 @@ export default function App() {
         schemaVersion: CURRENT_SETTINGS_SCHEMA_VERSION,
         hardwareProfile,
         hardwareProtection,
-        playback: savedSettings.playback
+        playback: { motionDelayMs: appliedMotionDelayMs }
       });
       setHardwareProfile(result.settings.hardwareProfile);
       setHardwareProtection(result.settings.hardwareProtection);
+      setAppliedMotionDelayMs(result.settings.playback.motionDelayMs);
       setSavedSettings(result.settings);
       setStatusMessage('ok', '하드웨어/보호 설정 저장됨');
+    });
+  }
+
+  async function applyMotionDelay() {
+    await runAction('delay', '모션 지연 적용 중', async () => {
+      const result = await window.hapticRelay.setMotionDelay(motionDelayMs);
+      setMotionDelayMs(result.settings.playback.motionDelayMs);
+      setAppliedMotionDelayMs(result.settings.playback.motionDelayMs);
+      setSavedSettings(result.settings);
+      setStatusMessage('ok', `모션 지연 적용됨: ${(result.settings.playback.motionDelayMs / 1000).toFixed(1)}초`);
     });
   }
 
@@ -420,8 +447,8 @@ export default function App() {
         </label>
       </div>
       <div className="button-row">
-        <button disabled={isBusy || !savedSettings} onClick={saveSettings}>설정 저장</button>
-        <button disabled={isBusy || !savedSettings} onClick={loadSettings}>설정 불러오기</button>
+        <button disabled={isBusy || settingsLoading || !savedSettings} onClick={saveSettings}>설정 저장</button>
+        <button disabled={isBusy || settingsLoading || !savedSettings} onClick={loadSettings}>설정 불러오기</button>
       </div>
     </section>
   );
@@ -449,6 +476,22 @@ export default function App() {
         </label>
       </div>
       <button disabled={isBusy} onClick={applyHardwareProtection}>보호 옵션 적용</button>
+    </section>
+  );
+
+  const motionDelayPanel = (
+    <section className="panel">
+      <div className="panel-header">
+        <h2>모션 지연</h2>
+      </div>
+      <label>
+        지연 시간
+        <input className="range" type="range" min="0" max="10000" step="100" value={motionDelayMs} disabled={isBusy || settingsLoading || !savedSettings} onChange={event => setMotionDelayMs(Number(event.target.value))} />
+        <span className="field-value">선택: {(motionDelayMs / 1000).toFixed(1)}초 / 적용됨: {(appliedMotionDelayMs / 1000).toFixed(1)}초</span>
+      </label>
+      <div className="button-row">
+        <button disabled={isBusy || settingsLoading || !savedSettings} onClick={applyMotionDelay}>적용</button>
+      </div>
     </section>
   );
 
@@ -655,6 +698,7 @@ export default function App() {
               <button className="primary" disabled={!canJoin || isBusy} onClick={joinRoom}>입장 요청</button>
             </section>
 
+            {motionDelayPanel}
             {hardwarePanel}
             {protectionPanel}
             {logPanel}
