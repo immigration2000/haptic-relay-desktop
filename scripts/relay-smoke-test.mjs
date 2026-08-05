@@ -1,10 +1,13 @@
 import process from 'node:process';
+import assert from 'node:assert/strict';
+import { performance } from 'node:perf_hooks';
 import { io } from 'socket.io-client';
 import { decodeMotionPacket, encodeMotionPacket } from '../dist-server/src/shared/motion-packet.js';
 
 const port = Number(process.env.HAPTIC_SMOKE_TEST_PORT ?? 4210);
 const baseUrl = `http://127.0.0.1:${port}`;
 const sockets = [];
+const cleanup = [];
 const results = [];
 
 process.env.HAPTIC_RELAY_PORT = String(port);
@@ -16,12 +19,14 @@ process.env.HAPTIC_RELAY_BURST_FRAMES = '4';
 
 const { closeRelayServer, relayServerReady } = await import('../dist-server/server/src/relay-server.js');
 await relayServerReady;
+const { RelayClient } = await import('../dist-electron/services/relay-client.js');
 
 try {
   await runSmokeTest();
 } catch (error) {
   record('smoke test completed', false, formatError(error));
 } finally {
+  for (const disconnect of cleanup) disconnect();
   for (const socket of sockets) socket.disconnect();
   await closeRelayServer();
 }
@@ -101,6 +106,61 @@ async function runSmokeTest() {
     JSON.stringify(motion)
   );
 
+  const delayedMotion = [];
+  const delayedViewer = new RelayClient(frame => {
+    delayedMotion.push({ frame, receivedAtMs: performance.now() });
+  });
+  cleanup.push(() => delayedViewer.disconnect());
+  await delayedViewer.joinRoom(baseUrl, {
+    displayName: 'delayed-viewer',
+    roomName,
+    password: 'open-secret'
+  });
+  assert.equal(typeof delayedViewer.setMotionDelay, 'function', 'setMotionDelay missing');
+  delayedViewer.setMotionDelay(300);
+  const delayedStartMs = performance.now();
+  host.volatile.compress(false).emit('m', encodeMotionPacket({
+    protocolVersion: 2,
+    sequence: 78,
+    sourceTimeMs: Date.now(),
+    timestamp: Date.now(),
+    durationMs: 45,
+    position: 0.35,
+    intensity: 0.65
+  }));
+  await delay(100);
+  assert.equal(delayedMotion.length, 0, 'delayed RelayClient motion arrived early');
+  const delayedOutput = await waitFor(
+    () => delayedMotion.find(item => item.frame.sequence === 78),
+    1_000,
+    'delayed RelayClient motion timeout'
+  );
+  assert.ok(delayedOutput.receivedAtMs - delayedStartMs >= 250, 'delayed RelayClient motion arrived too early');
+  record('RelayClient delays viewer motion', true, `elapsed=${delayedOutput.receivedAtMs - delayedStartMs}`);
+
+  delayedViewer.setMotionDelay(500);
+  host.volatile.compress(false).emit('m', encodeMotionPacket({
+    protocolVersion: 2,
+    sequence: 79,
+    sourceTimeMs: Date.now(),
+    timestamp: Date.now(),
+    durationMs: 45,
+    position: 0.35,
+    intensity: 0.65
+  }));
+  const queuedDelayStats = await waitFor(
+    () => {
+      const stats = delayedViewer.getMotionDelayStats();
+      return stats.bufferedFrames === 1 ? stats : undefined;
+    },
+    1_000,
+    'delayed RelayClient motion was not queued'
+  );
+  assert.equal(queuedDelayStats.bufferedFrames, 1, 'delayed RelayClient motion was not queued');
+  assert.equal(delayedViewer.setMotionDelay(500).bufferedFrames, 1, 'reapplying the delay cleared queued motion');
+  assert.throws(() => delayedViewer.setMotionDelay(50), /invalid-motion-delay/, 'invalid delay must throw');
+  assert.equal(delayedViewer.getMotionDelayStats().bufferedFrames, 1, 'invalid delay cleared queued motion');
+
   const viewers = await emitWithAck(host, 'room:viewers', {});
   record('host viewer list', viewers.ok === true && viewers.viewers?.some(item => item.displayName === 'viewer-one'), JSON.stringify(viewers));
 
@@ -108,6 +168,9 @@ async function runSmokeTest() {
   const stopResponse = await emitWithAck(host, 'room:stop', {});
   const stopSignal = await stopPromise;
   record('room emergency stop relay', stopResponse.ok === true && stopSignal.roomName === roomName, JSON.stringify(stopSignal));
+  await delay(550);
+  assert.equal(delayedMotion.filter(item => item.frame.sequence === 79).length, 0, 'cleared delayed RelayClient motion was delivered');
+  record('RelayClient clears delayed motion on room stop', true);
 
   const removedPromise = onceEvent(viewer, 'viewer:removed');
   const moderation = await emitWithAck(host, 'viewer:moderate', { socketId: viewer.id, action: 'kick' });
@@ -237,6 +300,16 @@ function uniqueRoomName(suffix) {
 
 function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function waitFor(find, timeoutMs, timeoutMessage) {
+  const startedAt = performance.now();
+  while (performance.now() - startedAt < timeoutMs) {
+    const value = find();
+    if (value !== undefined) return value;
+    await delay(10);
+  }
+  throw new Error(timeoutMessage);
 }
 
 function almostEqual(actual, expected) {
