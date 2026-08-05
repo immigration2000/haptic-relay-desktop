@@ -7,6 +7,10 @@
 - Hardware port discovery
 - Motion send and receive
 - Viewer hardware output from received motion
+- [x] Motion Packet V2
+- [x] Viewer sequence filtering
+- [x] Viewer local receipt-time motion delay
+- [ ] Viewer local motion interpolation (next Phase 1 task)
 - Manual emergency stop
 - Standalone relay server for development
 
