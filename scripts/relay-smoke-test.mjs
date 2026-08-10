@@ -72,6 +72,17 @@ async function runSmokeTest() {
   });
   record('viewer join', joined.status === 200 && viewerBound.ok === true, JSON.stringify(viewerBound));
 
+  const mixedProtocolMotion = [];
+  const mixedProtocolViewer = new RelayClient(frame => {
+    mixedProtocolMotion.push(frame);
+  });
+  cleanup.push(() => mixedProtocolViewer.disconnect());
+  await mixedProtocolViewer.joinRoom(baseUrl, {
+    displayName: 'mixed-protocol-viewer',
+    roomName,
+    password: 'open-secret'
+  });
+
   const legacyMotionPromise = onceEvent(viewer, 'm');
   host.volatile.compress(false).emit('m', Uint8Array.from([0x80, 0x00, 0x40, 0x00]));
   const legacyMotion = decodeMotionPacket(await legacyMotionPromise);
@@ -104,6 +115,23 @@ async function runSmokeTest() {
     'V2 motion metadata relay',
     motion.protocolVersion === 2 && motion.sequence === 77 && motion.sourceTimeMs === sourceTimeMs && motion.durationMs === 45,
     JSON.stringify(motion)
+  );
+
+  await waitFor(
+    () => mixedProtocolMotion.find(frame => frame.sequence === 77),
+    1_000,
+    'mixed-protocol viewer did not receive V2 motion'
+  );
+  host.volatile.compress(false).emit('m', Uint8Array.from([0xa0, 0x00, 0x60, 0x00]));
+  const mixedLegacyMotion = await waitFor(
+    () => mixedProtocolMotion.find(frame => frame.sequence === 78),
+    1_000,
+    'legacy V1 motion after V2 was dropped as out-of-order'
+  );
+  record(
+    'legacy V1 sequence continues after V2',
+    mixedLegacyMotion.protocolVersion === 2 && mixedLegacyMotion.sequence === 78,
+    JSON.stringify(mixedLegacyMotion)
   );
 
   const delayedMotion = [];

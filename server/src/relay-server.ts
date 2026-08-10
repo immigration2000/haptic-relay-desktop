@@ -26,6 +26,7 @@ const pendingApprovals = new Map<string, { roomName: string; displayName: string
 const viewerSessions = new Map<string, ViewerSession>();
 const blockedViewersByRoom = new Map<string, Set<string>>();
 const approvedViewersByRoom = new Map<string, Set<string>>();
+const lastForwardedSequenceByRoom = new Map<string, number>();
 const port = Number(process.env.HAPTIC_RELAY_PORT ?? 4174);
 const corsOrigin = process.env.HAPTIC_RELAY_CORS_ORIGIN ?? '*';
 const publicRelayUrl = process.env.HAPTIC_PUBLIC_RELAY_URL ?? `http://localhost:${port}`;
@@ -397,7 +398,7 @@ async function forwardMotion(socket: Socket, roomName: string, frame: MotionFram
     timestamp: frame.sourceTimeMs ?? frame.timestamp ?? now,
     protocolVersion: frame.protocolVersion,
     flags: frame.flags,
-    sequence: frame.sequence ?? ((room.forwardedFrames - 1) >>> 0),
+    sequence: resolveForwardedSequence(roomName, frame.sequence),
     sourceTimeMs: frame.sourceTimeMs ?? frame.timestamp ?? now,
     durationMs: frame.durationMs ?? 0
   };
@@ -477,6 +478,7 @@ function closeViewerSessions(roomName: string) {
 
   blockedViewersByRoom.delete(roomName);
   approvedViewersByRoom.delete(roomName);
+  lastForwardedSequenceByRoom.delete(roomName);
 }
 
 function getRoomViewers(roomName: string) {
@@ -544,6 +546,27 @@ function refillMotionTokens(room: RoomRecord) {
   const refill = elapsedMs * (relayMaxHz / 1000);
   room.motionTokens = Math.min(burstFrames, room.motionTokens + refill);
   room.lastTokenRefillAt = now;
+}
+
+function resolveForwardedSequence(roomName: string, suppliedSequence?: number) {
+  const previousSequence = lastForwardedSequenceByRoom.get(roomName);
+  if (suppliedSequence === undefined) {
+    const nextSequence = previousSequence === undefined ? 0 : (previousSequence + 1) >>> 0;
+    lastForwardedSequenceByRoom.set(roomName, nextSequence);
+    return nextSequence;
+  }
+
+  const sequence = suppliedSequence >>> 0;
+  if (previousSequence === undefined) {
+    lastForwardedSequenceByRoom.set(roomName, sequence);
+    return sequence;
+  }
+
+  const forwardDistance = (sequence - previousSequence) >>> 0;
+  if (forwardDistance > 0 && forwardDistance < 0x8000_0000) {
+    lastForwardedSequenceByRoom.set(roomName, sequence);
+  }
+  return sequence;
 }
 
 function validateRuntimeConfig() {
