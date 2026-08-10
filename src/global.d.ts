@@ -1,4 +1,4 @@
-import type { AppLogEntry, AppSettings, ApprovalRequest, HardwareProfile, HardwareProtection, PortInfo, RoomSettings, ViewerSession } from './shared/protocol';
+import type { AppLogEntry, AppSettings, ApprovalRequest, HardwareProfile, HardwareProtection, MotionMonitorSnapshot, PortInfo, RoomSettings, ViewerSession } from './shared/protocol';
 
 type ViewerStatus = {
   roomName: string;
@@ -60,6 +60,7 @@ declare global {
       onViewerList: (listener: (viewers: ViewerSession[]) => void) => () => void;
       onEmergencyStop: (listener: (signal: StopSignal) => void) => () => void;
       onConnectionStatus: (listener: (status: RelayConnectionStatus) => void) => () => void;
+      onMotionReceived: (listener: (snapshot: MotionMonitorSnapshot) => void) => () => void;
       getLogs: () => Promise<AppLogEntry[]>;
       exportLogs: () => Promise<{ exported: boolean; canceled: boolean; path?: string; count: number }>;
       copyText: (text: string) => Promise<{ copied: boolean }>;

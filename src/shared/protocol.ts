@@ -17,6 +17,16 @@ export type MotionFrame = {
   durationMs?: number;
 };
 
+export type MotionMonitorSnapshot = {
+  frame: MotionFrame;
+  receivedAt: number;
+  receivedFrames: number;
+  hardware: {
+    queued: boolean;
+    reason?: string;
+  };
+};
+
 export type HardwareProfile = {
   baudRate: number;
   linearAxis: string;

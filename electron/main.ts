@@ -14,7 +14,7 @@ import {
   validateUnitInterval
 } from './app-settings.js';
 import { SettingsFileStore } from './settings-file-store.js';
-import type { AppLogEntry, AppSettings, RoomSettings } from './protocol.js';
+import type { AppLogEntry, AppSettings, MotionMonitorSnapshot, RoomSettings } from './protocol.js';
 import { HardwareController } from './services/hardware-controller.js';
 import { validateMotionDelayMs } from './services/motion-delay-buffer.js';
 import { RelayClient } from './services/relay-client.js';
@@ -43,6 +43,7 @@ const MAX_LOG_ENTRIES = 300;
 
 let mainWindow: BrowserWindow | undefined;
 let nextLogId = 1;
+let receivedMotionFrames = 0;
 const logEntries: AppLogEntry[] = [];
 const lastLogByKey = new Map<string, number>();
 let settingsStore: SettingsFileStore | undefined;
@@ -68,6 +69,13 @@ function addLog(entry: Omit<AppLogEntry, 'id' | 'timestamp'>) {
 const hardware = new HardwareController(entry => addLog(entry));
 const relay = new RelayClient(frame => {
   const result = hardware.queueMotion(frame);
+  const snapshot: MotionMonitorSnapshot = {
+    frame,
+    receivedAt: Date.now(),
+    receivedFrames: ++receivedMotionFrames,
+    hardware: result
+  };
+  mainWindow?.webContents.send('motion:received', snapshot);
   if (result.queued === false && result.reason !== 'hardware-not-connected') {
     addLog({ level: 'warning', source: 'hardware', message: 'motion-not-queued', details: result.reason });
   }
