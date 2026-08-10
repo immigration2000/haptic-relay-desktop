@@ -41,6 +41,7 @@ assert.match(hardwarePanelSource, /<button disabled=\{isBusy \|\| settingsLoadin
 assert.match(hardwarePanelSource, /<button disabled=\{isBusy \|\| settingsLoading \|\| !savedSettings\} onClick=\{loadSettings\}/);
 assert.match(motionDelayPanelSource, /<section className="panel">/);
 assert.match(motionDelayPanelSource, /<input className="range"[\s\S]*?disabled=\{isBusy \|\| settingsLoading \|\| !savedSettings\}/);
-assert.match(motionDelayPanelSource, /<button disabled=\{isBusy \|\| settingsLoading \|\| !savedSettings\} onClick=\{applyMotionDelay\}/);
+assert.match(appSource, /const hasPendingMotionDelay = motionDelayMs !== appliedMotionDelayMs;/);
+assert.match(motionDelayPanelSource, /<button disabled=\{isBusy \|\| settingsLoading \|\| !savedSettings \|\| !hasPendingMotionDelay\} onClick=\{applyMotionDelay\}/);
 
 console.log('sandbox preload format: commonjs');

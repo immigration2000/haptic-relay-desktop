@@ -64,6 +64,29 @@ const validated = settingsModule.validateAppSettings({
 });
 assert.equal(validated.playback.motionDelayMs, 700);
 
+for (const schemaVersion of [1, 3, '2', undefined]) {
+  assert.throws(
+    () => settingsModule.validateAppSettings({
+      schemaVersion,
+      hardwareProfile,
+      hardwareProtection,
+      playback: { motionDelayMs: 0 }
+    }),
+    /unsupported-settings-version/
+  );
+}
+
+for (const schemaVersion of [0, 3, '2']) {
+  assert.throws(
+    () => settingsModule.migrateAppSettings({
+      schemaVersion,
+      hardwareProfile,
+      hardwareProtection
+    }),
+    /unsupported-settings-version/
+  );
+}
+
 for (const motionDelayMs of [-100, 50, 10_100]) {
   assert.throws(
     () => settingsModule.validateAppSettings({

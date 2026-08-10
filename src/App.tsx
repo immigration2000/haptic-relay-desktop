@@ -69,6 +69,7 @@ export default function App() {
   const canHost = useMemo(() => roomName.trim().length >= 3, [roomName]);
   const canJoin = useMemo(() => roomName.trim().length >= 3 && displayName.trim().length > 0, [displayName, roomName]);
   const isBusy = busyAction !== undefined;
+  const hasPendingMotionDelay = motionDelayMs !== appliedMotionDelayMs;
   const inviteQrMatrix = useMemo(() => hostRoomInvite ? createQrMatrix(encodeInviteCode(hostRoomInvite)) : undefined, [hostRoomInvite]);
 
   useEffect(() => {
@@ -490,7 +491,7 @@ export default function App() {
         <span className="field-value">선택: {(motionDelayMs / 1000).toFixed(1)}초 / 적용됨: {(appliedMotionDelayMs / 1000).toFixed(1)}초</span>
       </label>
       <div className="button-row">
-        <button disabled={isBusy || settingsLoading || !savedSettings} onClick={applyMotionDelay}>적용</button>
+        <button disabled={isBusy || settingsLoading || !savedSettings || !hasPendingMotionDelay} onClick={applyMotionDelay}>적용</button>
       </div>
     </section>
   );

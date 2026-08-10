@@ -54,6 +54,14 @@ function runPacketTests(label, module) {
     /invalid-motion-packet-size:3/,
     `${label}: rejects invalid packet size`
   );
+
+  const unsupportedVersion = encoded.slice();
+  unsupportedVersion[0] = 3;
+  assert.throws(
+    () => module.decodeMotionPacket(unsupportedVersion),
+    /invalid-motion-packet-version:3/,
+    `${label}: rejects unsupported V2 packet version`
+  );
 }
 
 function assertAlmostEqual(actual, expected, label) {
