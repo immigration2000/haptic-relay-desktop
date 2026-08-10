@@ -103,6 +103,8 @@ npx electron .
 
 각 명령을 별도 PowerShell 터미널에서 실행합니다.
 
+처음 내려받는 PC에서 의존성 설치부터 정상 판정까지 확인하려면 [데스크톱 무하드웨어 시연 설명서](docs/DESKTOP_DEMO_TEST_GUIDE.md)를 따릅니다.
+
 ```powershell
 # 터미널 1: 릴레이 서버
 npm.cmd run server:dev
