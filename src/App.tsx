@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { AppLogEntry, AppSettings, ApprovalRequest, EntryMode, HardwareProfile, HardwareProtection, PortInfo, ViewerSession } from './shared/protocol';
+import type { AppLogEntry, AppSettings, ApprovalRequest, EntryMode, HardwareProfile, HardwareProtection, MotionMonitorSnapshot, PortInfo, ViewerSession } from './shared/protocol';
 import { createQrMatrix } from './qr-code';
 import './styles.css';
 
@@ -63,6 +63,7 @@ export default function App() {
   const [savedSettings, setSavedSettings] = useState<SavedSettings>();
   const [motionDelayMs, setMotionDelayMs] = useState(0);
   const [appliedMotionDelayMs, setAppliedMotionDelayMs] = useState(0);
+  const [motionMonitorEntries, setMotionMonitorEntries] = useState<MotionMonitorSnapshot[]>([]);
   const [settingsLoading, setSettingsLoading] = useState(false);
   const settingsLoadRequestId = useRef(0);
 
@@ -70,6 +71,7 @@ export default function App() {
   const canJoin = useMemo(() => roomName.trim().length >= 3 && displayName.trim().length > 0, [displayName, roomName]);
   const isBusy = busyAction !== undefined;
   const hasPendingMotionDelay = motionDelayMs !== appliedMotionDelayMs;
+  const latestMotion = motionMonitorEntries[0];
   const inviteQrMatrix = useMemo(() => hostRoomInvite ? createQrMatrix(encodeInviteCode(hostRoomInvite)) : undefined, [hostRoomInvite]);
 
   useEffect(() => {
@@ -129,6 +131,9 @@ export default function App() {
       }
       setStatusMessage('error', `릴레이 오류: ${formatReason(nextStatus.reason ?? 'connect_error')}`);
     });
+    const removeMotionReceived = window.hapticRelay.onMotionReceived(snapshot => {
+      setMotionMonitorEntries(current => [snapshot, ...current].slice(0, 10));
+    });
 
     return () => {
       removeLog();
@@ -137,6 +142,7 @@ export default function App() {
       removeViewerList();
       removeEmergencyStop();
       removeConnectionStatus();
+      removeMotionReceived();
     };
   }, []);
 
@@ -480,6 +486,50 @@ export default function App() {
     </section>
   );
 
+  const motionMonitorPanel = (
+    <section className="panel motion-monitor" aria-live="polite">
+      <div className="panel-header">
+        <h2>관리자 수신 모니터</h2>
+        <span className={`monitor-state ${latestMotion ? 'receiving' : 'waiting'}`}>
+          {latestMotion ? '수신 중' : '수신 대기 중'}
+        </span>
+      </div>
+      {latestMotion ? (
+        <>
+          <div className="monitor-gauges">
+            <MotionGauge label="위치" value={latestMotion.frame.position} />
+            <MotionGauge label="강도" value={latestMotion.frame.intensity} />
+          </div>
+          <dl className="monitor-metrics">
+            <div><dt>프로토콜</dt><dd>v{latestMotion.frame.protocolVersion ?? 1}</dd></div>
+            <div><dt>시퀀스</dt><dd>{latestMotion.frame.sequence ?? '-'}</dd></div>
+            <div><dt>누적 수신</dt><dd>{latestMotion.receivedFrames}</dd></div>
+            <div><dt>마지막 수신</dt><dd>{formatTime(latestMotion.receivedAt)}</dd></div>
+          </dl>
+          <p className={`monitor-delivery ${latestMotion.hardware.queued || latestMotion.hardware.reason === 'hardware-not-connected' ? 'ok' : 'warning'}`}>
+            {latestMotion.hardware.queued
+              ? '하드웨어 전달 정상'
+              : latestMotion.hardware.reason === 'hardware-not-connected'
+                ? '가상 수신 정상 / 하드웨어 미연결'
+                : `수신 정상 / 하드웨어 전달 실패: ${latestMotion.hardware.reason ?? 'unknown'}`}
+          </p>
+          <div className="motion-history" aria-label="최근 수신 프레임">
+            {motionMonitorEntries.map(entry => (
+              <div className="motion-history-row" key={`${entry.receivedAt}-${entry.receivedFrames}`}>
+                <span>#{entry.receivedFrames}</span>
+                <span>P {entry.frame.position.toFixed(2)}</span>
+                <span>I {entry.frame.intensity.toFixed(2)}</span>
+                <time>{formatTime(entry.receivedAt)}</time>
+              </div>
+            ))}
+          </div>
+        </>
+      ) : (
+        <p className="muted">스트리머의 모션 데이터가 도착하면 여기에 표시됩니다.</p>
+      )}
+    </section>
+  );
+
   const motionDelayPanel = (
     <section className="panel">
       <div className="panel-header">
@@ -699,6 +749,7 @@ export default function App() {
               <button className="primary" disabled={!canJoin || isBusy} onClick={joinRoom}>입장 요청</button>
             </section>
 
+            {motionMonitorPanel}
             {motionDelayPanel}
             {hardwarePanel}
             {protectionPanel}
@@ -707,6 +758,18 @@ export default function App() {
         )}
       </section>
     </main>
+  );
+}
+
+function MotionGauge({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="motion-gauge">
+      <div>
+        <span>{label}</span>
+        <strong>{value.toFixed(2)}</strong>
+      </div>
+      <progress max={1} value={value} aria-label={`${label} ${value.toFixed(2)}`} />
+    </div>
   );
 }
 

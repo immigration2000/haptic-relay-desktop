@@ -297,6 +297,91 @@ textarea {
   font-size: 13px;
 }
 
+.monitor-state {
+  color: #647684;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.monitor-state.receiving {
+  color: #08775f;
+}
+
+.monitor-gauges {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.motion-gauge {
+  display: grid;
+  gap: 8px;
+}
+
+.motion-gauge div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.motion-gauge progress {
+  width: 100%;
+  height: 14px;
+  accent-color: #08775f;
+}
+
+.monitor-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0;
+}
+
+.monitor-metrics div {
+  min-width: 0;
+}
+
+.monitor-metrics dt {
+  color: #647684;
+  font-size: 12px;
+}
+
+.monitor-metrics dd {
+  margin: 4px 0 0;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.monitor-delivery {
+  margin: 0;
+  font-weight: 700;
+}
+
+.monitor-delivery.ok {
+  color: #08775f;
+}
+
+.monitor-delivery.warning {
+  color: #b45309;
+}
+
+.motion-history {
+  display: grid;
+  max-height: 260px;
+  overflow: auto;
+  border-top: 1px solid #d7e0e7;
+}
+
+.motion-history-row {
+  display: grid;
+  grid-template-columns: 72px 1fr 1fr 82px;
+  gap: 10px;
+  padding: 9px 0;
+  border-bottom: 1px solid #e8edf1;
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 13px;
+}
+
 .log-list {
   display: grid;
   gap: 8px;
@@ -366,5 +451,18 @@ textarea {
 
   .log-row em {
     grid-column: auto;
+  }
+
+  .monitor-gauges,
+  .monitor-metrics {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .motion-history-row {
+    grid-template-columns: 62px 1fr 1fr;
+  }
+
+  .motion-history-row time {
+    grid-column: 2 / -1;
   }
 }

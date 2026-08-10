@@ -18,6 +18,7 @@ function sourceSection(source, start, end) {
 const loadSettingsSource = sourceSection(appSource, '  async function loadSettings()', '  async function saveSettings()');
 const saveSettingsSource = sourceSection(appSource, '  async function saveSettings()', '  async function applyMotionDelay()');
 const hardwarePanelSource = sourceSection(appSource, '  const hardwarePanel = (', '  const protectionPanel = (');
+const motionMonitorPanelSource = sourceSection(appSource, '  const motionMonitorPanel = (', '  const motionDelayPanel = (');
 const motionDelayPanelSource = sourceSection(appSource, '  const motionDelayPanel = (', '  const logPanel = (');
 
 assert.match(mainSource, /preload:\s*path\.join\(__dirname, ['"]preload\.cjs['"]\)/);
@@ -47,5 +48,10 @@ assert.match(motionDelayPanelSource, /<section className="panel">/);
 assert.match(motionDelayPanelSource, /<input className="range"[\s\S]*?disabled=\{isBusy \|\| settingsLoading \|\| !savedSettings\}/);
 assert.match(appSource, /const hasPendingMotionDelay = motionDelayMs !== appliedMotionDelayMs;/);
 assert.match(motionDelayPanelSource, /<button disabled=\{isBusy \|\| settingsLoading \|\| !savedSettings \|\| !hasPendingMotionDelay\} onClick=\{applyMotionDelay\}/);
+assert.match(appSource, /const removeMotionReceived = window\.hapticRelay\.onMotionReceived/);
+assert.match(appSource, /setMotionMonitorEntries\(current => \[snapshot, \.\.\.current\]\.slice\(0, 10\)\)/);
+assert.match(appSource, /removeMotionReceived\(\)/);
+assert.match(motionMonitorPanelSource, /관리자 수신 모니터/);
+assert.match(appSource, /\{motionMonitorPanel\}\s*\{motionDelayPanel\}/);
 
 console.log('sandbox preload format: commonjs');
