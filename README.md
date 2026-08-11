@@ -7,6 +7,8 @@
 - [아키텍처](docs/ARCHITECTURE.md)
 - [구현 설명서](docs/IMPLEMENTATION_GUIDE.md)
 - [배포 가이드](docs/DEPLOYMENT.md)
+- [Android Termux 전송 가이드](docs/ANDROID_TERMUX_TRANSFER.md)
+- Android 외부접속 데모 서버는 `npm.cmd run build:termux`로 생성한 뒤 산출물의 `README.md`를 따릅니다.
 - [로드맵](docs/ROADMAP.md)
 
 ## 핵심 워크플로우
@@ -139,7 +141,7 @@ npm.cmd run electron:demo-client
 
 ```bash
 curl http://localhost:4174/healthz
-curl http://localhost:4174/metrics
+curl -H "Authorization: Bearer $HAPTIC_METRICS_TOKEN" http://localhost:4174/metrics
 ```
 
 서버를 띄운 상태에서 소켓 fanout까지 확인하려면 [릴레이 부하 테스트](#릴레이-부하-테스트)를 실행합니다.

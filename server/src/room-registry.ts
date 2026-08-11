@@ -1,5 +1,5 @@
 import type { RoomSettings } from '../../src/shared/protocol.js';
-import { createClient, type RedisClientType } from 'redis';
+import type { RedisClientType } from 'redis';
 
 export type RelayNode = {
   id: string;
@@ -151,6 +151,7 @@ export class RedisRoomRegistry implements RoomRegistry {
   ) {}
 
   async connect() {
+    const { createClient } = await import('redis');
     this.client = createClient({ url: this.redisUrl });
     this.client.on('error', error => console.error('redis room registry error', error));
     await this.client.connect();

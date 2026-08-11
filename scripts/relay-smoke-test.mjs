@@ -16,6 +16,10 @@ process.env.HAPTIC_PUBLIC_RELAY_URL = baseUrl;
 process.env.HAPTIC_CONTROL_TOKEN_SECRET = 'smoke-test-secret-that-is-longer-than-32-characters';
 process.env.HAPTIC_HOST_RECONNECT_GRACE_MS = '250';
 process.env.HAPTIC_RELAY_BURST_FRAMES = '4';
+process.env.HAPTIC_METRICS_TOKEN = 'smoke-metrics-token-that-is-longer-than-32-characters';
+process.env.HAPTIC_ROOM_CREATE_RATE_LIMIT = '3';
+process.env.HAPTIC_ROOM_JOIN_RATE_LIMIT = '7';
+process.env.HAPTIC_CONTROL_RATE_WINDOW_MS = '60000';
 
 const { closeRelayServer, relayServerReady } = await import('../dist-server/server/src/relay-server.js');
 await relayServerReady;
@@ -46,6 +50,13 @@ if (passed !== results.length) process.exitCode = 1;
 async function runSmokeTest() {
   const health = await fetch(`${baseUrl}/healthz`).then(response => response.json());
   record('health endpoint', health.ok === true && health.rooms === 0, JSON.stringify(health));
+
+  const unauthorizedMetrics = await fetch(`${baseUrl}/metrics`);
+  record('metrics require bearer token', unauthorizedMetrics.status === 401, `status=${unauthorizedMetrics.status}`);
+  const authorizedMetrics = await fetch(`${baseUrl}/metrics`, {
+    headers: { authorization: `Bearer ${process.env.HAPTIC_METRICS_TOKEN}` }
+  });
+  record('metrics accept configured bearer token', authorizedMetrics.status === 200, `status=${authorizedMetrics.status}`);
 
   const roomName = uniqueRoomName('open');
   const created = await post('/api/rooms', { roomName, password: 'open-secret', entryMode: 'open' });
@@ -256,6 +267,23 @@ async function runSmokeTest() {
     displayName: 'late-viewer'
   });
   record('expired host session cleanup', hostClosed.reason === 'host-disconnected' && joinAfterClose.status === 404, `event=${JSON.stringify(hostClosed)} http=${joinAfterClose.status}`);
+
+  const createRateLimited = await post('/api/rooms', { roomName: uniqueRoomName('rate-limited') });
+  record(
+    'room create rate limit',
+    createRateLimited.status === 429 && Boolean(createRateLimited.retryAfter),
+    `status=${createRateLimited.status} retryAfter=${createRateLimited.retryAfter}`
+  );
+
+  const joinRateLimited = await post(`/api/rooms/${encodeURIComponent(roomName)}/join`, {
+    displayName: 'rate-limited-viewer',
+    password: 'open-secret'
+  });
+  record(
+    'room join rate limit',
+    joinRateLimited.status === 429 && Boolean(joinRateLimited.retryAfter),
+    `status=${joinRateLimited.status} retryAfter=${joinRateLimited.retryAfter}`
+  );
 }
 
 async function post(path, body) {
@@ -265,7 +293,7 @@ async function post(path, body) {
     body: JSON.stringify(body)
   });
   const payload = await response.json();
-  return { status: response.status, payload };
+  return { status: response.status, payload, retryAfter: response.headers.get('retry-after') };
 }
 
 async function connectSocket() {

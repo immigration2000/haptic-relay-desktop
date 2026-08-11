@@ -8,6 +8,7 @@ test-kit/
 .env
 .env.*
 !.env.example
+!.env.phone.example
 npm-debug.log*
 *.local
 .DS_Store

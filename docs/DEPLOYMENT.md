@@ -41,6 +41,11 @@ HAPTIC_MAX_VIEWERS_PER_ROOM=500
 HAPTIC_RELAY_MAX_HZ=30
 HAPTIC_RELAY_BURST_FRAMES=2
 HAPTIC_HOST_RECONNECT_GRACE_MS=15000
+HAPTIC_METRICS_TOKEN=<32+ char separate random secret>
+HAPTIC_CONTROL_RATE_WINDOW_MS=60000
+HAPTIC_ROOM_CREATE_RATE_LIMIT=10
+HAPTIC_ROOM_JOIN_RATE_LIMIT=300
+HAPTIC_TRUST_CF_CONNECTING_IP=false
 ```
 
 For a single MVP node, `HAPTIC_RELAY_NODES` can be omitted. For multiple nodes:
@@ -57,6 +62,22 @@ Local production command:
 npm.cmd run build:server
 npm.cmd run server:start
 ```
+
+## Android Termux Demo Relay
+
+Build the phone-only artifact on the development PC:
+
+```powershell
+npm.cmd run package:termux
+```
+
+The command creates the unpacked `release/termux-server` directory plus a versioned `.tar.gz` archive and `.sha256` checksum file in `release`. The bundle contains compiled server code, a lockfile with only the Socket.IO runtime dependency, a production environment template, and PID-based Termux operation scripts.
+
+Copy both the archive and checksum file to the Android phone and follow [ANDROID_TERMUX_TRANSFER.md](ANDROID_TERMUX_TRANSFER.md). The phone profile deliberately uses the in-memory room registry, 30 Hz relay rate, a 10-frame jitter burst, and a 50-viewer safety limit. Treat 50 as a configured ceiling, not verified capacity; increase it only after device-specific load testing.
+
+Use a Cloudflare Quick Tunnel only for the first smoke test. Repeated external tests require a Named Tunnel with a fixed HTTPS URL, and that exact URL must be configured as `HAPTIC_PUBLIC_RELAY_URL` before the relay starts.
+
+The Termux artifact is a demo deployment target. The container or hosted Node deployment remains the production path.
 
 Container build:
 
@@ -88,9 +109,13 @@ GET /healthz
 
 Metrics snapshot:
 
-```text
-GET /metrics
+```bash
+curl -H "Authorization: Bearer $HAPTIC_METRICS_TOKEN" https://relay.example.com/metrics
 ```
+
+If `HAPTIC_METRICS_TOKEN` is unset, `/metrics` returns `404`. If it is set, requests without the matching Bearer token return `401`. Keep this token separate from `HAPTIC_CONTROL_TOKEN_SECRET`.
+
+Room creation and join routes use independent per-IP fixed-window limits. The defaults are 10 creates and 300 joins per 60 seconds. Set `HAPTIC_TRUST_CF_CONNECTING_IP=true` only when the relay origin is reachable exclusively through Cloudflare Tunnel; otherwise a direct client could forge the header.
 
 Track at minimum:
 

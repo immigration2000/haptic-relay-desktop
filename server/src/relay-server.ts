@@ -4,6 +4,7 @@ import type { MotionFrame, RoomSettings, ViewerSession } from '../../src/shared/
 import { clamp01, DEFAULT_RELAY_MAX_HZ } from '../../src/shared/tuning.js';
 import { decodeMotionPacket, encodeMotionPacket } from '../../src/shared/motion-packet.js';
 import { signRelayToken, verifyRelayToken, type RelayTokenPayload } from './control-token.js';
+import { FixedWindowRateLimiter, getClientAddress, getMetricsAccess } from './http-security.js';
 import { createRoomRegistry, RelayDirectory, type RoomRecord, type RoomRegistry } from './room-registry.js';
 
 type JoinRequest = {
@@ -37,7 +38,20 @@ const relayMaxHz = Number(process.env.HAPTIC_RELAY_MAX_HZ ?? DEFAULT_RELAY_MAX_H
 const burstFrames = Number(process.env.HAPTIC_RELAY_BURST_FRAMES ?? 2);
 const hostReconnectGraceMs = Number(process.env.HAPTIC_HOST_RECONNECT_GRACE_MS ?? 15_000);
 const relayHost = process.env.HAPTIC_RELAY_HOST ?? '0.0.0.0';
+const metricsToken = process.env.HAPTIC_METRICS_TOKEN?.trim() || undefined;
+const controlRateWindowMs = Number(process.env.HAPTIC_CONTROL_RATE_WINDOW_MS ?? 60_000);
+const roomCreateRateLimit = Number(process.env.HAPTIC_ROOM_CREATE_RATE_LIMIT ?? 10);
+const roomJoinRateLimit = Number(process.env.HAPTIC_ROOM_JOIN_RATE_LIMIT ?? 300);
+const trustCloudflareAddress = process.env.HAPTIC_TRUST_CF_CONNECTING_IP === 'true';
 const relayDirectory = RelayDirectory.fromEnv(publicRelayUrl, maxViewersPerRoom);
+const roomCreateRateLimiter = new FixedWindowRateLimiter({
+  maxRequests: roomCreateRateLimit,
+  windowMs: controlRateWindowMs
+});
+const roomJoinRateLimiter = new FixedWindowRateLimiter({
+  maxRequests: roomJoinRateLimit,
+  windowMs: controlRateWindowMs
+});
 let roomRegistry: RoomRegistry;
 const activeRooms = new Map<string, RoomRecord>();
 const hostCleanupTimers = new Map<string, NodeJS.Timeout>();
@@ -276,8 +290,9 @@ function handleEmergencyStop(socket: Socket, ack?: (response: unknown) => void) 
 
 async function handleControlRequest(request: IncomingMessage, response: ServerResponse) {
   response.setHeader('Access-Control-Allow-Origin', corsOrigin);
-  response.setHeader('Access-Control-Allow-Headers', 'content-type');
+  response.setHeader('Access-Control-Allow-Headers', 'content-type,authorization');
   response.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+  response.setHeader('Access-Control-Expose-Headers', 'retry-after,x-rate-limit-remaining');
   response.setHeader('Cache-Control', 'no-store');
 
   if (request.method === 'OPTIONS') {
@@ -292,6 +307,17 @@ async function handleControlRequest(request: IncomingMessage, response: ServerRe
   }
 
   if (request.method === 'GET' && url.pathname === '/metrics') {
+    const metricsAccess = getMetricsAccess(metricsToken, firstHeader(request.headers.authorization));
+    if (metricsAccess === 'disabled') {
+      sendJson(response, 404, { ok: false, reason: 'not-found' });
+      return;
+    }
+    if (metricsAccess === 'unauthorized') {
+      response.setHeader('WWW-Authenticate', 'Bearer');
+      sendJson(response, 401, { ok: false, reason: 'unauthorized' });
+      return;
+    }
+
     sendJson(response, 200, {
       relayNodes: roomRegistry.listRelayNodes(),
       rooms: (await roomRegistry.listRooms()).map(room => {
@@ -314,6 +340,7 @@ async function handleControlRequest(request: IncomingMessage, response: ServerRe
   }
 
   if (request.method === 'POST' && url.pathname === '/api/rooms') {
+    if (!consumeControlRateLimit(request, response, roomCreateRateLimiter)) return;
     const settings = await readJson<RoomSettings>(request);
     const roomName = settings.roomName?.trim();
     if (!roomName || roomName.length < 3) {
@@ -335,6 +362,7 @@ async function handleControlRequest(request: IncomingMessage, response: ServerRe
 
   const joinMatch = url.pathname.match(/^\/api\/rooms\/([^/]+)\/join$/);
   if (request.method === 'POST' && joinMatch) {
+    if (!consumeControlRateLimit(request, response, roomJoinRateLimiter)) return;
     const roomName = decodeURIComponent(joinMatch[1]);
     const requestBody = await readJson<JoinRequest>(request);
     const room = await roomRegistry.getRoom(roomName);
@@ -548,6 +576,25 @@ function refillMotionTokens(room: RoomRecord) {
   room.lastTokenRefillAt = now;
 }
 
+function consumeControlRateLimit(
+  request: IncomingMessage,
+  response: ServerResponse,
+  limiter: FixedWindowRateLimiter
+) {
+  const clientAddress = getClientAddress(request, trustCloudflareAddress);
+  const result = limiter.consume(clientAddress);
+  response.setHeader('X-Rate-Limit-Remaining', String(result.remaining));
+  if (result.allowed) return true;
+
+  response.setHeader('Retry-After', String(result.retryAfterSeconds));
+  sendJson(response, 429, { ok: false, reason: 'rate-limited' });
+  return false;
+}
+
+function firstHeader(header: string | string[] | undefined) {
+  return Array.isArray(header) ? header[0] : header;
+}
+
 function resolveForwardedSequence(roomName: string, suppliedSequence?: number) {
   const previousSequence = lastForwardedSequenceByRoom.get(roomName);
   if (suppliedSequence === undefined) {
@@ -588,6 +635,15 @@ function validateRuntimeConfig() {
   if (!Number.isFinite(hostReconnectGraceMs) || hostReconnectGraceMs < 0 || hostReconnectGraceMs > 300_000) {
     throw new Error('invalid-host-reconnect-grace');
   }
+  if (!Number.isInteger(controlRateWindowMs) || controlRateWindowMs < 1_000 || controlRateWindowMs > 3_600_000) {
+    throw new Error('invalid-control-rate-window');
+  }
+  if (!Number.isInteger(roomCreateRateLimit) || roomCreateRateLimit < 1 || roomCreateRateLimit > 10_000) {
+    throw new Error('invalid-room-create-rate-limit');
+  }
+  if (!Number.isInteger(roomJoinRateLimit) || roomJoinRateLimit < 1 || roomJoinRateLimit > 100_000) {
+    throw new Error('invalid-room-join-rate-limit');
+  }
 
   if (process.env.NODE_ENV === 'production') {
     if (tokenSecret === 'dev-only-change-me' || tokenSecret === 'change-me-before-production' || tokenSecret.length < 32) {
@@ -595,6 +651,9 @@ function validateRuntimeConfig() {
     }
     if (publicRelayUrl.startsWith('http://localhost') || publicRelayUrl.startsWith('http://127.0.0.1')) {
       throw new Error('invalid-production-public-relay-url');
+    }
+    if (metricsToken && metricsToken.length < 32) {
+      throw new Error('insecure-production-metrics-token');
     }
   }
 }
