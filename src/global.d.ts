@@ -48,6 +48,9 @@ declare global {
       stopHardware: () => Promise<unknown>;
       testHardware: () => Promise<{ tested: boolean; steps?: number; reason?: string }>;
       sendMotion: (intensity: number, position: number) => Promise<unknown>;
+      startMotionDemo: (intensity: number, position: number) => Promise<{ streaming: boolean; intervalMs: number }>;
+      updateMotionDemo: (intensity: number, position: number) => void;
+      stopMotionDemo: () => Promise<{ streaming: boolean }>;
       setHardwareProtection: (protection: HardwareProtection) => Promise<{ protection: HardwareProtection }>;
       startHostRoom: (relayUrl: string, settings: RoomSettings) => Promise<{ roomName: string; entryMode: string; relayUrl: string }>;
       joinRoom: (relayUrl: string, request: { displayName: string; roomName: string; password?: string }) => Promise<{ ok: boolean; reason?: string; roomName?: string }>;

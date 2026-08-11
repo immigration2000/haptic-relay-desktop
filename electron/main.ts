@@ -2,7 +2,7 @@ import { app, BrowserWindow, clipboard, dialog, ipcMain, session } from 'electro
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { IpcMainInvokeEvent } from 'electron';
+import type { IpcMainEvent, IpcMainInvokeEvent } from 'electron';
 import {
   CURRENT_SETTINGS_SCHEMA_VERSION,
   DEFAULT_SETTINGS,
@@ -16,8 +16,10 @@ import {
 import { SettingsFileStore } from './settings-file-store.js';
 import type { AppLogEntry, AppSettings, MotionMonitorSnapshot, RoomSettings } from './protocol.js';
 import { HardwareController } from './services/hardware-controller.js';
+import { DemoMotionStream } from './services/demo-motion-stream.js';
 import { validateMotionDelayMs } from './services/motion-delay-buffer.js';
 import { RelayClient } from './services/relay-client.js';
+import { sendToRenderer } from './window-messenger.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CONTENT_SECURITY_POLICY_DIRECTIVES = [
@@ -63,7 +65,7 @@ function addLog(entry: Omit<AppLogEntry, 'id' | 'timestamp'>) {
 
   logEntries.push(nextEntry);
   if (logEntries.length > MAX_LOG_ENTRIES) logEntries.splice(0, logEntries.length - MAX_LOG_ENTRIES);
-  mainWindow?.webContents.send('app:log', nextEntry);
+  sendToRenderer(mainWindow, 'app:log', nextEntry);
 }
 
 const hardware = new HardwareController(entry => addLog(entry));
@@ -75,26 +77,38 @@ const relay = new RelayClient(frame => {
     receivedFrames: ++receivedMotionFrames,
     hardware: result
   };
-  mainWindow?.webContents.send('motion:received', snapshot);
+  sendToRenderer(mainWindow, 'motion:received', snapshot);
   if (result.queued === false && result.reason !== 'hardware-not-connected') {
     addLog({ level: 'warning', source: 'hardware', message: 'motion-not-queued', details: result.reason });
   }
 }, request => {
   addLog({ level: 'info', source: 'room', message: 'approval-requested', details: `${request.displayName} / ${request.roomName}` });
-  mainWindow?.webContents.send('room:approval-requested', request);
+  sendToRenderer(mainWindow, 'room:approval-requested', request);
 }, status => {
   addLog({ level: status.status === 'rejected' || status.status === 'removed' ? 'warning' : 'info', source: 'room', message: `viewer-${status.status}`, details: status.reason ?? status.roomName });
-  mainWindow?.webContents.send('room:viewer-status', status);
+  sendToRenderer(mainWindow, 'room:viewer-status', status);
 }, viewers => {
   addLog({ level: 'info', source: 'room', message: 'viewer-list-updated', details: `${viewers.length}` });
-  mainWindow?.webContents.send('room:viewers', viewers);
+  sendToRenderer(mainWindow, 'room:viewers', viewers);
 }, signal => {
   void hardware.emergencyStop();
   addLog({ level: 'warning', source: 'relay', message: 'room-stop-received', details: signal.roomName });
-  mainWindow?.webContents.send('room:emergency-stop', signal);
+  sendToRenderer(mainWindow, 'room:emergency-stop', signal);
 }, status => {
   addLog({ level: status.status === 'error' ? 'error' : status.status === 'disconnected' || status.status === 'reconnecting' ? 'warning' : 'info', source: 'relay', message: `relay-${status.status}`, details: status.reason ?? status.roomName });
-  mainWindow?.webContents.send('room:connection-status', status);
+  sendToRenderer(mainWindow, 'room:connection-status', status);
+});
+
+function publishMotion(intensity: number, position: number, timestamp: number) {
+  const frame = { intensity, position, timestamp };
+  return {
+    hardware: hardware.queueMotion(frame),
+    relay: relay.publishMotion(frame)
+  };
+}
+
+const demoMotionStream = new DemoMotionStream(frame => {
+  publishMotion(frame.intensity, frame.position, frame.timestamp);
 });
 
 function contentSecurityPolicy() {
@@ -127,7 +141,7 @@ function configureSecurityPolicy() {
 }
 
 function createWindow() {
-  mainWindow = new BrowserWindow({
+  const window = new BrowserWindow({
     width: 1180,
     height: 780,
     minWidth: 960,
@@ -142,6 +156,10 @@ function createWindow() {
       allowRunningInsecureContent: false,
       webviewTag: false
     }
+  });
+  mainWindow = window;
+  window.on('closed', () => {
+    if (mainWindow === window) mainWindow = undefined;
   });
 
   const devServerUrl = getDevServerUrl();
@@ -158,6 +176,7 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => {
+  demoMotionStream.stop();
   void hardware.disconnect();
   relay.disconnect();
   if (process.platform !== 'darwin') app.quit();
@@ -194,10 +213,31 @@ ipcMain.handle('hardware:test', event => {
 });
 ipcMain.handle('hardware:send', async (event, intensity: unknown, position: unknown) => {
   assertTrustedSender(event);
-  const frame = { intensity: validateUnitInterval(intensity, 'intensity'), position: validateUnitInterval(position, 'position'), timestamp: Date.now() };
-  const hardwareResult = hardware.queueMotion(frame);
-  const relayResult = relay.publishMotion(frame);
-  return { hardware: hardwareResult, relay: relayResult };
+  return publishMotion(validateUnitInterval(intensity, 'intensity'), validateUnitInterval(position, 'position'), Date.now());
+});
+ipcMain.handle('motion-demo:start', (event, intensity: unknown, position: unknown) => {
+  assertTrustedSender(event);
+  addLog({ level: 'info', source: 'room', message: 'motion-demo-started' });
+  return demoMotionStream.start({
+    intensity: validateUnitInterval(intensity, 'intensity'),
+    position: validateUnitInterval(position, 'position')
+  });
+});
+ipcMain.on('motion-demo:update', (event, intensity: unknown, position: unknown) => {
+  try {
+    assertTrustedSender(event);
+    demoMotionStream.update({
+      intensity: validateUnitInterval(intensity, 'intensity'),
+      position: validateUnitInterval(position, 'position')
+    });
+  } catch (error) {
+    addLog({ level: 'warning', source: 'room', message: 'motion-demo-update-rejected', details: formatError(error) });
+  }
+});
+ipcMain.handle('motion-demo:stop', event => {
+  assertTrustedSender(event);
+  addLog({ level: 'info', source: 'room', message: 'motion-demo-stopped' });
+  return demoMotionStream.stop();
 });
 ipcMain.handle('hardware:set-protection', (event, protection: unknown) => {
   assertTrustedSender(event);
@@ -229,6 +269,7 @@ ipcMain.handle('room:list-viewers', event => {
 });
 ipcMain.handle('room:emergency-stop', async event => {
   assertTrustedSender(event);
+  demoMotionStream.stop();
   addLog({ level: 'warning', source: 'room', message: 'emergency-stop-requested' });
   const hardwareResult = await hardware.emergencyStop();
   const relayResult = await relay.emergencyStop();
@@ -236,6 +277,7 @@ ipcMain.handle('room:emergency-stop', async event => {
 });
 ipcMain.handle('room:disconnect', event => {
   assertTrustedSender(event);
+  demoMotionStream.stop();
   addLog({ level: 'info', source: 'relay', message: 'relay-disconnect-requested' });
   return relay.disconnect();
 });
@@ -245,7 +287,7 @@ ipcMain.handle('app:logs', event => {
 });
 ipcMain.handle('app:export-logs', async event => {
   assertTrustedSender(event);
-  if (!mainWindow) throw new Error('window-not-ready');
+  if (!mainWindow || mainWindow.isDestroyed()) throw new Error('window-not-ready');
 
   const result = await dialog.showSaveDialog(mainWindow, {
     title: 'Export Haptic Relay Logs',
@@ -320,7 +362,7 @@ function getDevServerUrl() {
   return parsed.toString();
 }
 
-function assertTrustedSender(event: IpcMainInvokeEvent) {
+function assertTrustedSender(event: IpcMainInvokeEvent | IpcMainEvent) {
   if (event.sender !== mainWindow?.webContents) {
     throw new Error('untrusted-ipc-sender');
   }

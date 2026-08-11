@@ -10,6 +10,13 @@
 
 body {
   margin: 0;
+  overflow: hidden;
+}
+
+html,
+body,
+#root {
+  height: 100%;
 }
 
 button,
@@ -33,15 +40,17 @@ button:disabled {
 
 .app-shell {
   display: grid;
-  grid-template-columns: 320px 1fr;
-  min-height: 100vh;
+  grid-template-columns: 280px minmax(0, 1fr);
+  height: 100vh;
+  min-height: 0;
 }
 
 .sidebar {
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  padding: 32px;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  gap: 28px;
+  min-height: 0;
+  padding: 28px;
   background: #17212b;
   color: #f9fbfc;
 }
@@ -61,8 +70,8 @@ h2 {
 }
 
 h1 {
-  font-size: 30px;
-  line-height: 1.16;
+  font-size: 25px;
+  line-height: 1.25;
 }
 
 h2 {
@@ -73,7 +82,31 @@ h2 {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 8px;
-  margin-top: 28px;
+}
+
+.sidebar-controls {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.session-summary {
+  display: grid;
+  gap: 7px;
+  padding: 16px 0;
+  border-top: 1px solid #354552;
+  border-bottom: 1px solid #354552;
+}
+
+.session-summary span {
+  color: #a9bbc7;
+  font-size: 13px;
+}
+
+.session-summary strong {
+  overflow-wrap: anywhere;
+  font-size: 18px;
 }
 
 .role-switch button.active,
@@ -114,16 +147,17 @@ h2 {
 }
 
 .workspace {
-  display: grid;
-  gap: 20px;
-  align-content: start;
-  padding: 32px;
+  min-width: 0;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 28px;
 }
 
 .panel {
   display: grid;
   gap: 18px;
-  max-width: 880px;
+  min-width: 0;
   padding: 22px;
   border: 1px solid #d7e0e7;
   border-radius: 8px;
@@ -297,6 +331,229 @@ textarea {
   font-size: 13px;
 }
 
+.page-view {
+  display: grid;
+  align-content: start;
+  gap: 20px;
+  width: min(1120px, 100%);
+  min-height: 100%;
+  margin: 0 auto;
+}
+
+.room-page {
+  grid-template-rows: auto auto minmax(0, 1fr);
+  height: calc(100vh - 56px);
+}
+
+.room-page .tab-content {
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding-right: 6px;
+}
+
+.page-heading {
+  display: grid;
+  gap: 5px;
+  padding: 4px 0 2px;
+}
+
+.page-heading h2,
+.room-toolbar h2 {
+  font-size: 26px;
+}
+
+.section-label {
+  margin: 0 0 4px;
+  color: #526674;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.setup-grid,
+.settings-stack {
+  display: grid;
+  gap: 18px;
+}
+
+.setup-grid {
+  width: min(880px, 100%);
+}
+
+.setup-form {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.action-button {
+  justify-self: end;
+  min-width: 140px;
+}
+
+.room-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  min-width: 0;
+  padding: 2px 0;
+}
+
+.room-actions {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.viewer-count {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  color: #526674;
+}
+
+.viewer-count strong {
+  color: #17212b;
+  font-size: 24px;
+}
+
+.viewer-count span {
+  font-size: 13px;
+}
+
+.page-tabs {
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  border-bottom: 1px solid #cfd9e1;
+}
+
+.page-tabs button {
+  flex: 0 0 auto;
+  border: 0;
+  border-bottom: 3px solid transparent;
+  border-radius: 0;
+  padding: 11px 16px 10px;
+  color: #526674;
+  background: transparent;
+  font-weight: 700;
+}
+
+.page-tabs button.active {
+  border-bottom-color: #08775f;
+  color: #075e4d;
+}
+
+.tab-content {
+  min-width: 0;
+}
+
+.management-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+  align-items: start;
+}
+
+.participant-panel {
+  align-self: stretch;
+  grid-column: 1 / -1;
+}
+
+.count-value {
+  color: #08775f;
+  font-size: 14px;
+}
+
+.management-grid .qr-card {
+  width: min(190px, 100%);
+}
+
+.motion-demo-panel {
+  width: min(860px, 100%);
+  min-height: 420px;
+  align-content: start;
+}
+
+.motion-demo-panel .panel-header > div {
+  display: grid;
+  gap: 3px;
+}
+
+.stream-state {
+  color: #647684;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.stream-state::before {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 8px;
+  border-radius: 50%;
+  background: #94a3ad;
+  content: "";
+}
+
+.stream-state.active {
+  color: #08775f;
+}
+
+.stream-state.active::before {
+  background: #14a47f;
+  box-shadow: 0 0 0 4px #d8f3ea;
+}
+
+.motion-demo-controls {
+  display: grid;
+  gap: 30px;
+  padding: 30px 6px;
+}
+
+.control-label {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.control-label strong {
+  color: #17212b;
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 24px;
+}
+
+.range-large {
+  width: 100%;
+  height: 34px;
+  padding: 0;
+  accent-color: #08775f;
+  cursor: pointer;
+}
+
+.intensity-range {
+  accent-color: #d06432;
+}
+
+.demo-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  margin-top: auto;
+  padding-top: 18px;
+  border-top: 1px solid #e0e7ec;
+}
+
+.demo-footer p {
+  margin: 0;
+}
+
+.demo-footer button {
+  min-width: 130px;
+}
+
 .monitor-state {
   color: #647684;
   font-size: 13px;
@@ -426,12 +683,32 @@ textarea {
 }
 
 @media (max-width: 860px) {
+  body {
+    overflow: auto;
+  }
+
   .app-shell {
     grid-template-columns: 1fr;
+    height: auto;
+    min-height: 100vh;
   }
 
   .sidebar {
     gap: 24px;
+  }
+
+  .workspace {
+    overflow: visible;
+    padding: 20px;
+  }
+
+  .room-page {
+    height: auto;
+  }
+
+  .room-page .tab-content {
+    overflow: visible;
+    padding-right: 0;
   }
 
   .form-grid,
@@ -443,6 +720,17 @@ textarea {
 
   .invite-grid {
     grid-template-columns: 1fr;
+  }
+
+  .management-grid,
+  .setup-form {
+    grid-template-columns: 1fr;
+  }
+
+  .room-toolbar,
+  .demo-footer {
+    align-items: stretch;
+    flex-direction: column;
   }
 
   .log-row {

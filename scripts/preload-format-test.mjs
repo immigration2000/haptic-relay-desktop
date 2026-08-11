@@ -20,13 +20,20 @@ const saveSettingsSource = sourceSection(appSource, '  async function saveSettin
 const hardwarePanelSource = sourceSection(appSource, '  const hardwarePanel = (', '  const protectionPanel = (');
 const motionMonitorPanelSource = sourceSection(appSource, '  const motionMonitorPanel = (', '  const motionDelayPanel = (');
 const motionDelayPanelSource = sourceSection(appSource, '  const motionDelayPanel = (', '  const logPanel = (');
+const createRoomSource = sourceSection(appSource, '  async function createRoom()', '  async function copyInvite()');
+const joinRoomSource = sourceSection(appSource, '  async function joinRoom()', '  async function decideApproval(');
+const motionDemoSource = sourceSection(appSource, '  async function toggleMotionDemo()', '  async function leaveRoom()');
 
 assert.match(mainSource, /preload:\s*path\.join\(__dirname, ['"]preload\.cjs['"]\)/);
 assert.match(preloadSource, /require\(['"]electron['"]\)/);
 assert.doesNotMatch(preloadSource, /^\s*import\s/m);
 assert.match(preloadSource, /setMotionDelay:\s*\(delayMs/);
 assert.match(preloadSource, /ipcRenderer\.invoke\(['"]viewer:set-motion-delay['"],\s*delayMs\)/);
-assert.match(mainSource, /webContents\.send\(['"]motion:received['"],\s*snapshot\)/);
+assert.match(mainSource, /sendToRenderer\(mainWindow, ['"]motion:received['"], snapshot\)/);
+assert.match(preloadSource, /startMotionDemo:\s*\(intensity, position\).*?ipcRenderer\.invoke\(['"]motion-demo:start['"], intensity, position\)/);
+assert.match(preloadSource, /updateMotionDemo:\s*\(intensity, position\).*?ipcRenderer\.send\(['"]motion-demo:update['"], intensity, position\)/);
+assert.match(preloadSource, /stopMotionDemo:\s*\(\).*?ipcRenderer\.invoke\(['"]motion-demo:stop['"]\)/);
+assert.match(mainSource, /ipcMain\.on\(['"]motion-demo:update['"][\s\S]*?try \{[\s\S]*?demoMotionStream\.update[\s\S]*?catch \(error\)[\s\S]*?motion-demo-update-rejected/);
 assert.match(preloadSource, /onMotionReceived:\s*\(listener/);
 assert.match(preloadSource, /ipcRenderer\.on\(['"]motion:received['"],\s*handler\)/);
 assert.match(preloadSource, /removeListener\(['"]motion:received['"],\s*handler\)/);
@@ -52,6 +59,15 @@ assert.match(appSource, /const removeMotionReceived = window\.hapticRelay\.onMot
 assert.match(appSource, /setMotionMonitorEntries\(current => \[snapshot, \.\.\.current\]\.slice\(0, 10\)\)/);
 assert.match(appSource, /removeMotionReceived\(\)/);
 assert.match(motionMonitorPanelSource, /관리자 수신 모니터/);
-assert.match(appSource, /\{motionMonitorPanel\}\s*\{motionDelayPanel\}/);
+assert.match(appSource, /const \[hostPage, setHostPage\] = useState<HostPage>\(['"]setup['"]\)/);
+assert.match(appSource, /const \[viewerPage, setViewerPage\] = useState<ViewerPage>\(['"]join['"]\)/);
+assert.match(createRoomSource, /setHostPage\(['"]room['"]\)/);
+assert.match(joinRoomSource, /setViewerPage\(['"]room['"]\)/);
+assert.match(motionDemoSource, /window\.hapticRelay\.startMotionDemo\(intensity, position\)/);
+assert.match(motionDemoSource, /window\.hapticRelay\.stopMotionDemo\(\)/);
+assert.match(appSource, /window\.hapticRelay\.updateMotionDemo\(intensity, position\)/);
+assert.match(appSource, /className="page-tabs"/);
+assert.match(appSource, /className="page-view room-page"/);
+assert.match(appSource, /className="motion-demo-controls"/);
 
 console.log('sandbox preload format: commonjs');

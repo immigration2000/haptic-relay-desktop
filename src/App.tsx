@@ -4,6 +4,10 @@ import { createQrMatrix } from './qr-code';
 import './styles.css';
 
 type Role = 'host' | 'viewer';
+type HostPage = 'setup' | 'room';
+type ViewerPage = 'join' | 'room';
+type HostTab = 'management' | 'demo' | 'settings';
+type ViewerTab = 'receive' | 'delay' | 'settings';
 type StatusTone = 'idle' | 'busy' | 'ok' | 'warning' | 'error';
 type BusyAction = 'ports' | 'hardware' | 'room' | 'join' | 'approval' | 'moderation' | 'motion' | 'stop' | 'logs' | 'delay';
 
@@ -42,6 +46,10 @@ const CURRENT_SETTINGS_SCHEMA_VERSION = 2;
 
 export default function App() {
   const [role, setRole] = useState<Role>('host');
+  const [hostPage, setHostPage] = useState<HostPage>('setup');
+  const [viewerPage, setViewerPage] = useState<ViewerPage>('join');
+  const [hostTab, setHostTab] = useState<HostTab>('management');
+  const [viewerTab, setViewerTab] = useState<ViewerTab>('receive');
   const [relayUrl, setRelayUrl] = useState(import.meta.env.VITE_RELAY_URL ?? 'http://localhost:4174');
   const [displayName, setDisplayName] = useState('viewer-01');
   const [roomName, setRoomName] = useState('studio-main');
@@ -55,6 +63,7 @@ export default function App() {
   const [busyAction, setBusyAction] = useState<BusyAction>();
   const [intensity, setIntensity] = useState(0.5);
   const [position, setPosition] = useState(0.5);
+  const [motionDemoActive, setMotionDemoActive] = useState(false);
   const [approvalRequests, setApprovalRequests] = useState<ApprovalRequest[]>([]);
   const [viewerSessions, setViewerSessions] = useState<ViewerSession[]>([]);
   const [logEntries, setLogEntries] = useState<AppLogEntry[]>([]);
@@ -80,6 +89,10 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (motionDemoActive) window.hapticRelay.updateMotionDemo(intensity, position);
+  }, [intensity, motionDemoActive, position]);
+
+  useEffect(() => {
     void window.hapticRelay.getLogs().then(entries => {
       setLogEntries(entries.slice(-80).reverse());
     });
@@ -95,13 +108,17 @@ export default function App() {
     });
     const removeViewerStatus = window.hapticRelay.onViewerStatus(nextStatus => {
       if (nextStatus.status === 'approved') {
+        setViewerPage('room');
+        setViewerTab('receive');
         setStatusMessage('ok', `방 입장 승인됨: ${nextStatus.roomName}`);
         return;
       }
       if (nextStatus.status === 'removed') {
+        setViewerPage('join');
         setStatusMessage('warning', `${nextStatus.reason === 'block' ? '차단' : '강퇴'}됨: ${nextStatus.roomName}`);
         return;
       }
+      setViewerPage('join');
       setStatusMessage('warning', `방 입장 거절됨: ${formatReason(nextStatus.reason ?? nextStatus.roomName)}`);
     });
     const removeViewerList = window.hapticRelay.onViewerList(viewers => {
@@ -294,6 +311,8 @@ export default function App() {
       });
       setApprovalRequests([]);
       setViewerSessions(await window.hapticRelay.listViewers());
+      setHostPage('room');
+      setHostTab('management');
       setStatusMessage('ok', `방 생성됨: ${room.roomName} / ${room.relayUrl}`);
     });
   }
@@ -341,6 +360,8 @@ export default function App() {
         roomName: roomName.trim(),
         password: password.trim() || undefined
       });
+      setViewerPage('room');
+      setViewerTab('receive');
       if (response.reason === 'approval-required') {
         setStatusMessage('warning', `입장 승인 대기 중: ${roomName.trim()}`);
         return;
@@ -365,10 +386,37 @@ export default function App() {
     });
   }
 
-  async function sendMotion() {
-    await runAction('motion', '모션 전송 중', async () => {
-      await window.hapticRelay.sendMotion(intensity, position);
-      setStatusMessage('ok', `모션 전송: intensity ${intensity.toFixed(2)}, position ${position.toFixed(2)}`);
+  async function toggleMotionDemo() {
+    await runAction('motion', motionDemoActive ? '시연 중지 중' : '시연 시작 중', async () => {
+      if (motionDemoActive) {
+        await window.hapticRelay.stopMotionDemo();
+        setMotionDemoActive(false);
+        setStatusMessage('ok', '실시간 시연 중지됨');
+        return;
+      }
+
+      await window.hapticRelay.startMotionDemo(intensity, position);
+      setMotionDemoActive(true);
+      setStatusMessage('ok', '실시간 시연 시작됨 / 30Hz 전송 중');
+    });
+  }
+
+  async function leaveRoom() {
+    await runAction('room', role === 'host' ? '방 종료 중' : '방 나가는 중', async () => {
+      if (motionDemoActive) await window.hapticRelay.stopMotionDemo();
+      await window.hapticRelay.disconnectRoom();
+      setMotionDemoActive(false);
+      setApprovalRequests([]);
+      setViewerSessions([]);
+      setHostRoomInvite(undefined);
+      if (role === 'host') {
+        setHostPage('setup');
+        setHostTab('management');
+      } else {
+        setViewerPage('join');
+        setViewerTab('receive');
+      }
+      setStatusMessage('ok', role === 'host' ? '방이 종료됨' : '방에서 나왔습니다');
     });
   }
 
@@ -380,6 +428,7 @@ export default function App() {
         hardware?: { stopped?: boolean; reason?: string };
         relay?: { sent?: boolean; reason?: string };
       };
+      setMotionDemoActive(false);
       if (result.hardware?.stopped === false && result.hardware.reason === 'hardware-stop-write-failed') {
         setStatusMessage('error', '긴급 정지 명령을 하드웨어에 쓰지 못했습니다. 장비 전원을 직접 차단하세요.');
         return;
@@ -610,6 +659,88 @@ export default function App() {
     </section>
   ) : null;
 
+  const approvalPanel = entryMode === 'request' ? (
+    <section className="panel">
+      <div className="panel-header">
+        <h2>입장 신청</h2>
+        <strong className="count-value">{approvalRequests.length}명 대기</strong>
+      </div>
+      {approvalRequests.length === 0 ? (
+        <p className="muted">대기 중인 신청이 없습니다.</p>
+      ) : (
+        <div className="approval-list">
+          {approvalRequests.map(request => (
+            <div className="approval-row" key={request.socketId}>
+              <div>
+                <strong>{request.displayName}</strong>
+                <span>{request.roomName}</span>
+              </div>
+              <button disabled={isBusy} onClick={() => decideApproval(request, false)}>거절</button>
+              <button className="primary" disabled={isBusy} onClick={() => decideApproval(request, true)}>승인</button>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  ) : null;
+
+  const viewerManagementPanel = (
+    <section className="panel participant-panel">
+      <div className="panel-header">
+        <h2>접속자 관리</h2>
+        <strong className="count-value">{viewerSessions.length}명 접속</strong>
+      </div>
+      {viewerSessions.length === 0 ? (
+        <p className="muted">현재 접속한 시청자가 없습니다.</p>
+      ) : (
+        <div className="approval-list">
+          {viewerSessions.map(viewer => (
+            <div className="approval-row" key={viewer.socketId}>
+              <div>
+                <strong>{viewer.displayName}</strong>
+                <span>{viewer.roomName}</span>
+              </div>
+              <button disabled={isBusy} onClick={() => moderateViewer(viewer, 'kick')}>강퇴</button>
+              <button disabled={isBusy} onClick={() => moderateViewer(viewer, 'block')}>차단</button>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+
+  const motionDemoPanel = (
+    <section className="panel motion-demo-panel">
+      <div className="panel-header">
+        <div>
+          <p className="section-label">실시간 제어</p>
+          <h2>모션 시연</h2>
+        </div>
+        <span className={`stream-state ${motionDemoActive ? 'active' : ''}`}>
+          {motionDemoActive ? '30Hz 전송 중' : '전송 대기'}
+        </span>
+      </div>
+      <div className="motion-demo-controls">
+        <label>
+          <span className="control-label"><span>위치</span><strong>{position.toFixed(2)}</strong></span>
+          <input className="range range-large" type="range" min="0" max="1" step="0.01" value={position} onChange={event => setPosition(Number(event.target.value))} />
+        </label>
+        <label>
+          <span className="control-label"><span>강도</span><strong>{intensity.toFixed(2)}</strong></span>
+          <input className="range range-large intensity-range" type="range" min="0" max="1" step="0.01" value={intensity} onChange={event => setIntensity(Number(event.target.value))} />
+        </label>
+      </div>
+      <div className="demo-footer">
+        <p className="muted">시연 중에는 슬라이더의 최신 위치와 강도가 계속 전송됩니다.</p>
+        <button className={motionDemoActive ? 'danger' : 'primary'} disabled={isBusy} onClick={toggleMotionDemo}>
+          {motionDemoActive ? '시연 중지' : '시연 시작'}
+        </button>
+      </div>
+    </section>
+  );
+
+  const activeRoom = role === 'host' ? hostPage === 'room' : viewerPage === 'room';
+
   return (
     <main className="app-shell">
       <aside className="sidebar">
@@ -617,144 +748,148 @@ export default function App() {
           <p className="eyebrow">Haptic Relay</p>
           <h1>방송 플랫폼 독립형 하드웨어 연동</h1>
         </div>
-        <div className="role-switch" aria-label="role">
-          <button className={role === 'host' ? 'active' : ''} onClick={() => setRole('host')}>스트리머</button>
-          <button className={role === 'viewer' ? 'active' : ''} onClick={() => setRole('viewer')}>시청자</button>
+        <div className="sidebar-controls">
+          {!activeRoom ? (
+            <div className="role-switch" aria-label="역할 선택">
+              <button className={role === 'host' ? 'active' : ''} onClick={() => setRole('host')}>스트리머</button>
+              <button className={role === 'viewer' ? 'active' : ''} onClick={() => setRole('viewer')}>시청자</button>
+            </div>
+          ) : (
+            <div className="session-summary">
+              <span>{role === 'host' ? '스트리머 방' : '시청 중인 방'}</span>
+              <strong>{hostRoomInvite?.roomName ?? roomName}</strong>
+              {role === 'host' ? <span>접속자 {viewerSessions.length}명</span> : null}
+            </div>
+          )}
+          <button className="danger" disabled={busyAction === 'stop'} onClick={emergencyStop}>긴급 정지</button>
         </div>
-        <button className="danger" disabled={busyAction === 'stop'} onClick={emergencyStop}>긴급 정지</button>
         <p className={`status ${status.tone}`}>{status.message}</p>
       </aside>
 
       <section className="workspace">
-        <section className="panel">
-          <h2>릴레이 서버</h2>
-          <label>
-            서버 URL
-            <input value={relayUrl} onChange={event => setRelayUrl(event.target.value)} />
-          </label>
-        </section>
-
         {role === 'host' ? (
-          <>
-            <section className="panel">
-              <h2>방 만들기</h2>
-              <div className="form-grid">
-                <label>
-                  방 이름
-                  <input value={roomName} onChange={event => setRoomName(event.target.value)} />
-                </label>
-                <label>
-                  비밀번호
-                  <input value={password} onChange={event => setPassword(event.target.value)} placeholder="선택" />
-                </label>
-                <label>
-                  입장 방식
-                  <select value={entryMode} onChange={event => setEntryMode(event.target.value as EntryMode)}>
-                    <option value="open">자유입장</option>
-                    <option value="request">신청입장</option>
-                  </select>
-                </label>
-              </div>
-              <button className="primary" disabled={!canHost || isBusy} onClick={createRoom}>방 생성</button>
-            </section>
-
-            {invitePanel}
-
-            {hardwarePanel}
-
-            {entryMode === 'request' ? (
-              <section className="panel">
-                <h2>입장 신청</h2>
-                {approvalRequests.length === 0 ? (
-                  <p className="muted">대기 중인 신청이 없습니다.</p>
-                ) : (
-                  <div className="approval-list">
-                    {approvalRequests.map(request => (
-                      <div className="approval-row" key={request.socketId}>
-                        <div>
-                          <strong>{request.displayName}</strong>
-                          <span>{request.roomName}</span>
-                        </div>
-                        <button disabled={isBusy} onClick={() => decideApproval(request, false)}>거절</button>
-                        <button className="primary" disabled={isBusy} onClick={() => decideApproval(request, true)}>승인</button>
-                      </div>
-                    ))}
+          hostPage === 'setup' ? (
+            <div className="page-view">
+              <header className="page-heading">
+                <p className="section-label">스트리머</p>
+                <h2>방 만들기</h2>
+              </header>
+              <div className="setup-grid">
+                <section className="panel">
+                  <h2>릴레이 서버</h2>
+                  <label>
+                    서버 URL
+                    <input value={relayUrl} onChange={event => setRelayUrl(event.target.value)} />
+                  </label>
+                </section>
+                <section className="panel">
+                  <h2>방 설정</h2>
+                  <div className="form-grid setup-form">
+                    <label>
+                      방 이름
+                      <input value={roomName} onChange={event => setRoomName(event.target.value)} />
+                    </label>
+                    <label>
+                      비밀번호
+                      <input value={password} onChange={event => setPassword(event.target.value)} placeholder="선택" />
+                    </label>
+                    <label>
+                      입장 방식
+                      <select value={entryMode} onChange={event => setEntryMode(event.target.value as EntryMode)}>
+                        <option value="open">자유입장</option>
+                        <option value="request">신청입장</option>
+                      </select>
+                    </label>
                   </div>
-                )}
-              </section>
-            ) : null}
-
-            <section className="panel">
-              <h2>접속자 관리</h2>
-              {viewerSessions.length === 0 ? (
-                <p className="muted">현재 접속한 시청자가 없습니다.</p>
-              ) : (
-                <div className="approval-list">
-                  {viewerSessions.map(viewer => (
-                    <div className="approval-row" key={viewer.socketId}>
-                      <div>
-                        <strong>{viewer.displayName}</strong>
-                        <span>{viewer.roomName}</span>
-                      </div>
-                      <button disabled={isBusy} onClick={() => moderateViewer(viewer, 'kick')}>강퇴</button>
-                      <button disabled={isBusy} onClick={() => moderateViewer(viewer, 'block')}>차단</button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </section>
-
-            <section className="panel">
-              <h2>모션 테스트</h2>
-              <label>
-                강도
-                <input type="range" min="0" max="1" step="0.01" value={intensity} onChange={event => setIntensity(Number(event.target.value))} />
-              </label>
-              <label>
-                위치
-                <input type="range" min="0" max="1" step="0.01" value={position} onChange={event => setPosition(Number(event.target.value))} />
-              </label>
-              <button className="primary" disabled={isBusy} onClick={sendMotion}>시청자에게 전송</button>
-            </section>
-
-            {logPanel}
-          </>
-        ) : (
-          <>
-            <section className="panel">
-              <h2>초대 코드</h2>
-              <label>
-                스트리머가 공유한 코드
-                <textarea value={inviteCodeInput} onChange={event => setInviteCodeInput(event.target.value)} rows={3} />
-              </label>
-              <button disabled={isBusy || inviteCodeInput.trim().length === 0} onClick={applyInviteCode}>적용</button>
-            </section>
-
-            <section className="panel">
-              <h2>방 입장</h2>
-              <div className="form-grid">
-                <label>
-                  표시 이름
-                  <input value={displayName} onChange={event => setDisplayName(event.target.value)} />
-                </label>
-                <label>
-                  방 이름
-                  <input value={roomName} onChange={event => setRoomName(event.target.value)} />
-                </label>
-                <label>
-                  비밀번호
-                  <input value={password} onChange={event => setPassword(event.target.value)} />
-                </label>
+                  <button className="primary action-button" disabled={!canHost || isBusy} onClick={createRoom}>방 생성</button>
+                </section>
               </div>
-              <button className="primary" disabled={!canJoin || isBusy} onClick={joinRoom}>입장 요청</button>
-            </section>
-
-            {motionMonitorPanel}
-            {motionDelayPanel}
-            {hardwarePanel}
-            {protectionPanel}
-            {logPanel}
-          </>
+            </div>
+          ) : (
+            <div className="page-view room-page">
+              <header className="room-toolbar">
+                <div>
+                  <p className="section-label">스트리머 방 관리</p>
+                  <h2>{hostRoomInvite?.roomName ?? roomName}</h2>
+                </div>
+                <div className="room-actions">
+                  <div className="viewer-count"><strong>{viewerSessions.length}</strong><span>접속자</span></div>
+                  <button disabled={isBusy} onClick={leaveRoom}>방 종료</button>
+                </div>
+              </header>
+              <nav className="page-tabs" aria-label="스트리머 방 메뉴">
+                <button className={hostTab === 'management' ? 'active' : ''} onClick={() => setHostTab('management')}>방 관리</button>
+                <button className={hostTab === 'demo' ? 'active' : ''} onClick={() => setHostTab('demo')}>실시간 시연</button>
+                <button className={hostTab === 'settings' ? 'active' : ''} onClick={() => setHostTab('settings')}>설정 및 로그</button>
+              </nav>
+              <div className="tab-content">
+                {hostTab === 'management' ? <div className="management-grid">{viewerManagementPanel}{approvalPanel}{invitePanel}</div> : null}
+                {hostTab === 'demo' ? motionDemoPanel : null}
+                {hostTab === 'settings' ? <div className="settings-stack">{hardwarePanel}{logPanel}</div> : null}
+              </div>
+            </div>
+          )
+        ) : (
+          viewerPage === 'join' ? (
+            <div className="page-view">
+              <header className="page-heading">
+                <p className="section-label">시청자</p>
+                <h2>방 입장</h2>
+              </header>
+              <div className="setup-grid viewer-setup-grid">
+                <section className="panel">
+                  <h2>초대 코드</h2>
+                  <label>
+                    스트리머가 공유한 코드
+                    <textarea value={inviteCodeInput} onChange={event => setInviteCodeInput(event.target.value)} rows={3} />
+                  </label>
+                  <button disabled={isBusy || inviteCodeInput.trim().length === 0} onClick={applyInviteCode}>초대 코드 적용</button>
+                </section>
+                <section className="panel">
+                  <h2>접속 정보</h2>
+                  <label>
+                    서버 URL
+                    <input value={relayUrl} onChange={event => setRelayUrl(event.target.value)} />
+                  </label>
+                  <div className="form-grid setup-form">
+                    <label>
+                      표시 이름
+                      <input value={displayName} onChange={event => setDisplayName(event.target.value)} />
+                    </label>
+                    <label>
+                      방 이름
+                      <input value={roomName} onChange={event => setRoomName(event.target.value)} />
+                    </label>
+                    <label>
+                      비밀번호
+                      <input value={password} onChange={event => setPassword(event.target.value)} />
+                    </label>
+                  </div>
+                  <button className="primary action-button" disabled={!canJoin || isBusy} onClick={joinRoom}>입장 요청</button>
+                </section>
+              </div>
+            </div>
+          ) : (
+            <div className="page-view room-page">
+              <header className="room-toolbar">
+                <div>
+                  <p className="section-label">시청자 수신</p>
+                  <h2>{roomName}</h2>
+                </div>
+                <button disabled={isBusy} onClick={leaveRoom}>방 나가기</button>
+              </header>
+              <nav className="page-tabs" aria-label="시청자 방 메뉴">
+                <button className={viewerTab === 'receive' ? 'active' : ''} onClick={() => setViewerTab('receive')}>수신 모니터</button>
+                <button className={viewerTab === 'delay' ? 'active' : ''} onClick={() => setViewerTab('delay')}>지연 설정</button>
+                <button className={viewerTab === 'settings' ? 'active' : ''} onClick={() => setViewerTab('settings')}>설정 및 로그</button>
+              </nav>
+              <div className="tab-content">
+                {viewerTab === 'receive' ? motionMonitorPanel : null}
+                {viewerTab === 'delay' ? motionDelayPanel : null}
+                {viewerTab === 'settings' ? <div className="settings-stack">{hardwarePanel}{protectionPanel}{logPanel}</div> : null}
+              </div>
+            </div>
+          )
         )}
       </section>
     </main>
