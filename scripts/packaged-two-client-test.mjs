@@ -64,6 +64,7 @@ const viewerDebugPort = await getAvailablePort();
 const runId = Date.now().toString(36);
 const roomName = `studio-${runId}`;
 const viewerName = `viewer-${runId}`;
+const automaticPositionRange = { min: 0.2, max: 0.8 };
 const outputDirectory = path.join(os.tmpdir(), `haptic-relay-two-client-${runId}`);
 const logs = { server: '', host: '', viewer: '' };
 
@@ -138,6 +139,53 @@ try {
   await clickButton(hostCdp, '시연 중지');
   await waitForExpression(hostCdp, `document.querySelector('.stream-state')?.textContent.includes('전송 대기')`);
 
+  await clickButton(hostCdp, '자동 패턴');
+  await waitForExpression(hostCdp, `Boolean(document.querySelector('.pattern-demo-content'))`);
+  await selectOptionByLabel(hostCdp, '패턴', 'triangle');
+  await clickButton(hostCdp, '시연 시작');
+  await waitForExpression(hostCdp, `document.querySelector('.stream-state')?.textContent.includes('30Hz 전송 중')`);
+  await waitForExpression(viewerCdp, `(() => {
+    const text = document.querySelector('.motion-gauge strong')?.textContent.trim() ?? '';
+    const position = Number(text);
+    return document.querySelector('.monitor-state')?.textContent.includes('수신 중')
+      && /^[-+]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)$/.test(text)
+      && Number.isFinite(position)
+      && position >= ${automaticPositionRange.min}
+      && position <= ${automaticPositionRange.max};
+  })()`);
+
+  const automaticSamples = await sampleViewerPositions(viewerCdp, 1_400);
+  const automaticPositions = automaticSamples.map(sample => {
+    assert.match(sample.positionText, /^[-+]?(?:\d+(?:\.\d*)?|\.\d+)$/, 'viewer position display must be numeric');
+    const position = Number(sample.positionText);
+    assert.ok(Number.isFinite(position), `viewer position must be finite, got ${sample.positionText}`);
+    return position;
+  });
+  const distinctAutomaticPositions = [...new Set(automaticPositions)];
+  assert.ok(
+    distinctAutomaticPositions.length >= 3,
+    `viewer must receive at least 3 distinct automatic positions, got ${distinctAutomaticPositions.join(', ')}`
+  );
+  assert.ok(
+    automaticPositions.every(position => position >= automaticPositionRange.min && position <= automaticPositionRange.max),
+    `automatic positions must remain between ${automaticPositionRange.min} and ${automaticPositionRange.max}`
+  );
+  assert.ok(
+    automaticSamples.every(sample => sample.receiving),
+    'viewer must remain in the receiving state during automatic delivery'
+  );
+  const firstAutomaticFrame = automaticSamples[0].receivedFrames;
+  const automaticReceivedFrames = automaticSamples.at(-1).receivedFrames;
+  assert.ok(
+    automaticReceivedFrames >= firstAutomaticFrame + 2,
+    `viewer must continue receiving repeated automatic frames, got ${firstAutomaticFrame} to ${automaticReceivedFrames}`
+  );
+  await captureScreenshot(hostCdp, path.join(outputDirectory, '04-host-automatic-pattern.png'));
+  await captureScreenshot(viewerCdp, path.join(outputDirectory, '05-viewer-automatic-receiving.png'));
+
+  await clickButton(hostCdp, '시연 중지');
+  await waitForExpression(hostCdp, `document.querySelector('.stream-state')?.textContent.includes('전송 대기')`);
+
   viewerCdp.send('Browser.close');
   await waitForExit(viewer, 5_000);
   await waitForExpression(hostCdp, `document.querySelector('.viewer-chip')?.textContent.includes('0명 접속')`);
@@ -152,10 +200,14 @@ try {
     roomName,
     viewerName,
     receivedFrames,
+    automaticReceivedFrames,
+    distinctAutomaticPositions,
     screenshots: [
       path.join(outputDirectory, '01-host-viewer-connected.png'),
       path.join(outputDirectory, '02-host-live-demo.png'),
-      path.join(outputDirectory, '03-viewer-receiving.png')
+      path.join(outputDirectory, '03-viewer-receiving.png'),
+      path.join(outputDirectory, '04-host-automatic-pattern.png'),
+      path.join(outputDirectory, '05-viewer-automatic-receiving.png')
     ]
   }, null, 2));
 } finally {
@@ -198,6 +250,19 @@ async function setInputByLabel(client, labelText, value) {
   await delay(80);
 }
 
+async function selectOptionByLabel(client, labelText, value) {
+  const changed = await client.evaluate(`(() => {
+    const label = [...document.querySelectorAll('label')].find(item => item.textContent.includes(${JSON.stringify(labelText)}));
+    const select = label?.querySelector('select');
+    if (!(select instanceof HTMLSelectElement)) return false;
+    const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set;
+    setter.call(select, ${JSON.stringify(value)});
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+    return select.value === ${JSON.stringify(value)};
+  })()`);
+  assert.equal(changed, true, `${labelText} select accepts ${value}`);
+}
+
 async function loginClient(client, username) {
   await waitForExpression(client, `document.body.innerText.includes('로그인')`);
   await setInputByLabel(client, '아이디', username);
@@ -228,6 +293,22 @@ async function setDemoControls(client, position, intensity) {
     return [inputs[0].value, inputs[1].value];
   })()`);
   assert.deepEqual(values, [String(position), String(intensity)]);
+}
+
+async function sampleViewerPositions(client, durationMs) {
+  const samples = [];
+  const startedAt = Date.now();
+  while (Date.now() - startedAt <= durationMs) {
+    const sample = await client.evaluate(`(() => ({
+      positionText: document.querySelector('.motion-gauge strong')?.textContent.trim() ?? '',
+      receivedFrames: Number(document.querySelectorAll('.monitor-metrics dd')[2]?.textContent ?? Number.NaN),
+      receiving: document.querySelector('.monitor-state')?.textContent.includes('수신 중') ?? false
+    }))()`);
+    assert.ok(Number.isInteger(sample.receivedFrames), `viewer frame count must be numeric, got ${sample.receivedFrames}`);
+    samples.push(sample);
+    await delay(100);
+  }
+  return samples;
 }
 
 function assertCleanExitLog(label, log) {
