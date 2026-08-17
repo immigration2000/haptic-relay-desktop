@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-const [mainSource, preloadSource, appSource] = await Promise.all([
+const [mainSource, preloadSource, appSource, roomSessionSource] = await Promise.all([
   readFile(new URL('../dist-electron/main.js', import.meta.url), 'utf8'),
   readFile(new URL('../dist-electron/preload.cjs', import.meta.url), 'utf8'),
-  readFile(new URL('../src/App.tsx', import.meta.url), 'utf8')
+  readFile(new URL('../src/App.tsx', import.meta.url), 'utf8'),
+  readFile(new URL('../src/ui/views/RoomSessionView.tsx', import.meta.url), 'utf8')
 ]);
 
 function sourceSection(source, start, end) {
@@ -66,8 +67,8 @@ assert.match(joinRoomSource, /setViewerPage\(['"]room['"]\)/);
 assert.match(motionDemoSource, /window\.hapticRelay\.startMotionDemo\(intensity, position\)/);
 assert.match(motionDemoSource, /window\.hapticRelay\.stopMotionDemo\(\)/);
 assert.match(appSource, /window\.hapticRelay\.updateMotionDemo\(intensity, position\)/);
-assert.match(appSource, /className="page-tabs"/);
-assert.match(appSource, /className="page-view room-page"/);
+assert.match(roomSessionSource, /className="session-tabs"/);
+assert.match(roomSessionSource, /className="session-content"/);
 assert.match(appSource, /className="motion-demo-controls"/);
 
 console.log('sandbox preload format: commonjs');

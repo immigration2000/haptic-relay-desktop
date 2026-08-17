@@ -91,28 +91,28 @@ try {
   hostCdp = await connectRenderer(hostDebugPort);
   await hostCdp.call('Page.enable');
   await hostCdp.call('Runtime.enable');
-  await waitForExpression(hostCdp, `document.body.innerText.includes('방 만들기')`);
-
+  await loginClient(hostCdp, `host-${runId}`);
+  await clickButton(hostCdp, '방 만들기');
+  await waitForExpression(hostCdp, `document.querySelector('[role="dialog"]')?.textContent.includes('새 방 만들기')`);
   await setInputByLabel(hostCdp, '서버 URL', relayUrl);
   await setInputByLabel(hostCdp, '방 이름', roomName);
   await clickButton(hostCdp, '방 생성');
-  await waitForExpression(hostCdp, `document.body.innerText.includes('스트리머 방 관리')`);
+  await waitForExpression(hostCdp, `document.body.innerText.includes('HOST SESSION')`);
 
   viewer = launchApp('viewer', viewerDebugPort);
   captureOutput(viewer, 'viewer');
   viewerCdp = await connectRenderer(viewerDebugPort);
   await viewerCdp.call('Page.enable');
   await viewerCdp.call('Runtime.enable');
-  await waitForExpression(viewerCdp, `document.body.innerText.includes('방 만들기')`);
-  await clickButton(viewerCdp, '시청자');
-  await waitForExpression(viewerCdp, `document.body.innerText.includes('방 입장')`);
-
+  await loginClient(viewerCdp, viewerName);
+  await clickButton(viewerCdp, '초대 코드');
+  await waitForExpression(viewerCdp, `document.querySelector('[role="dialog"]')?.textContent.includes('초대 코드로 입장')`);
   await setInputByLabel(viewerCdp, '서버 URL', relayUrl);
   await setInputByLabel(viewerCdp, '표시 이름', viewerName);
   await setInputByLabel(viewerCdp, '방 이름', roomName);
   await clickButton(viewerCdp, '입장 요청');
 
-  await waitForExpression(viewerCdp, `document.body.innerText.includes('시청자 수신')`);
+  await waitForExpression(viewerCdp, `document.body.innerText.includes('PARTICIPANT SESSION')`);
   await waitForExpression(hostCdp, `document.body.innerText.includes(${JSON.stringify(viewerName)}) && document.body.innerText.includes('1명 접속')`);
   await captureScreenshot(hostCdp, path.join(outputDirectory, '01-host-viewer-connected.png'));
 
@@ -138,7 +138,7 @@ try {
 
   viewerCdp.send('Browser.close');
   await waitForExit(viewer, 5_000);
-  await waitForExpression(hostCdp, `document.querySelector('.session-summary')?.textContent.includes('접속자 0명')`);
+  await waitForExpression(hostCdp, `document.querySelector('.viewer-chip')?.textContent.includes('0명 접속')`);
   hostCdp.send('Browser.close');
   await waitForExit(host, 5_000);
 
@@ -194,6 +194,14 @@ async function setInputByLabel(client, labelText, value) {
   })()`);
   assert.equal(changed, true, `input is available: ${labelText}`);
   await delay(80);
+}
+
+async function loginClient(client, username) {
+  await waitForExpression(client, `document.body.innerText.includes('로그인')`);
+  await setInputByLabel(client, '아이디', username);
+  await setInputByLabel(client, '비밀번호', 'demo-password');
+  await clickButton(client, '로그인');
+  await waitForExpression(client, `document.body.innerText.includes('방 찾기')`);
 }
 
 async function clickButton(client, text) {

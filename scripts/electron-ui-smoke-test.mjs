@@ -76,7 +76,7 @@ let electron;
 let cdp;
 try {
   await waitForHttp(`http://127.0.0.1:${relayPort}/healthz`);
-  electron = spawn(electronExecutable, ['.', `--remote-debugging-port=${debugPort}`], {
+  electron = spawn(electronExecutable, ['.', `--remote-debugging-port=${debugPort}`, `--user-data-dir=${path.join(outputDirectory, `profile-${Date.now()}`)}`], {
     cwd: root,
     env: { ...process.env, ELECTRON_ENABLE_LOGGING: '1' },
     stdio: ['ignore', 'pipe', 'pipe']
@@ -89,59 +89,34 @@ try {
   cdp = await CdpClient.connect(page.webSocketDebuggerUrl);
   await cdp.call('Page.enable');
   await cdp.call('Runtime.enable');
-  await waitForExpression(cdp, `document.body.innerText.includes('방 만들기')`);
+  await waitForExpression(cdp, `document.body.innerText.includes('로그인')`);
+  await captureScreenshot(cdp, path.join(outputDirectory, '00-login.png'));
+  await setInputByLabel(cdp, '아이디', 'user01');
+  await setInputByLabel(cdp, '비밀번호', 'demo-password');
+  await clickButton(cdp, '로그인');
+  await waitForExpression(cdp, `document.body.innerText.includes('방 찾기')`);
+  const savedSession = await cdp.evaluate(`JSON.parse(localStorage.getItem('haptic-relay.demo-session.v1'))`);
+  assert.deepEqual(savedSession, { username: 'user01', remembered: true }, 'demo login persists username only');
+  await captureScreenshot(cdp, path.join(outputDirectory, '01-room-browser.png'));
+  await cdp.evaluate(`document.querySelector('.room-card-open')?.click()`);
+  await waitForExpression(cdp, `document.querySelector('[role="dialog"]')?.textContent.includes('실제 릴레이나 하드웨어에 연결되지 않습니다')`);
+  await clickButton(cdp, '확인');
+  await setInputByPlaceholder(cdp, '방 이름, 소개, 태그 검색', '리듬');
+  await waitForExpression(cdp, `document.querySelectorAll('[data-room-card]').length === 1`);
+  await setInputByPlaceholder(cdp, '방 이름, 소개, 태그 검색', '');
+  await clickButton(cdp, '방 만들기');
+  await waitForExpression(cdp, `document.querySelector('[role="dialog"]')?.textContent.includes('새 방 만들기')`);
+  await captureScreenshot(cdp, path.join(outputDirectory, '02-create-room-modal.png'));
+  await setInputByLabel(cdp, '서버 URL', `http://127.0.0.1:${relayPort}`);
+  await setInputByLabel(cdp, '방 이름', 'studio-main');
+  await clickButton(cdp, '방 생성');
+  await waitForExpression(cdp, `document.body.innerText.includes('HOST SESSION') && document.body.innerText.includes('방 관리')`);
+  await assertNoDocumentOverflow(cdp, '1180x780 host room');
+  await captureScreenshot(cdp, path.join(outputDirectory, '03-room-management.png'));
 
-  await captureScreenshot(cdp, path.join(outputDirectory, '01-host-setup.png'));
-  await cdp.evaluate(`(() => {
-    const label = [...document.querySelectorAll('label')].find(item => item.textContent.includes('서버 URL'));
-    const input = label?.querySelector('input');
-    if (!input) return false;
-    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
-    setter.call(input, 'http://127.0.0.1:${relayPort}');
-    input.dispatchEvent(new Event('input', { bubbles: true }));
-    return true;
-  })()`);
-  await delay(100);
-  await cdp.evaluate(`(() => {
-    const button = [...document.querySelectorAll('button')].find(item => item.textContent.trim() === '방 생성');
-    button?.click();
-    return Boolean(button);
-  })()`);
-  await waitForExpression(cdp, `document.body.innerText.includes('스트리머 방 관리')`);
-  const managementLayout = await cdp.evaluate(`(() => {
-    const workspace = document.querySelector('.workspace');
-    return {
-      windowScrollX: window.scrollX,
-      workspaceScrollLeft: workspace.scrollLeft,
-      workspaceClientWidth: workspace.clientWidth,
-      workspaceScrollWidth: workspace.scrollWidth,
-      workspaceClientHeight: workspace.clientHeight,
-      workspaceScrollHeight: workspace.scrollHeight
-    };
-  })()`);
-  assert.equal(managementLayout.windowScrollX, 0, 'window must not scroll horizontally');
-  assert.equal(managementLayout.workspaceScrollLeft, 0, 'workspace must not shift horizontally');
-  assert.ok(
-    managementLayout.workspaceScrollWidth <= managementLayout.workspaceClientWidth,
-    `workspace overflows horizontally: ${JSON.stringify(managementLayout)}`
-  );
-  assert.ok(
-    managementLayout.workspaceScrollHeight <= managementLayout.workspaceClientHeight,
-    `room header and tabs must remain fixed while tab content scrolls: ${JSON.stringify(managementLayout)}`
-  );
-  await captureScreenshot(cdp, path.join(outputDirectory, '02-room-management.png'));
-
-  await cdp.evaluate(`(() => {
-    const button = [...document.querySelectorAll('button')].find(item => item.textContent.trim() === '실시간 시연');
-    button?.click();
-    return Boolean(button);
-  })()`);
+  await clickButton(cdp, '실시간 시연');
   await waitForExpression(cdp, `Boolean(document.querySelector('.motion-demo-controls'))`);
-  await cdp.evaluate(`(() => {
-    const button = [...document.querySelectorAll('button')].find(item => item.textContent.trim() === '시연 시작');
-    button?.click();
-    return Boolean(button);
-  })()`);
+  await clickButton(cdp, '시연 시작');
   await waitForExpression(cdp, `document.querySelector('.stream-state')?.textContent.includes('30Hz 전송 중')`);
   await cdp.evaluate(`(() => {
     const inputs = document.querySelectorAll('.motion-demo-controls input');
@@ -153,7 +128,19 @@ try {
     return [inputs[0].value, inputs[1].value];
   })()`);
   await waitForExpression(cdp, `document.body.innerText.includes('0.82') && document.body.innerText.includes('0.31')`);
-  await captureScreenshot(cdp, path.join(outputDirectory, '03-live-demo.png'));
+  await captureScreenshot(cdp, path.join(outputDirectory, '04-live-demo.png'));
+  await clickButton(cdp, '하드웨어');
+  await waitForExpression(cdp, `document.body.innerText.includes('DEVICE CONFIGURATION')`);
+  await captureScreenshot(cdp, path.join(outputDirectory, '05-hardware.png'));
+  await clickButton(cdp, '보호 설정');
+  await waitForExpression(cdp, `document.body.innerText.includes('MOTION PROTECTION')`);
+  await captureScreenshot(cdp, path.join(outputDirectory, '06-safety.png'));
+  await clickButton(cdp, '로그');
+  await waitForExpression(cdp, `document.body.innerText.includes('EVENT INSPECTOR')`);
+  await captureScreenshot(cdp, path.join(outputDirectory, '07-logs.png'));
+  await cdp.call('Emulation.setDeviceMetricsOverride', { width: 960, height: 640, deviceScaleFactor: 1, mobile: false });
+  await assertNoDocumentOverflow(cdp, '960x640 logs');
+  await captureScreenshot(cdp, path.join(outputDirectory, '08-logs-960x640.png'));
 
   cdp.send('Browser.close');
   await waitForExit(electron, 5_000);
@@ -162,9 +149,15 @@ try {
   console.log(JSON.stringify({
     ok: true,
     screenshots: [
-      path.join(outputDirectory, '01-host-setup.png'),
-      path.join(outputDirectory, '02-room-management.png'),
-      path.join(outputDirectory, '03-live-demo.png')
+      path.join(outputDirectory, '00-login.png'),
+      path.join(outputDirectory, '01-room-browser.png'),
+      path.join(outputDirectory, '02-create-room-modal.png'),
+      path.join(outputDirectory, '03-room-management.png'),
+      path.join(outputDirectory, '04-live-demo.png'),
+      path.join(outputDirectory, '05-hardware.png'),
+      path.join(outputDirectory, '06-safety.png'),
+      path.join(outputDirectory, '07-logs.png'),
+      path.join(outputDirectory, '08-logs-960x640.png')
     ]
   }, null, 2));
 } finally {
@@ -181,6 +174,51 @@ function captureOutput(child, key) {
 async function captureScreenshot(client, filePath) {
   const result = await client.call('Page.captureScreenshot', { format: 'png', fromSurface: true });
   await writeFile(filePath, Buffer.from(result.data, 'base64'));
+}
+
+async function setInputByLabel(client, labelText, value) {
+  const changed = await client.evaluate(`(() => {
+    const label = [...document.querySelectorAll('label')].find(item => item.textContent.includes(${JSON.stringify(labelText)}));
+    const input = label?.querySelector('input, textarea');
+    if (!input) return false;
+    const prototype = input instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+    const setter = Object.getOwnPropertyDescriptor(prototype, 'value').set;
+    setter.call(input, ${JSON.stringify(value)});
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    return true;
+  })()`);
+  assert.equal(changed, true, `${labelText} input is available`);
+}
+
+async function clickButton(client, label) {
+  const clicked = await client.evaluate(`(() => {
+    const button = [...document.querySelectorAll('button')].find(item => item.textContent.trim() === ${JSON.stringify(label)});
+    button?.click();
+    return Boolean(button);
+  })()`);
+  assert.equal(clicked, true, `${label} button is available`);
+}
+
+async function setInputByPlaceholder(client, placeholder, value) {
+  const changed = await client.evaluate(`(() => {
+    const input = document.querySelector(${JSON.stringify(`[placeholder="${placeholder}"]`)});
+    if (!(input instanceof HTMLInputElement)) return false;
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+    setter.call(input, ${JSON.stringify(value)});
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    return true;
+  })()`);
+  assert.equal(changed, true, `${placeholder} input is available`);
+  await delay(80);
+}
+
+async function assertNoDocumentOverflow(client, label) {
+  const overflow = await client.evaluate(`({
+    horizontal: document.documentElement.scrollWidth > document.documentElement.clientWidth,
+    vertical: document.documentElement.scrollHeight > document.documentElement.clientHeight
+  })`);
+  assert.equal(overflow.horizontal, false, `${label} has no horizontal document overflow`);
+  assert.equal(overflow.vertical, false, `${label} has no vertical document overflow`);
 }
 
 async function waitForExpression(client, expression, timeoutMs = 8_000) {

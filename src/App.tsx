@@ -1,13 +1,22 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { OctagonX } from 'lucide-react';
 import type { AppLogEntry, AppSettings, ApprovalRequest, EntryMode, HardwareProfile, HardwareProtection, MotionMonitorSnapshot, PortInfo, ViewerSession } from './shared/protocol';
 import { createQrMatrix } from './qr-code';
+import { AppShell } from './ui/components/AppShell';
+import { Modal } from './ui/components/Modal';
+import { DEMO_ROOMS, RELAY_SERVERS } from './ui/demo-data';
+import type { AppScreen, BrowserRoom, RelayServerOption, RoomFilter } from './ui/model';
+import { HardwareView } from './ui/views/HardwareView';
+import { LoginView } from './ui/views/LoginView';
+import { LogsView } from './ui/views/LogsView';
+import { RoomBrowserView } from './ui/views/RoomBrowserView';
+import { RoomSessionView, type SessionTab } from './ui/views/RoomSessionView';
+import { SafetyView } from './ui/views/SafetyView';
 import './styles.css';
 
 type Role = 'host' | 'viewer';
 type HostPage = 'setup' | 'room';
 type ViewerPage = 'join' | 'room';
-type HostTab = 'management' | 'demo' | 'settings';
-type ViewerTab = 'receive' | 'delay' | 'settings';
 type StatusTone = 'idle' | 'busy' | 'ok' | 'warning' | 'error';
 type BusyAction = 'ports' | 'hardware' | 'room' | 'join' | 'approval' | 'moderation' | 'motion' | 'stop' | 'logs' | 'delay';
 
@@ -45,11 +54,28 @@ const DEFAULT_HARDWARE_PROTECTION: HardwareProtection = {
 const CURRENT_SETTINGS_SCHEMA_VERSION = 2;
 
 export default function App() {
+  const [savedSession] = useState(readDemoSession);
+  const [authenticated, setAuthenticated] = useState(Boolean(savedSession));
+  const [username, setUsername] = useState(savedSession?.username ?? 'user01');
+  const [loginPassword, setLoginPassword] = useState('');
+  const [rememberLogin, setRememberLogin] = useState(true);
+  const [loginError, setLoginError] = useState('');
+  const [screen, setScreen] = useState<AppScreen>('browser');
+  const [dialog, setDialog] = useState<'create' | 'join' | 'custom' | 'demo'>();
+  const [selectedDemoRoom, setSelectedDemoRoom] = useState<BrowserRoom>();
+  const [roomQuery, setRoomQuery] = useState('');
+  const [roomFilter, setRoomFilter] = useState<RoomFilter>('all');
+  const [serverOpen, setServerOpen] = useState(false);
+  const [selectedServer, setSelectedServer] = useState<RelayServerOption>(RELAY_SERVERS[8]);
+  const [customServerName, setCustomServerName] = useState('내 릴레이 서버');
+  const [customServerUrl, setCustomServerUrl] = useState('');
+  const [hardwareConnected, setHardwareConnected] = useState(false);
+  const [logFilter, setLogFilter] = useState('all');
   const [role, setRole] = useState<Role>('host');
   const [hostPage, setHostPage] = useState<HostPage>('setup');
   const [viewerPage, setViewerPage] = useState<ViewerPage>('join');
-  const [hostTab, setHostTab] = useState<HostTab>('management');
-  const [viewerTab, setViewerTab] = useState<ViewerTab>('receive');
+  const [hostTab, setHostTab] = useState<SessionTab>('overview');
+  const [viewerTab, setViewerTab] = useState<SessionTab>('receive');
   const [relayUrl, setRelayUrl] = useState(import.meta.env.VITE_RELAY_URL ?? 'http://localhost:4174');
   const [displayName, setDisplayName] = useState('viewer-01');
   const [roomName, setRoomName] = useState('studio-main');
@@ -81,6 +107,7 @@ export default function App() {
   const isBusy = busyAction !== undefined;
   const hasPendingMotionDelay = motionDelayMs !== appliedMotionDelayMs;
   const latestMotion = motionMonitorEntries[0];
+  const visibleLogEntries = useMemo(() => logFilter === 'all' ? logEntries : logEntries.filter(entry => entry.source.toLowerCase() === logFilter), [logEntries, logFilter]);
   const inviteQrMatrix = useMemo(() => hostRoomInvite ? createQrMatrix(encodeInviteCode(hostRoomInvite)) : undefined, [hostRoomInvite]);
 
   useEffect(() => {
@@ -110,15 +137,18 @@ export default function App() {
       if (nextStatus.status === 'approved') {
         setViewerPage('room');
         setViewerTab('receive');
+        setScreen('participant-room');
         setStatusMessage('ok', `방 입장 승인됨: ${nextStatus.roomName}`);
         return;
       }
       if (nextStatus.status === 'removed') {
         setViewerPage('join');
+        setScreen('browser');
         setStatusMessage('warning', `${nextStatus.reason === 'block' ? '차단' : '강퇴'}됨: ${nextStatus.roomName}`);
         return;
       }
       setViewerPage('join');
+      setScreen('browser');
       setStatusMessage('warning', `방 입장 거절됨: ${formatReason(nextStatus.reason ?? nextStatus.roomName)}`);
     });
     const removeViewerList = window.hapticRelay.onViewerList(viewers => {
@@ -165,6 +195,67 @@ export default function App() {
 
   function setStatusMessage(tone: StatusTone, message: string) {
     setStatus({ tone, message });
+  }
+
+  function login() {
+    if (!username.trim() || !loginPassword) {
+      setLoginError('아이디와 비밀번호를 입력하세요.');
+      return;
+    }
+    const normalizedUsername = username.trim();
+    if (rememberLogin) localStorage.setItem('haptic-relay.demo-session.v1', JSON.stringify({ username: normalizedUsername, remembered: true }));
+    else localStorage.removeItem('haptic-relay.demo-session.v1');
+    setUsername(normalizedUsername);
+    setLoginPassword('');
+    setLoginError('');
+    setAuthenticated(true);
+    setScreen('browser');
+    setStatusMessage('ok', `${normalizedUsername} 로그인됨`);
+  }
+
+  function logout() {
+    const hasActiveRoom = role === 'host' ? hostPage === 'room' : viewerPage === 'room';
+    if (hasActiveRoom) {
+      void (async () => {
+        if (motionDemoActive) await window.hapticRelay.stopMotionDemo().catch(() => undefined);
+        await window.hapticRelay.disconnectRoom().catch(() => undefined);
+      })();
+    }
+    localStorage.removeItem('haptic-relay.demo-session.v1');
+    setAuthenticated(false);
+    setLoginPassword('');
+    setMotionDemoActive(false);
+    setHostRoomInvite(undefined);
+    setViewerSessions([]);
+    setApprovalRequests([]);
+    setHostPage('setup');
+    setViewerPage('join');
+    setScreen('browser');
+  }
+
+  function chooseServer(server: RelayServerOption) {
+    setSelectedServer(server);
+    setRelayUrl(server.url);
+    setServerOpen(false);
+    setStatusMessage('ok', `릴레이 서버 선택됨: ${server.name}`);
+  }
+
+  function saveCustomServer() {
+    try {
+      const url = normalizeRelayUrl(customServerUrl);
+      const server = { id: 'custom-current', name: customServerName.trim() || '사용자 서버', url, pingMs: 0, available: true, custom: true };
+      setSelectedServer(server);
+      setRelayUrl(url);
+      setDialog(undefined);
+      setStatusMessage('ok', `사용자 서버 선택됨: ${server.name}`);
+    } catch (error) {
+      setStatusMessage('error', formatError(error));
+    }
+  }
+
+  function openDemoRoom(room: BrowserRoom) {
+    setSelectedDemoRoom(room);
+    setDialog('demo');
   }
 
   async function runAction(action: BusyAction, busyMessage: string, task: () => Promise<void>) {
@@ -268,6 +359,7 @@ export default function App() {
 
     await runAction('hardware', '하드웨어 연결 중', async () => {
       const result = await window.hapticRelay.connectHardware(selectedPort, hardwareProfile);
+      setHardwareConnected(true);
       if (result.probe.detected) {
         const version = result.probe.version ? ` / TCode ${result.probe.version}` : '';
         const axes = result.probe.axes.length > 0 ? ` / 축 ${result.probe.axes.join(', ')}` : '';
@@ -312,7 +404,10 @@ export default function App() {
       setApprovalRequests([]);
       setViewerSessions(await window.hapticRelay.listViewers());
       setHostPage('room');
-      setHostTab('management');
+      setHostTab('overview');
+      setRole('host');
+      setScreen('host-room');
+      setDialog(undefined);
       setStatusMessage('ok', `방 생성됨: ${room.roomName} / ${room.relayUrl}`);
     });
   }
@@ -362,6 +457,9 @@ export default function App() {
       });
       setViewerPage('room');
       setViewerTab('receive');
+      setRole('viewer');
+      setScreen('participant-room');
+      setDialog(undefined);
       if (response.reason === 'approval-required') {
         setStatusMessage('warning', `입장 승인 대기 중: ${roomName.trim()}`);
         return;
@@ -411,11 +509,12 @@ export default function App() {
       setHostRoomInvite(undefined);
       if (role === 'host') {
         setHostPage('setup');
-        setHostTab('management');
+        setHostTab('overview');
       } else {
         setViewerPage('join');
         setViewerTab('receive');
       }
+      setScreen('browser');
       setStatusMessage('ok', role === 'host' ? '방이 종료됨' : '방에서 나왔습니다');
     });
   }
@@ -599,13 +698,13 @@ export default function App() {
     <section className="panel">
       <div className="panel-header">
         <h2>이벤트 로그</h2>
-        <button disabled={isBusy || logEntries.length === 0} onClick={exportLogs}>저장</button>
+        <div className="button-row log-actions"><div className="segmented-control compact">{['all', 'relay', 'room', 'hardware', 'protection'].map(filter => <button className={logFilter === filter ? 'active' : ''} key={filter} type="button" onClick={() => setLogFilter(filter)}>{filter === 'all' ? '전체' : filter}</button>)}</div><button disabled={isBusy || logEntries.length === 0} onClick={exportLogs}>저장</button></div>
       </div>
-      {logEntries.length === 0 ? (
+      {visibleLogEntries.length === 0 ? (
         <p className="muted">아직 기록된 이벤트가 없습니다.</p>
       ) : (
         <div className="log-list">
-          {logEntries.map(entry => (
+          {visibleLogEntries.map(entry => (
             <div className={`log-row ${entry.level}`} key={entry.id}>
               <span>{formatTime(entry.timestamp)}</span>
               <strong>{entry.source}</strong>
@@ -741,158 +840,45 @@ export default function App() {
 
   const activeRoom = role === 'host' ? hostPage === 'room' : viewerPage === 'room';
 
-  return (
-    <main className="app-shell">
-      <aside className="sidebar">
-        <div>
-          <p className="eyebrow">Haptic Relay</p>
-          <h1>방송 플랫폼 독립형 하드웨어 연동</h1>
-        </div>
-        <div className="sidebar-controls">
-          {!activeRoom ? (
-            <div className="role-switch" aria-label="역할 선택">
-              <button className={role === 'host' ? 'active' : ''} onClick={() => setRole('host')}>스트리머</button>
-              <button className={role === 'viewer' ? 'active' : ''} onClick={() => setRole('viewer')}>시청자</button>
-            </div>
-          ) : (
-            <div className="session-summary">
-              <span>{role === 'host' ? '스트리머 방' : '시청 중인 방'}</span>
-              <strong>{hostRoomInvite?.roomName ?? roomName}</strong>
-              {role === 'host' ? <span>접속자 {viewerSessions.length}명</span> : null}
-            </div>
-          )}
-          <button className="danger" disabled={busyAction === 'stop'} onClick={emergencyStop}>긴급 정지</button>
-        </div>
-        <p className={`status ${status.tone}`}>{status.message}</p>
-      </aside>
+  if (!authenticated) {
+    return <LoginView username={username} password={loginPassword} remember={rememberLogin} error={loginError} onUsernameChange={setUsername} onPasswordChange={setLoginPassword} onRememberChange={setRememberLogin} onSubmit={login} />;
+  }
 
-      <section className="workspace">
-        {role === 'host' ? (
-          hostPage === 'setup' ? (
-            <div className="page-view">
-              <header className="page-heading">
-                <p className="section-label">스트리머</p>
-                <h2>방 만들기</h2>
-              </header>
-              <div className="setup-grid">
-                <section className="panel">
-                  <h2>릴레이 서버</h2>
-                  <label>
-                    서버 URL
-                    <input value={relayUrl} onChange={event => setRelayUrl(event.target.value)} />
-                  </label>
-                </section>
-                <section className="panel">
-                  <h2>방 설정</h2>
-                  <div className="form-grid setup-form">
-                    <label>
-                      방 이름
-                      <input value={roomName} onChange={event => setRoomName(event.target.value)} />
-                    </label>
-                    <label>
-                      비밀번호
-                      <input value={password} onChange={event => setPassword(event.target.value)} placeholder="선택" />
-                    </label>
-                    <label>
-                      입장 방식
-                      <select value={entryMode} onChange={event => setEntryMode(event.target.value as EntryMode)}>
-                        <option value="open">자유입장</option>
-                        <option value="request">신청입장</option>
-                      </select>
-                    </label>
-                  </div>
-                  <button className="primary action-button" disabled={!canHost || isBusy} onClick={createRoom}>방 생성</button>
-                </section>
-              </div>
-            </div>
-          ) : (
-            <div className="page-view room-page">
-              <header className="room-toolbar">
-                <div>
-                  <p className="section-label">스트리머 방 관리</p>
-                  <h2>{hostRoomInvite?.roomName ?? roomName}</h2>
-                </div>
-                <div className="room-actions">
-                  <div className="viewer-count"><strong>{viewerSessions.length}</strong><span>접속자</span></div>
-                  <button disabled={isBusy} onClick={leaveRoom}>방 종료</button>
-                </div>
-              </header>
-              <nav className="page-tabs" aria-label="스트리머 방 메뉴">
-                <button className={hostTab === 'management' ? 'active' : ''} onClick={() => setHostTab('management')}>방 관리</button>
-                <button className={hostTab === 'demo' ? 'active' : ''} onClick={() => setHostTab('demo')}>실시간 시연</button>
-                <button className={hostTab === 'settings' ? 'active' : ''} onClick={() => setHostTab('settings')}>설정 및 로그</button>
-              </nav>
-              <div className="tab-content">
-                {hostTab === 'management' ? <div className="management-grid">{viewerManagementPanel}{approvalPanel}{invitePanel}</div> : null}
-                {hostTab === 'demo' ? motionDemoPanel : null}
-                {hostTab === 'settings' ? <div className="settings-stack">{hardwarePanel}{logPanel}</div> : null}
-              </div>
-            </div>
-          )
-        ) : (
-          viewerPage === 'join' ? (
-            <div className="page-view">
-              <header className="page-heading">
-                <p className="section-label">시청자</p>
-                <h2>방 입장</h2>
-              </header>
-              <div className="setup-grid viewer-setup-grid">
-                <section className="panel">
-                  <h2>초대 코드</h2>
-                  <label>
-                    스트리머가 공유한 코드
-                    <textarea value={inviteCodeInput} onChange={event => setInviteCodeInput(event.target.value)} rows={3} />
-                  </label>
-                  <button disabled={isBusy || inviteCodeInput.trim().length === 0} onClick={applyInviteCode}>초대 코드 적용</button>
-                </section>
-                <section className="panel">
-                  <h2>접속 정보</h2>
-                  <label>
-                    서버 URL
-                    <input value={relayUrl} onChange={event => setRelayUrl(event.target.value)} />
-                  </label>
-                  <div className="form-grid setup-form">
-                    <label>
-                      표시 이름
-                      <input value={displayName} onChange={event => setDisplayName(event.target.value)} />
-                    </label>
-                    <label>
-                      방 이름
-                      <input value={roomName} onChange={event => setRoomName(event.target.value)} />
-                    </label>
-                    <label>
-                      비밀번호
-                      <input value={password} onChange={event => setPassword(event.target.value)} />
-                    </label>
-                  </div>
-                  <button className="primary action-button" disabled={!canJoin || isBusy} onClick={joinRoom}>입장 요청</button>
-                </section>
-              </div>
-            </div>
-          ) : (
-            <div className="page-view room-page">
-              <header className="room-toolbar">
-                <div>
-                  <p className="section-label">시청자 수신</p>
-                  <h2>{roomName}</h2>
-                </div>
-                <button disabled={isBusy} onClick={leaveRoom}>방 나가기</button>
-              </header>
-              <nav className="page-tabs" aria-label="시청자 방 메뉴">
-                <button className={viewerTab === 'receive' ? 'active' : ''} onClick={() => setViewerTab('receive')}>수신 모니터</button>
-                <button className={viewerTab === 'delay' ? 'active' : ''} onClick={() => setViewerTab('delay')}>지연 설정</button>
-                <button className={viewerTab === 'settings' ? 'active' : ''} onClick={() => setViewerTab('settings')}>설정 및 로그</button>
-              </nav>
-              <div className="tab-content">
-                {viewerTab === 'receive' ? motionMonitorPanel : null}
-                {viewerTab === 'delay' ? motionDelayPanel : null}
-                {viewerTab === 'settings' ? <div className="settings-stack">{hardwarePanel}{protectionPanel}{logPanel}</div> : null}
-              </div>
-            </div>
-          )
-        )}
-      </section>
-    </main>
+  let workspace;
+  if (screen === 'browser') {
+    workspace = <RoomBrowserView rooms={DEMO_ROOMS} query={roomQuery} filter={roomFilter} onQueryChange={setRoomQuery} onFilterChange={setRoomFilter} onCreateRoom={() => setDialog('create')} onJoinByInvite={() => setDialog('join')} onOpenRoom={openDemoRoom} />;
+  } else if (screen === 'host-room') {
+    const tabs: Array<{ id: SessionTab; label: string }> = [
+      { id: 'overview', label: '방 관리' }, { id: 'demo', label: '실시간 시연' }, { id: 'hardware', label: '하드웨어' }, { id: 'safety', label: '보호 설정' }, { id: 'logs', label: '로그' }
+    ];
+    const content = hostTab === 'overview' ? <div className="management-grid">{viewerManagementPanel}{approvalPanel}{invitePanel}</div>
+      : hostTab === 'demo' ? motionDemoPanel
+        : hostTab === 'hardware' ? hardwarePanel
+          : hostTab === 'safety' ? <div className="settings-stack">{protectionPanel}<section className="panel danger-panel"><h2>전체 긴급 정지</h2><p className="muted">현재 세션의 전송을 멈추고 모든 참여자에게 정지 신호를 보냅니다.</p><button className="danger-action" disabled={busyAction === 'stop'} onClick={emergencyStop}><OctagonX size={17} /> 긴급 정지</button></section></div>
+            : logPanel;
+    workspace = <RoomSessionView role="host" roomTitle={hostRoomInvite?.roomName ?? roomName} roomMeta={`${selectedServer.name} · ${entryMode === 'request' ? '승인 입장' : '자유 입장'} · 30Hz`} activeTab={hostTab} tabs={tabs} viewerCount={viewerSessions.length} onTabChange={setHostTab} onLeave={leaveRoom}>{content}</RoomSessionView>;
+  } else if (screen === 'participant-room') {
+    const tabs: Array<{ id: SessionTab; label: string }> = [
+      { id: 'receive', label: '수신 모니터' }, { id: 'delay', label: '지연 설정' }, { id: 'hardware', label: '하드웨어' }, { id: 'safety', label: '보호 설정' }, { id: 'logs', label: '로그' }
+    ];
+    const content = viewerTab === 'receive' ? motionMonitorPanel : viewerTab === 'delay' ? motionDelayPanel : viewerTab === 'hardware' ? hardwarePanel : viewerTab === 'safety' ? protectionPanel : logPanel;
+    workspace = <RoomSessionView role="participant" roomTitle={roomName} roomMeta={`${selectedServer.name} · ${displayName} · 실시간 수신`} activeTab={viewerTab} tabs={tabs} onTabChange={setViewerTab} onLeave={leaveRoom}>{content}</RoomSessionView>;
+  } else if (screen === 'hardware') {
+    workspace = <HardwareView>{hardwarePanel}</HardwareView>;
+  } else if (screen === 'safety') {
+    workspace = <SafetyView><div className="settings-stack">{protectionPanel}<section className="panel danger-panel"><div><h2>로컬 긴급 정지</h2><p className="muted">모션 출력과 현재 전송을 즉시 정지합니다.</p></div><button className="danger-action" disabled={busyAction === 'stop'} onClick={emergencyStop}><OctagonX size={17} /> 긴급 정지</button></section></div></SafetyView>;
+  } else {
+    workspace = <LogsView>{logPanel}</LogsView>;
+  }
+
+  return (
+    <>
+      <AppShell screen={screen} sessionScreen={activeRoom ? role === 'host' ? 'host-room' : 'participant-room' : undefined} username={username} server={selectedServer} servers={RELAY_SERVERS} serverOpen={serverOpen} relayConnected={activeRoom} deviceConnected={hardwareConnected} statusTone={status.tone} statusMessage={status.message} onToggleServers={() => setServerOpen(value => !value)} onSelectServer={chooseServer} onCustomServer={() => { setServerOpen(false); setDialog('custom'); }} onNavigate={setScreen} onLogout={logout}>{workspace}</AppShell>
+      {dialog === 'create' ? <Modal title="새 방 만들기" onClose={() => setDialog(undefined)} footer={<><button className="btn btn-secondary" onClick={() => setDialog(undefined)}>취소</button><button className="btn btn-primary" disabled={!canHost || isBusy} onClick={createRoom}>방 생성</button></>}><p className="dialog-note">방을 만들면 현재 로그인한 사용자가 스트리머가 됩니다.</p><div className="modal-form-grid"><label className="wide">방 이름<input value={roomName} onChange={event => setRoomName(event.target.value)} /></label><label>비밀번호<input value={password} onChange={event => setPassword(event.target.value)} placeholder="선택" /></label><label>입장 방식<select value={entryMode} onChange={event => setEntryMode(event.target.value as EntryMode)}><option value="open">자유입장</option><option value="request">신청입장</option></select></label><label className="wide">서버 URL<input value={relayUrl} onChange={event => setRelayUrl(event.target.value)} /></label></div></Modal> : null}
+      {dialog === 'join' ? <Modal title="초대 코드로 입장" onClose={() => setDialog(undefined)} footer={<><button className="btn btn-secondary" onClick={() => setDialog(undefined)}>취소</button><button className="btn btn-primary" disabled={!canJoin || isBusy} onClick={joinRoom}>입장 요청</button></>}><div className="join-modal-stack"><label>초대 코드<textarea value={inviteCodeInput} onChange={event => setInviteCodeInput(event.target.value)} rows={3} placeholder="HRS1..." /></label><button className="btn btn-secondary align-start" disabled={!inviteCodeInput.trim()} onClick={applyInviteCode}>초대 코드 적용</button><div className="modal-divider"><span>또는 직접 입력</span></div><div className="modal-form-grid"><label>표시 이름<input value={displayName} onChange={event => setDisplayName(event.target.value)} /></label><label>방 이름<input value={roomName} onChange={event => setRoomName(event.target.value)} /></label><label className="wide">서버 URL<input value={relayUrl} onChange={event => setRelayUrl(event.target.value)} /></label><label className="wide">비밀번호<input value={password} onChange={event => setPassword(event.target.value)} placeholder="선택" /></label></div></div></Modal> : null}
+      {dialog === 'custom' ? <Modal title="사용자 서버 추가" onClose={() => setDialog(undefined)} footer={<><button className="btn btn-secondary" onClick={() => setDialog(undefined)}>취소</button><button className="btn btn-primary" onClick={saveCustomServer}>서버 사용</button></>}><div className="modal-form-grid"><label className="wide">서버 이름<input value={customServerName} onChange={event => setCustomServerName(event.target.value)} /></label><label className="wide">서버 URL<input value={customServerUrl} onChange={event => setCustomServerUrl(event.target.value)} placeholder="https://relay.example.com" /></label></div></Modal> : null}
+      {dialog === 'demo' && selectedDemoRoom ? <Modal title={selectedDemoRoom.title} onClose={() => setDialog(undefined)} footer={<button className="btn btn-primary" onClick={() => setDialog(undefined)}>확인</button>}><div className="demo-detail"><span className="room-kind demo">데모 데이터</span><p>{selectedDemoRoom.description}</p><dl><div><dt>HOST</dt><dd>{selectedDemoRoom.host}</dd></div><div><dt>VIEWERS</dt><dd>{selectedDemoRoom.viewerCount} / {selectedDemoRoom.maxViewers}</dd></div><div><dt>SERVER</dt><dd>{selectedDemoRoom.serverName}</dd></div><div><dt>ENTRY</dt><dd>{selectedDemoRoom.entryMode === 'open' ? '자유 입장' : '승인 필요'}</dd></div></dl><p className="demo-warning">이 항목은 UI 확인용 데모 데이터이며 실제 릴레이나 하드웨어에 연결되지 않습니다.</p></div></Modal> : null}
+    </>
   );
 }
 
@@ -906,6 +892,18 @@ function MotionGauge({ label, value }: { label: string; value: number }) {
       <progress max={1} value={value} aria-label={`${label} ${value.toFixed(2)}`} />
     </div>
   );
+}
+
+function readDemoSession(): { username: string } | undefined {
+  try {
+    const value = localStorage.getItem('haptic-relay.demo-session.v1');
+    if (!value) return undefined;
+    const parsed = JSON.parse(value) as { username?: unknown; remembered?: unknown };
+    if (typeof parsed.username !== 'string' || !parsed.username.trim() || parsed.remembered !== true) return undefined;
+    return { username: parsed.username.trim() };
+  } catch {
+    return undefined;
+  }
 }
 
 function updateProfileValue(profile: HardwareProfile, patch: Partial<HardwareProfile>): HardwareProfile {

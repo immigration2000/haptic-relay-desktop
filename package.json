@@ -36,18 +36,19 @@
   },
   "dependencies": {
     "electron-is-dev": "^3.0.1",
-    "redis": "^5.0.0",
+    "lucide-react": "^1.31.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
+    "redis": "^5.0.0",
     "serialport": "^13.0.0",
     "socket.io": "^4.8.1",
     "socket.io-client": "^4.8.1"
   },
   "devDependencies": {
-    "@vitejs/plugin-react": "^5.0.0",
     "@types/node": "^24.0.0",
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
+    "@vitejs/plugin-react": "^5.0.0",
     "concurrently": "^9.2.0",
     "cross-env": "^10.0.0",
     "electron": "^37.0.0",
