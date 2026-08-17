@@ -99,7 +99,6 @@ export default function App() {
     positionMax: 0.8,
     intensity: 0.5
   });
-  const [livePosition, setLivePosition] = useState(0.5);
   const [approvalRequests, setApprovalRequests] = useState<ApprovalRequest[]>([]);
   const [viewerSessions, setViewerSessions] = useState<ViewerSession[]>([]);
   const [logEntries, setLogEntries] = useState<AppLogEntry[]>([]);
@@ -123,12 +122,6 @@ export default function App() {
   useEffect(() => {
     void loadSettings();
     void refreshPorts(true);
-  }, []);
-
-  useEffect(() => {
-    return window.hapticRelay.onMotionDemoFrame(snapshot => {
-      setLivePosition(snapshot.frame.position);
-    });
   }, []);
 
   useEffect(() => {
@@ -837,7 +830,6 @@ export default function App() {
       busy={isBusy}
       position={position}
       intensity={intensity}
-      livePosition={livePosition}
       pattern={motionPattern}
       onModeChange={setMotionDemoMode}
       onPositionChange={setPosition}

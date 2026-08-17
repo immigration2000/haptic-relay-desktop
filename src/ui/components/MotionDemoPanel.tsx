@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { Play, Square } from 'lucide-react';
 import type { MotionDemoMode, MotionPattern, MotionPatternConfig } from '../../shared/protocol';
 
@@ -7,7 +8,6 @@ type MotionDemoPanelProps = {
   busy: boolean;
   position: number;
   intensity: number;
-  livePosition: number;
   pattern: MotionPatternConfig;
   onModeChange(mode: MotionDemoMode): void;
   onPositionChange(position: number): void;
@@ -24,8 +24,13 @@ const PATTERN_OPTIONS: Array<{ value: MotionPattern; label: string }> = [
 ];
 
 export function MotionDemoPanel(props: MotionDemoPanelProps) {
-  const livePercent = Math.min(100, Math.max(0, props.livePosition * 100));
+  const [livePosition, setLivePosition] = useState(0.5);
+  const livePercent = Math.min(100, Math.max(0, livePosition * 100));
   const markerOffset = livePercent * 0.08;
+
+  useEffect(() => window.hapticRelay.onMotionDemoFrame(snapshot => {
+    setLivePosition(snapshot.frame.position);
+  }), []);
 
   function updatePositionMin(positionMin: number) {
     props.onPatternChange({
@@ -52,8 +57,8 @@ export function MotionDemoPanel(props: MotionDemoPanelProps) {
         </div>
         <div className="motion-demo-header-actions">
           <div className="segmented-control compact motion-mode-control" aria-label="시연 모드">
-            <button className={props.mode === 'manual' ? 'active' : ''} disabled={props.active} type="button" onClick={() => props.onModeChange('manual')}>수동</button>
-            <button className={props.mode === 'pattern' ? 'active' : ''} disabled={props.active} type="button" onClick={() => props.onModeChange('pattern')}>자동 패턴</button>
+            <button aria-pressed={props.mode === 'manual'} className={props.mode === 'manual' ? 'active' : ''} disabled={props.active} type="button" onClick={() => props.onModeChange('manual')}>수동</button>
+            <button aria-pressed={props.mode === 'pattern'} className={props.mode === 'pattern' ? 'active' : ''} disabled={props.active} type="button" onClick={() => props.onModeChange('pattern')}>자동 패턴</button>
           </div>
           <span className={`stream-state ${props.active ? 'active' : ''}`}>
             {props.active ? '30Hz 전송 중' : '전송 대기'}
@@ -75,7 +80,7 @@ export function MotionDemoPanel(props: MotionDemoPanelProps) {
       ) : (
         <div className="pattern-demo-content">
           <div className="pattern-preview">
-            <div className="pattern-preview-value"><span>실시간 위치</span><output>{props.livePosition.toFixed(2)}</output></div>
+            <div className="pattern-preview-value"><span>실시간 위치</span><output>{livePosition.toFixed(2)}</output></div>
             <div className="pattern-preview-track" aria-hidden="true">
               <span className="pattern-preview-marker" style={{ left: `calc(${livePercent}% - ${markerOffset}px)` }} />
             </div>
