@@ -129,18 +129,42 @@ try {
   })()`);
   await waitForExpression(cdp, `document.body.innerText.includes('0.82') && document.body.innerText.includes('0.31')`);
   await captureScreenshot(cdp, path.join(outputDirectory, '04-live-demo.png'));
+  await clickButton(cdp, '시연 중지');
+  await waitForExpression(cdp, `document.querySelector('.stream-state')?.textContent.includes('전송 대기')`);
+  await clickButton(cdp, '자동 패턴');
+  await waitForExpression(cdp, `(() => {
+    const controls = ['period', 'position-min', 'position-max', 'pattern-intensity'];
+    return controls.every(control => document.querySelector('[data-control="' + control + '"]'))
+      && Boolean(document.querySelector('.pattern-preview output'));
+  })()`);
+  await selectOptionByLabel(cdp, '패턴', 'triangle');
+  await clickButton(cdp, '시연 시작');
+  await waitForExpression(cdp, `document.querySelector('.stream-state')?.textContent.includes('30Hz 전송 중')`);
+  const firstAutomaticPosition = await cdp.evaluate(`Number(document.querySelector('.pattern-preview output')?.textContent)`);
+  assert.ok(Number.isFinite(firstAutomaticPosition), 'automatic preview reports a numeric position');
+  await delay(500);
+  const secondAutomaticPosition = await cdp.evaluate(`Number(document.querySelector('.pattern-preview output')?.textContent)`);
+  assert.ok(Number.isFinite(secondAutomaticPosition), 'automatic preview continues reporting a numeric position');
+  assert.notEqual(firstAutomaticPosition, secondAutomaticPosition, 'automatic preview position changes over 500ms');
+  await captureScreenshot(cdp, path.join(outputDirectory, '05-automatic-pattern.png'));
+  await cdp.call('Emulation.setDeviceMetricsOverride', { width: 960, height: 640, deviceScaleFactor: 1, mobile: false });
+  await assertNoDocumentOverflow(cdp, '960x640 automatic pattern');
+  await captureScreenshot(cdp, path.join(outputDirectory, '06-automatic-pattern-960x640.png'));
+  await clickButton(cdp, '시연 중지');
+  await waitForExpression(cdp, `document.querySelector('.stream-state')?.textContent.includes('전송 대기')`);
+  await cdp.call('Emulation.setDeviceMetricsOverride', { width: 1180, height: 780, deviceScaleFactor: 1, mobile: false });
   await clickButton(cdp, '하드웨어');
   await waitForExpression(cdp, `document.body.innerText.includes('DEVICE CONFIGURATION')`);
-  await captureScreenshot(cdp, path.join(outputDirectory, '05-hardware.png'));
+  await captureScreenshot(cdp, path.join(outputDirectory, '07-hardware.png'));
   await clickButton(cdp, '보호 설정');
   await waitForExpression(cdp, `document.body.innerText.includes('MOTION PROTECTION')`);
-  await captureScreenshot(cdp, path.join(outputDirectory, '06-safety.png'));
+  await captureScreenshot(cdp, path.join(outputDirectory, '08-safety.png'));
   await clickButton(cdp, '로그');
   await waitForExpression(cdp, `document.body.innerText.includes('EVENT INSPECTOR')`);
-  await captureScreenshot(cdp, path.join(outputDirectory, '07-logs.png'));
+  await captureScreenshot(cdp, path.join(outputDirectory, '09-logs.png'));
   await cdp.call('Emulation.setDeviceMetricsOverride', { width: 960, height: 640, deviceScaleFactor: 1, mobile: false });
   await assertNoDocumentOverflow(cdp, '960x640 logs');
-  await captureScreenshot(cdp, path.join(outputDirectory, '08-logs-960x640.png'));
+  await captureScreenshot(cdp, path.join(outputDirectory, '10-logs-960x640.png'));
 
   cdp.send('Browser.close');
   await waitForExit(electron, 5_000);
@@ -154,10 +178,12 @@ try {
       path.join(outputDirectory, '02-create-room-modal.png'),
       path.join(outputDirectory, '03-room-management.png'),
       path.join(outputDirectory, '04-live-demo.png'),
-      path.join(outputDirectory, '05-hardware.png'),
-      path.join(outputDirectory, '06-safety.png'),
-      path.join(outputDirectory, '07-logs.png'),
-      path.join(outputDirectory, '08-logs-960x640.png')
+      path.join(outputDirectory, '05-automatic-pattern.png'),
+      path.join(outputDirectory, '06-automatic-pattern-960x640.png'),
+      path.join(outputDirectory, '07-hardware.png'),
+      path.join(outputDirectory, '08-safety.png'),
+      path.join(outputDirectory, '09-logs.png'),
+      path.join(outputDirectory, '10-logs-960x640.png')
     ]
   }, null, 2));
 } finally {
@@ -188,6 +214,19 @@ async function setInputByLabel(client, labelText, value) {
     return true;
   })()`);
   assert.equal(changed, true, `${labelText} input is available`);
+}
+
+async function selectOptionByLabel(client, labelText, value) {
+  const changed = await client.evaluate(`(() => {
+    const label = [...document.querySelectorAll('label')].find(item => item.textContent.includes(${JSON.stringify(labelText)}));
+    const select = label?.querySelector('select');
+    if (!(select instanceof HTMLSelectElement)) return false;
+    const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set;
+    setter.call(select, ${JSON.stringify(value)});
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+    return select.value === ${JSON.stringify(value)};
+  })()`);
+  assert.equal(changed, true, `${labelText} select accepts ${value}`);
 }
 
 async function clickButton(client, label) {
