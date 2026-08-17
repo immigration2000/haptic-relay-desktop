@@ -15,8 +15,8 @@
 
 ## 2. 공식 설치 파일 다운로드
 
-1. [Haptic Relay v0.1.1 Demo 1 릴리스](https://github.com/immigration2000/haptic-relay-desktop/releases/tag/v0.1.1-demo.1)를 엽니다.
-2. `Assets`에서 `Haptic.Relay-0.1.1-demo.1-win-x64.exe`를 내려받습니다.
+1. [Haptic Relay v0.1.1 Demo 3 릴리스](https://github.com/immigration2000/haptic-relay-desktop/releases/tag/v0.1.1-demo.3)를 엽니다.
+2. `Assets`에서 `Haptic.Relay-0.1.1-demo.3-win-x64.exe`를 내려받습니다.
 3. 필요한 경우 함께 제공되는 `.sha256` 파일도 내려받습니다.
 
 GitHub가 자동으로 제공하는 `Source code` ZIP/TAR 파일은 개발 소스입니다. 일반 사용자는 Windows EXE를 받아야 합니다.
@@ -26,17 +26,15 @@ GitHub가 자동으로 제공하는 `Source code` ZIP/TAR 파일은 개발 소�
 PowerShell에서 다음 명령을 실행합니다. 다운로드 위치가 다르면 `$file` 경로를 수정합니다.
 
 ```powershell
-$file = "$HOME\Downloads\Haptic.Relay-0.1.1-demo.1-win-x64.exe"
-(Get-FileHash -Algorithm SHA256 -LiteralPath $file).Hash.ToLowerInvariant()
+$file = "$HOME\Downloads\Haptic.Relay-0.1.1-demo.3-win-x64.exe"
+$checksumFile = "$file.sha256"
+$expected = (Get-Content -LiteralPath $checksumFile).Split()[0].ToLowerInvariant()
+$actual = (Get-FileHash -Algorithm SHA256 -LiteralPath $file).Hash.ToLowerInvariant()
+if ($actual -ne $expected) { throw '설치 파일 SHA-256이 일치하지 않습니다.' }
+"SHA-256 확인 완료: $actual"
 ```
 
-출력값이 아래 값과 정확히 같아야 합니다.
-
-```text
-c4953334b71e09388698d532c9837d67cec9cd06257e8000da251389532632b7
-```
-
-값이 다르면 파일을 실행하지 말고 삭제한 다음 공식 릴리스 페이지에서 다시 내려받습니다.
+`SHA-256 확인 완료`와 해시가 출력되어야 합니다. 값이 다르면 파일을 실행하지 말고 삭제한 다음 공식 릴리스 페이지에서 EXE와 `.sha256` 파일을 다시 내려받습니다.
 
 ## 4. 설치
 
@@ -77,10 +75,11 @@ c4953334b71e09388698d532c9837d67cec9cd06257e8000da251389532632b7
 ## 7. 하드웨어 없이 전송 확인
 
 1. 스트리머 앱의 `실시간 시연` 탭을 엽니다.
-2. `시연 시작`을 누릅니다.
-3. 위치와 강도 슬라이더를 움직입니다.
-4. 시청자 앱의 `수신 모니터`에서 위치, 강도, 프레임 수신이 계속 갱신되는지 확인합니다.
-5. 확인이 끝나면 스트리머 앱에서 `시연 중지`를 누릅니다.
+2. `수동`에서 `시연 시작`을 누르고 위치와 강도 슬라이더를 움직입니다.
+3. 시청자 앱의 `수신 모니터`에서 위치, 강도, 프레임 수신이 계속 갱신되는지 확인한 뒤 시연을 중지합니다.
+4. `자동 패턴`을 선택하고 패턴, 주기, 최소·최대 위치와 강도를 설정합니다.
+5. `시연 시작`을 눌러 스트리머 미리보기와 시청자 위치가 자동으로 반복 변화하는지 확인합니다.
+6. `시연 중지` 후 시청자 강도가 0으로 내려가는지 확인합니다.
 
 시연 중에는 최신 위치와 강도가 초당 30회 전송됩니다. 시청자 화면에 `가상 수신 정상 / 하드웨어 미연결`이 표시되면 네트워크 수신 경로는 정상이며 실제 장비만 연결되지 않은 상태입니다.
 

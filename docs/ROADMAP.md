@@ -10,7 +10,10 @@
 - [x] Motion Packet V2
 - [x] Viewer sequence filtering
 - [x] Viewer local receipt-time motion delay
+- [x] Hardware-free automatic motion patterns (sine, triangle, pulse, sawtooth)
 - [ ] Viewer local motion interpolation (next Phase 1 task)
+- [ ] Motion pattern recording and playback
+- [ ] Network diagnostics dashboard
 - Manual emergency stop
 - Standalone relay server for development
 
