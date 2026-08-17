@@ -53,7 +53,9 @@ class CdpClient {
 }
 
 const root = path.resolve(import.meta.dirname, '..');
-const appExecutable = path.join(root, 'release', 'win-unpacked', 'Haptic Relay.exe');
+const appExecutable = process.env.APP_EXECUTABLE?.trim()
+  ? path.resolve(process.env.APP_EXECUTABLE.trim())
+  : path.join(root, 'release', 'win-unpacked', 'Haptic Relay.exe');
 const relayPort = await getAvailablePort();
 const externalRelayUrl = process.env.RELAY_URL?.trim();
 const relayUrl = externalRelayUrl || `http://127.0.0.1:${relayPort}`;
