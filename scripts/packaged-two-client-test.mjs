@@ -55,6 +55,8 @@ class CdpClient {
 const root = path.resolve(import.meta.dirname, '..');
 const appExecutable = path.join(root, 'release', 'win-unpacked', 'Haptic Relay.exe');
 const relayPort = await getAvailablePort();
+const externalRelayUrl = process.env.RELAY_URL?.trim();
+const relayUrl = externalRelayUrl || `http://127.0.0.1:${relayPort}`;
 const hostDebugPort = await getAvailablePort();
 const viewerDebugPort = await getAvailablePort();
 const runId = Date.now().toString(36);
@@ -66,16 +68,16 @@ const logs = { server: '', host: '', viewer: '' };
 await access(appExecutable);
 await mkdir(outputDirectory, { recursive: true });
 
-const server = spawn(process.execPath, ['dist-server/server/src/relay-server.js'], {
+const server = externalRelayUrl ? undefined : spawn(process.execPath, ['dist-server/server/src/relay-server.js'], {
   cwd: root,
   env: {
     ...process.env,
     HAPTIC_RELAY_PORT: String(relayPort),
-    HAPTIC_PUBLIC_RELAY_URL: `http://127.0.0.1:${relayPort}`
+    HAPTIC_PUBLIC_RELAY_URL: relayUrl
   },
   stdio: ['ignore', 'pipe', 'pipe']
 });
-captureOutput(server, 'server');
+if (server) captureOutput(server, 'server');
 
 let host;
 let viewer;
@@ -83,7 +85,7 @@ let hostCdp;
 let viewerCdp;
 
 try {
-  await waitForHttp(`http://127.0.0.1:${relayPort}/healthz`);
+  await waitForHttp(`${relayUrl}/healthz`);
   host = launchApp('host', hostDebugPort);
   captureOutput(host, 'host');
   hostCdp = await connectRenderer(hostDebugPort);
@@ -91,7 +93,7 @@ try {
   await hostCdp.call('Runtime.enable');
   await waitForExpression(hostCdp, `document.body.innerText.includes('방 만들기')`);
 
-  await setInputByLabel(hostCdp, '서버 URL', `http://127.0.0.1:${relayPort}`);
+  await setInputByLabel(hostCdp, '서버 URL', relayUrl);
   await setInputByLabel(hostCdp, '방 이름', roomName);
   await clickButton(hostCdp, '방 생성');
   await waitForExpression(hostCdp, `document.body.innerText.includes('스트리머 방 관리')`);
@@ -105,7 +107,7 @@ try {
   await clickButton(viewerCdp, '시청자');
   await waitForExpression(viewerCdp, `document.body.innerText.includes('방 입장')`);
 
-  await setInputByLabel(viewerCdp, '서버 URL', `http://127.0.0.1:${relayPort}`);
+  await setInputByLabel(viewerCdp, '서버 URL', relayUrl);
   await setInputByLabel(viewerCdp, '표시 이름', viewerName);
   await setInputByLabel(viewerCdp, '방 이름', roomName);
   await clickButton(viewerCdp, '입장 요청');
@@ -159,7 +161,7 @@ try {
   viewerCdp?.close();
   await terminateChild(host);
   await terminateChild(viewer);
-  await terminateChild(server);
+  if (server) await terminateChild(server);
 }
 
 function launchApp(role, debugPort) {

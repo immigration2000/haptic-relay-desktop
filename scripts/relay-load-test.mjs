@@ -5,6 +5,7 @@ const relayUrl = process.env.RELAY_URL ?? 'http://localhost:4174';
 const viewerCount = Number(process.env.VIEWERS ?? 500);
 const hz = Number(process.env.HZ ?? 30);
 const durationMs = Number(process.env.DURATION_MS ?? 30000);
+const drainMs = Number(process.env.DRAIN_MS ?? 1500);
 const roomName = `load-${Date.now()}`;
 const intervalMs = 1000 / hz;
 
@@ -112,6 +113,9 @@ async function main() {
   });
 
   const elapsedSec = (performance.now() - startedAt) / 1000;
+  if (drainMs > 0) {
+    await new Promise(resolve => setTimeout(resolve, drainMs));
+  }
   const expected = sent * viewerCount;
   const receiveRate = expected === 0 ? 0 : received / expected;
 
@@ -121,6 +125,7 @@ async function main() {
     relayNodeId: roomResponse.relayNodeId,
     viewers: viewerCount,
     hz,
+    drainMs,
     durationSec: Number(elapsedSec.toFixed(2)),
     sentFrames: sent,
     expectedViewerFrames: expected,
