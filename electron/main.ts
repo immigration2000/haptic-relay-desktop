@@ -14,7 +14,7 @@ import {
   validateUnitInterval
 } from './app-settings.js';
 import { SettingsFileStore } from './settings-file-store.js';
-import type { AppLogEntry, AppSettings, MotionMonitorSnapshot, RoomSettings } from './protocol.js';
+import type { AppLogEntry, AppSettings, MotionFrame, MotionMonitorSnapshot, RoomSettings } from './protocol.js';
 import { HardwareController } from './services/hardware-controller.js';
 import { DemoMotionStream } from './services/demo-motion-stream.js';
 import { validateMotionDelayMs } from './services/motion-delay-buffer.js';
@@ -99,8 +99,7 @@ const relay = new RelayClient(frame => {
   sendToRenderer(mainWindow, 'room:connection-status', status);
 });
 
-function publishMotion(intensity: number, position: number, timestamp: number) {
-  const frame = { intensity, position, timestamp };
+function publishMotion(frame: MotionFrame) {
   return {
     hardware: hardware.queueMotion(frame),
     relay: relay.publishMotion(frame)
@@ -108,7 +107,7 @@ function publishMotion(intensity: number, position: number, timestamp: number) {
 }
 
 const demoMotionStream = new DemoMotionStream(frame => {
-  publishMotion(frame.intensity, frame.position, frame.timestamp);
+  publishMotion(frame);
 });
 
 function contentSecurityPolicy() {
@@ -213,7 +212,12 @@ ipcMain.handle('hardware:test', event => {
 });
 ipcMain.handle('hardware:send', async (event, intensity: unknown, position: unknown) => {
   assertTrustedSender(event);
-  return publishMotion(validateUnitInterval(intensity, 'intensity'), validateUnitInterval(position, 'position'), Date.now());
+  const frame: MotionFrame = {
+    intensity: validateUnitInterval(intensity, 'intensity'),
+    position: validateUnitInterval(position, 'position'),
+    timestamp: Date.now()
+  };
+  return publishMotion(frame);
 });
 ipcMain.handle('motion-demo:start', (event, intensity: unknown, position: unknown) => {
   assertTrustedSender(event);

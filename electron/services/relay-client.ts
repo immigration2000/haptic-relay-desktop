@@ -97,6 +97,16 @@ export function nextMotionSequence(sequence: number) {
   return (sequence + 1) >>> 0;
 }
 
+export function normalizeOutgoingMotionFrame(frame: MotionFrame): MotionFrame {
+  const normalized = {
+    ...frame,
+    intensity: clamp01(frame.intensity),
+    position: clamp01(frame.position)
+  };
+  delete normalized.sequence;
+  return normalized;
+}
+
 function emptyMotionSequenceStats(): MotionSequenceStats {
   return {
     receivedFrames: 0,
@@ -306,11 +316,7 @@ export class RelayClient {
       return { sent: false, reason: 'relay-not-connected' };
     }
 
-    this.latestFrame = {
-      intensity: clamp01(frame.intensity),
-      position: clamp01(frame.position),
-      timestamp: frame.timestamp
-    };
+    this.latestFrame = normalizeOutgoingMotionFrame(frame);
     this.scheduleFlush();
     return { queued: true };
   }

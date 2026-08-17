@@ -12,6 +12,34 @@ assert.equal(
   'function',
   'relay client must export a motion sequence increment helper'
 );
+assert.equal(
+  typeof relayModule.normalizeOutgoingMotionFrame,
+  'function',
+  'relay client must export outgoing motion normalization for focused testing'
+);
+
+const normalizedOutgoingFrame = relayModule.normalizeOutgoingMotionFrame({
+  intensity: 1.5,
+  position: -0.5,
+  timestamp: 1_785_846_123_500,
+  sourceTimeMs: 1_785_846_123_456,
+  durationMs: 1000 / 30,
+  flags: 3,
+  sequence: 99
+});
+assert.deepEqual(normalizedOutgoingFrame, {
+  intensity: 1,
+  position: 0,
+  timestamp: 1_785_846_123_500,
+  sourceTimeMs: 1_785_846_123_456,
+  durationMs: 1000 / 30,
+  flags: 3
+}, 'outgoing normalization preserves timing metadata and flags while clamping controls');
+assert.equal(
+  Object.hasOwn(normalizedOutgoingFrame, 'sequence'),
+  false,
+  'outgoing normalization discards caller-supplied sequence numbers'
+);
 
 const tracker = new relayModule.MotionSequenceTracker();
 
