@@ -1,4 +1,4 @@
-import type { AppLogEntry, AppSettings, ApprovalRequest, HardwareProfile, HardwareProtection, MotionMonitorSnapshot, PortInfo, RoomSettings, ViewerSession } from './shared/protocol';
+import type { AppLogEntry, AppSettings, ApprovalRequest, HardwareProfile, HardwareProtection, MotionDemoSnapshot, MotionMonitorSnapshot, MotionPatternConfig, PortInfo, RoomSettings, ViewerSession } from './shared/protocol';
 
 type ViewerStatus = {
   roomName: string;
@@ -50,6 +50,8 @@ declare global {
       sendMotion: (intensity: number, position: number) => Promise<unknown>;
       startMotionDemo: (intensity: number, position: number) => Promise<{ streaming: boolean; intervalMs: number }>;
       updateMotionDemo: (intensity: number, position: number) => void;
+      startMotionPattern: (config: MotionPatternConfig) => Promise<{ streaming: boolean; mode: 'pattern'; intervalMs: number }>;
+      updateMotionPattern: (config: MotionPatternConfig) => void;
       stopMotionDemo: () => Promise<{ streaming: boolean }>;
       setHardwareProtection: (protection: HardwareProtection) => Promise<{ protection: HardwareProtection }>;
       startHostRoom: (relayUrl: string, settings: RoomSettings) => Promise<{ roomName: string; entryMode: string; relayUrl: string }>;
@@ -63,6 +65,7 @@ declare global {
       onViewerList: (listener: (viewers: ViewerSession[]) => void) => () => void;
       onEmergencyStop: (listener: (signal: StopSignal) => void) => () => void;
       onConnectionStatus: (listener: (status: RelayConnectionStatus) => void) => () => void;
+      onMotionDemoFrame: (listener: (snapshot: MotionDemoSnapshot) => void) => () => void;
       onMotionReceived: (listener: (snapshot: MotionMonitorSnapshot) => void) => () => void;
       getLogs: () => Promise<AppLogEntry[]>;
       exportLogs: () => Promise<{ exported: boolean; canceled: boolean; path?: string; count: number }>;

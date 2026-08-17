@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { AppLogEntry, AppSettings, ApprovalRequest, HardwareProfile, HardwareProtection, MotionMonitorSnapshot, RoomSettings, ViewerSession } from './protocol.js';
+import type { AppLogEntry, AppSettings, ApprovalRequest, HardwareProfile, HardwareProtection, MotionDemoSnapshot, MotionMonitorSnapshot, MotionPatternConfig, RoomSettings, ViewerSession } from './protocol.js';
 
 type ViewerStatus = {
   roomName: string;
@@ -28,6 +28,8 @@ contextBridge.exposeInMainWorld('hapticRelay', {
   sendMotion: (intensity: number, position: number) => ipcRenderer.invoke('hardware:send', intensity, position),
   startMotionDemo: (intensity: number, position: number) => ipcRenderer.invoke('motion-demo:start', intensity, position),
   updateMotionDemo: (intensity: number, position: number) => ipcRenderer.send('motion-demo:update', intensity, position),
+  startMotionPattern: (config: MotionPatternConfig) => ipcRenderer.invoke('motion-demo:start-pattern', config),
+  updateMotionPattern: (config: MotionPatternConfig) => ipcRenderer.send('motion-demo:update-pattern', config),
   stopMotionDemo: () => ipcRenderer.invoke('motion-demo:stop'),
   setHardwareProtection: (protection: HardwareProtection) => ipcRenderer.invoke('hardware:set-protection', protection),
   startHostRoom: (relayUrl: string, settings: RoomSettings) => ipcRenderer.invoke('room:start-host', relayUrl, settings),
@@ -60,6 +62,11 @@ contextBridge.exposeInMainWorld('hapticRelay', {
     const handler = (_event: Electron.IpcRendererEvent, status: RelayConnectionStatus) => listener(status);
     ipcRenderer.on('room:connection-status', handler);
     return () => ipcRenderer.removeListener('room:connection-status', handler);
+  },
+  onMotionDemoFrame: (listener: (snapshot: MotionDemoSnapshot) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, snapshot: MotionDemoSnapshot) => listener(snapshot);
+    ipcRenderer.on('motion-demo:frame', handler);
+    return () => ipcRenderer.removeListener('motion-demo:frame', handler);
   },
   onMotionReceived: (listener: (snapshot: MotionMonitorSnapshot) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, snapshot: MotionMonitorSnapshot) => listener(snapshot);

@@ -33,8 +33,16 @@ assert.match(preloadSource, /ipcRenderer\.invoke\(['"]viewer:set-motion-delay['"
 assert.match(mainSource, /sendToRenderer\(mainWindow, ['"]motion:received['"], snapshot\)/);
 assert.match(preloadSource, /startMotionDemo:\s*\(intensity, position\).*?ipcRenderer\.invoke\(['"]motion-demo:start['"], intensity, position\)/);
 assert.match(preloadSource, /updateMotionDemo:\s*\(intensity, position\).*?ipcRenderer\.send\(['"]motion-demo:update['"], intensity, position\)/);
+assert.match(preloadSource, /startMotionPattern:\s*\(config\).*?ipcRenderer\.invoke\(['"]motion-demo:start-pattern['"], config\)/);
+assert.match(preloadSource, /updateMotionPattern:\s*\(config\).*?ipcRenderer\.send\(['"]motion-demo:update-pattern['"], config\)/);
 assert.match(preloadSource, /stopMotionDemo:\s*\(\).*?ipcRenderer\.invoke\(['"]motion-demo:stop['"]\)/);
 assert.match(mainSource, /ipcMain\.on\(['"]motion-demo:update['"][\s\S]*?try \{[\s\S]*?demoMotionStream\.update[\s\S]*?catch \(error\)[\s\S]*?motion-demo-update-rejected/);
+assert.match(mainSource, /ipcMain\.handle\(['"]motion-demo:start-pattern['"][\s\S]*?assertTrustedSender\(event\)[\s\S]*?validated\s*=\s*validateMotionPatternConfig\(config\)[\s\S]*?message: ['"]motion-pattern-started['"], details: validated\.pattern[\s\S]*?demoMotionStream\.startPattern\(validated\)/);
+assert.match(mainSource, /ipcMain\.on\(['"]motion-demo:update-pattern['"][\s\S]*?try \{[\s\S]*?assertTrustedSender\(event\)[\s\S]*?validated\s*=\s*validateMotionPatternConfig\(config\)[\s\S]*?demoMotionStream\.updatePattern\(validated\)[\s\S]*?catch \(error\)[\s\S]*?level: ['"]warning['"][\s\S]*?message: ['"]motion-pattern-update-rejected['"], details: formatError\(error\)/);
+assert.match(mainSource, /publishMotion\(frame\);\s*const snapshot = \{ mode: demoMotionStream\.getMode\(\), frame \};\s*sendToRenderer\(mainWindow, ['"]motion-demo:frame['"], snapshot\)/);
+assert.match(preloadSource, /onMotionDemoFrame:\s*\(listener\)/);
+assert.match(preloadSource, /ipcRenderer\.on\(['"]motion-demo:frame['"],\s*handler\)/);
+assert.match(preloadSource, /removeListener\(['"]motion-demo:frame['"],\s*handler\)/);
 assert.match(preloadSource, /onMotionReceived:\s*\(listener/);
 assert.match(preloadSource, /ipcRenderer\.on\(['"]motion:received['"],\s*handler\)/);
 assert.match(preloadSource, /removeListener\(['"]motion:received['"],\s*handler\)/);

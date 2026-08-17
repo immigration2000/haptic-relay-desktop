@@ -14,8 +14,9 @@ import {
   validateUnitInterval
 } from './app-settings.js';
 import { SettingsFileStore } from './settings-file-store.js';
-import type { AppLogEntry, AppSettings, MotionFrame, MotionMonitorSnapshot, RoomSettings } from './protocol.js';
+import type { AppLogEntry, AppSettings, MotionDemoSnapshot, MotionFrame, MotionMonitorSnapshot, RoomSettings } from './protocol.js';
 import { HardwareController } from './services/hardware-controller.js';
+import { validateMotionPatternConfig } from './services/demo-motion-pattern.js';
 import { DemoMotionStream } from './services/demo-motion-stream.js';
 import { validateMotionDelayMs } from './services/motion-delay-buffer.js';
 import { RelayClient } from './services/relay-client.js';
@@ -108,6 +109,8 @@ function publishMotion(frame: MotionFrame) {
 
 const demoMotionStream = new DemoMotionStream(frame => {
   publishMotion(frame);
+  const snapshot: MotionDemoSnapshot = { mode: demoMotionStream.getMode(), frame };
+  sendToRenderer(mainWindow, 'motion-demo:frame', snapshot);
 });
 
 function contentSecurityPolicy() {
@@ -236,6 +239,21 @@ ipcMain.on('motion-demo:update', (event, intensity: unknown, position: unknown) 
     });
   } catch (error) {
     addLog({ level: 'warning', source: 'room', message: 'motion-demo-update-rejected', details: formatError(error) });
+  }
+});
+ipcMain.handle('motion-demo:start-pattern', (event, config: unknown) => {
+  assertTrustedSender(event);
+  const validated = validateMotionPatternConfig(config);
+  addLog({ level: 'info', source: 'room', message: 'motion-pattern-started', details: validated.pattern });
+  return demoMotionStream.startPattern(validated);
+});
+ipcMain.on('motion-demo:update-pattern', (event, config: unknown) => {
+  try {
+    assertTrustedSender(event);
+    const validated = validateMotionPatternConfig(config);
+    demoMotionStream.updatePattern(validated);
+  } catch (error) {
+    addLog({ level: 'warning', source: 'room', message: 'motion-pattern-update-rejected', details: formatError(error) });
   }
 });
 ipcMain.handle('motion-demo:stop', event => {

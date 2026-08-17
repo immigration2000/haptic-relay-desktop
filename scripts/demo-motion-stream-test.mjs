@@ -272,8 +272,8 @@ assert.match(
 );
 assert.match(
   mainSource,
-  /new DemoMotionStream\(frame => \{\s*publishMotion\(frame\);\s*\}\)/,
-  'demo stream retains frame metadata when publishing through the main process'
+  /new DemoMotionStream\(frame => \{\s*publishMotion\(frame\);\s*const snapshot: MotionDemoSnapshot = \{ mode: demoMotionStream\.getMode\(\), frame \};\s*sendToRenderer\(mainWindow, ['"]motion-demo:frame['"], snapshot\);\s*\}\)/,
+  'demo stream retains frame metadata and publishes a renderer snapshot through the main process'
 );
 
 console.log('demo motion stream tests passed');
