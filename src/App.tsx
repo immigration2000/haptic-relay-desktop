@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { OctagonX } from 'lucide-react';
-import type { AppLogEntry, AppSettings, ApprovalRequest, EntryMode, HardwareProfile, HardwareProtection, MotionMonitorSnapshot, PortInfo, ViewerSession } from './shared/protocol';
+import type { AppLogEntry, AppSettings, ApprovalRequest, EntryMode, HardwareProfile, HardwareProtection, MotionDemoMode, MotionMonitorSnapshot, MotionPatternConfig, PortInfo, ViewerSession } from './shared/protocol';
 import { createQrMatrix } from './qr-code';
 import { AppShell } from './ui/components/AppShell';
 import { Modal } from './ui/components/Modal';
+import { MotionDemoPanel } from './ui/components/MotionDemoPanel';
 import { DEMO_ROOMS, RELAY_SERVERS } from './ui/demo-data';
 import type { AppScreen, BrowserRoom, RelayServerOption, RoomFilter } from './ui/model';
 import { HardwareView } from './ui/views/HardwareView';
@@ -90,6 +91,15 @@ export default function App() {
   const [intensity, setIntensity] = useState(0.5);
   const [position, setPosition] = useState(0.5);
   const [motionDemoActive, setMotionDemoActive] = useState(false);
+  const [motionDemoMode, setMotionDemoMode] = useState<MotionDemoMode>('manual');
+  const [motionPattern, setMotionPattern] = useState<MotionPatternConfig>({
+    pattern: 'sine',
+    periodMs: 1500,
+    positionMin: 0.2,
+    positionMax: 0.8,
+    intensity: 0.5
+  });
+  const [livePosition, setLivePosition] = useState(0.5);
   const [approvalRequests, setApprovalRequests] = useState<ApprovalRequest[]>([]);
   const [viewerSessions, setViewerSessions] = useState<ViewerSession[]>([]);
   const [logEntries, setLogEntries] = useState<AppLogEntry[]>([]);
@@ -116,8 +126,18 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (motionDemoActive) window.hapticRelay.updateMotionDemo(intensity, position);
-  }, [intensity, motionDemoActive, position]);
+    return window.hapticRelay.onMotionDemoFrame(snapshot => {
+      setLivePosition(snapshot.frame.position);
+    });
+  }, []);
+
+  useEffect(() => {
+    if (motionDemoActive && motionDemoMode === 'manual') window.hapticRelay.updateMotionDemo(intensity, position);
+  }, [intensity, motionDemoActive, motionDemoMode, position]);
+
+  useEffect(() => {
+    if (motionDemoActive && motionDemoMode === 'pattern') window.hapticRelay.updateMotionPattern(motionPattern);
+  }, [motionDemoActive, motionDemoMode, motionPattern]);
 
   useEffect(() => {
     void window.hapticRelay.getLogs().then(entries => {
@@ -485,17 +505,19 @@ export default function App() {
   }
 
   async function toggleMotionDemo() {
-    await runAction('motion', motionDemoActive ? '시연 중지 중' : '시연 시작 중', async () => {
+    const modeLabel = motionDemoMode === 'pattern' ? '자동 패턴' : '수동';
+    await runAction('motion', `${modeLabel} 시연 ${motionDemoActive ? '중지' : '시작'} 중`, async () => {
       if (motionDemoActive) {
         await window.hapticRelay.stopMotionDemo();
         setMotionDemoActive(false);
-        setStatusMessage('ok', '실시간 시연 중지됨');
+        setStatusMessage('ok', `${modeLabel} 시연 중지됨`);
         return;
       }
 
-      await window.hapticRelay.startMotionDemo(intensity, position);
+      if (motionDemoMode === 'pattern') await window.hapticRelay.startMotionPattern(motionPattern);
+      else await window.hapticRelay.startMotionDemo(intensity, position);
       setMotionDemoActive(true);
-      setStatusMessage('ok', '실시간 시연 시작됨 / 30Hz 전송 중');
+      setStatusMessage('ok', `${modeLabel} 시연 시작됨 / 30Hz 전송 중`);
     });
   }
 
@@ -809,33 +831,20 @@ export default function App() {
   );
 
   const motionDemoPanel = (
-    <section className="panel motion-demo-panel">
-      <div className="panel-header">
-        <div>
-          <p className="section-label">실시간 제어</p>
-          <h2>모션 시연</h2>
-        </div>
-        <span className={`stream-state ${motionDemoActive ? 'active' : ''}`}>
-          {motionDemoActive ? '30Hz 전송 중' : '전송 대기'}
-        </span>
-      </div>
-      <div className="motion-demo-controls">
-        <label>
-          <span className="control-label"><span>위치</span><strong>{position.toFixed(2)}</strong></span>
-          <input className="range range-large" type="range" min="0" max="1" step="0.01" value={position} onChange={event => setPosition(Number(event.target.value))} />
-        </label>
-        <label>
-          <span className="control-label"><span>강도</span><strong>{intensity.toFixed(2)}</strong></span>
-          <input className="range range-large intensity-range" type="range" min="0" max="1" step="0.01" value={intensity} onChange={event => setIntensity(Number(event.target.value))} />
-        </label>
-      </div>
-      <div className="demo-footer">
-        <p className="muted">시연 중에는 슬라이더의 최신 위치와 강도가 계속 전송됩니다.</p>
-        <button className={motionDemoActive ? 'danger' : 'primary'} disabled={isBusy} onClick={toggleMotionDemo}>
-          {motionDemoActive ? '시연 중지' : '시연 시작'}
-        </button>
-      </div>
-    </section>
+    <MotionDemoPanel
+      mode={motionDemoMode}
+      active={motionDemoActive}
+      busy={isBusy}
+      position={position}
+      intensity={intensity}
+      livePosition={livePosition}
+      pattern={motionPattern}
+      onModeChange={setMotionDemoMode}
+      onPositionChange={setPosition}
+      onIntensityChange={setIntensity}
+      onPatternChange={setMotionPattern}
+      onToggle={toggleMotionDemo}
+    />
   );
 
   const activeRoom = role === 'host' ? hostPage === 'room' : viewerPage === 'room';
