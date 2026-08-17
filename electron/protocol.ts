@@ -17,6 +17,23 @@ export type MotionFrame = {
   durationMs?: number;
 };
 
+export type MotionPattern = 'sine' | 'triangle' | 'pulse' | 'sawtooth';
+
+export type MotionPatternConfig = {
+  pattern: MotionPattern;
+  periodMs: number;
+  positionMin: number;
+  positionMax: number;
+  intensity: number;
+};
+
+export type MotionDemoMode = 'manual' | 'pattern';
+
+export type MotionDemoSnapshot = {
+  mode: MotionDemoMode;
+  frame: MotionFrame;
+};
+
 export type MotionMonitorSnapshot = {
   frame: MotionFrame;
   receivedAt: number;
