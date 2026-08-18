@@ -117,6 +117,7 @@ try {
   await setInputByLabel(cdp, '서버 이름', 'QA Relay');
   await setInputByLabel(cdp, '서버 URL', `http://127.0.0.1:${relayPort}`);
   await clickButton(cdp, '서버 사용');
+  await waitForExpression(cdp, `document.querySelector('[data-server-health="online"]')?.getAttribute('aria-label') === '서버 연결됨'`);
   await waitForExpression(cdp, `document.querySelectorAll('[data-room-card]').length === 1 && document.body.innerText.includes(${JSON.stringify(directoryRoomName)})`);
   await waitForExpression(cdp, `!document.body.innerText.includes('심야 드라이브')`);
   await captureScreenshot(cdp, path.join(outputDirectory, '01-room-browser.png'));
@@ -132,6 +133,14 @@ try {
   await setInputByPlaceholder(cdp, '방 이름, 소개, 태그 검색', '');
   await clickButton(cdp, '방 만들기');
   await waitForExpression(cdp, `document.querySelector('[role="dialog"]')?.textContent.includes('새 방 만들기')`);
+  await selectOptionByLabel(cdp, '입장 방식', 'open');
+  assert.deepEqual(await getInputStateByLabel(cdp, '비밀번호'), { value: '', focused: false, disabled: true }, '자유 입장 방은 비밀번호를 입력할 수 없다');
+  await selectOptionByLabel(cdp, '입장 방식', 'request');
+  await typeInputByLabel(cdp, '비밀번호', 'focus-secret');
+  const passwordInputState = await getInputStateByLabel(cdp, '비밀번호');
+  assert.deepEqual(passwordInputState, { value: 'focus-secret', focused: true, disabled: false }, '모달이 다시 렌더링되어도 비밀번호 입력 포커스가 유지된다');
+  await selectOptionByLabel(cdp, '입장 방식', 'open');
+  assert.deepEqual(await getInputStateByLabel(cdp, '비밀번호'), { value: '', focused: false, disabled: true }, '자유 입장으로 변경하면 입력한 비밀번호가 지워진다');
   await captureScreenshot(cdp, path.join(outputDirectory, '02-create-room-modal.png'));
   await setInputByLabel(cdp, '서버 URL', `http://127.0.0.1:${relayPort}`);
   await setInputByLabel(cdp, '방 이름', 'studio-main');
@@ -139,6 +148,14 @@ try {
   await waitForExpression(cdp, `document.body.innerText.includes('HOST SESSION') && document.body.innerText.includes('방 관리')`);
   await assertNoDocumentOverflow(cdp, '1180x780 host room');
   await captureScreenshot(cdp, path.join(outputDirectory, '03-room-management.png'));
+  await clickButton(cdp, '방 찾기');
+  await waitForExpression(cdp, `document.body.innerText.includes('studio-main')`);
+  await clickRoomCard(cdp, 'studio-main');
+  await waitForExpression(cdp, `document.querySelector('[role="dialog"]')?.textContent.includes('초대 코드로 입장')`);
+  assert.deepEqual(await getInputStateByLabel(cdp, '비밀번호'), { value: '', focused: false, disabled: true }, '자유 입장 방에 들어갈 때는 비밀번호 입력을 사용할 수 없다');
+  await clickButton(cdp, '취소');
+  await clickButton(cdp, '현재 세션');
+  await waitForExpression(cdp, `document.body.innerText.includes('HOST SESSION') && document.body.innerText.includes('방 관리')`);
 
   await clickButton(cdp, '실시간 시연');
   await waitForExpression(cdp, `Boolean(document.querySelector('.motion-demo-controls'))`);
@@ -262,6 +279,29 @@ async function selectOptionByLabel(client, labelText, value) {
   assert.equal(changed, true, `${labelText} select accepts ${value}`);
 }
 
+async function typeInputByLabel(client, labelText, value) {
+  const focused = await client.evaluate(`(() => {
+    const label = [...document.querySelectorAll('label')].find(item => item.textContent.includes(${JSON.stringify(labelText)}));
+    const input = label?.querySelector('input');
+    input?.focus();
+    return input instanceof HTMLInputElement;
+  })()`);
+  assert.equal(focused, true, `${labelText} input can receive focus`);
+  for (const character of value) {
+    await client.call('Input.insertText', { text: character });
+    await delay(20);
+  }
+}
+
+async function getInputStateByLabel(client, labelText) {
+  return client.evaluate(`(() => {
+    const label = [...document.querySelectorAll('label')].find(item => item.textContent.includes(${JSON.stringify(labelText)}));
+    const input = label?.querySelector('input');
+    if (!(input instanceof HTMLInputElement)) return null;
+    return { value: input.value, focused: document.activeElement === input, disabled: input.disabled };
+  })()`);
+}
+
 async function clickButton(client, label) {
   const clicked = await client.evaluate(`(() => {
     const button = [...document.querySelectorAll('button')].find(item => item.textContent.trim() === ${JSON.stringify(label)});
@@ -269,6 +309,16 @@ async function clickButton(client, label) {
     return Boolean(button);
   })()`);
   assert.equal(clicked, true, `${label} button is available`);
+}
+
+async function clickRoomCard(client, roomName) {
+  const clicked = await client.evaluate(`(() => {
+    const card = [...document.querySelectorAll('[data-room-card]')].find(item => item.textContent.includes(${JSON.stringify(roomName)}));
+    const button = card?.querySelector('.room-card-open');
+    button?.click();
+    return Boolean(button);
+  })()`);
+  assert.equal(clicked, true, `${roomName} room card is available`);
 }
 
 async function setInputByPlaceholder(client, placeholder, value) {

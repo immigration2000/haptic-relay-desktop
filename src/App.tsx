@@ -26,6 +26,10 @@ type AppStatus = {
   tone: StatusTone;
   message: string;
 };
+type ServerHealth = {
+  status: 'checking' | 'online' | 'offline';
+  latencyMs?: number;
+};
 
 type HostRoomInvite = {
   roomName: string;
@@ -71,6 +75,7 @@ export default function App() {
   const [roomFilter, setRoomFilter] = useState<RoomFilter>('all');
   const [serverOpen, setServerOpen] = useState(false);
   const [selectedServer, setSelectedServer] = useState<RelayServerOption>(RELAY_SERVERS[0]);
+  const [serverHealth, setServerHealth] = useState<ServerHealth>({ status: 'checking' });
   const [customServerName, setCustomServerName] = useState('내 릴레이 서버');
   const [customServerUrl, setCustomServerUrl] = useState('');
   const [hardwareConnected, setHardwareConnected] = useState(false);
@@ -113,6 +118,7 @@ export default function App() {
   const [motionMonitorEntries, setMotionMonitorEntries] = useState<MotionMonitorSnapshot[]>([]);
   const [settingsLoading, setSettingsLoading] = useState(false);
   const settingsLoadRequestId = useRef(0);
+  const serverHealthRequestId = useRef(0);
   const roomDirectoryRequestId = useRef(0);
 
   const canHost = useMemo(() => roomName.trim().length >= 3, [roomName]);
@@ -304,6 +310,33 @@ export default function App() {
     return () => window.clearInterval(timer);
   }, [authenticated, refreshRoomDirectory, screen]);
 
+  useEffect(() => {
+    if (!authenticated) return;
+    let cancelled = false;
+    setServerHealth({ status: 'checking' });
+
+    const checkServer = async () => {
+      const requestId = ++serverHealthRequestId.current;
+      try {
+        const result = await window.hapticRelay.checkServer(normalizeRelayUrl(selectedServer.url));
+        if (!cancelled && requestId === serverHealthRequestId.current) {
+          setServerHealth({ status: 'online', latencyMs: result.latencyMs });
+        }
+      } catch {
+        if (!cancelled && requestId === serverHealthRequestId.current) {
+          setServerHealth({ status: 'offline' });
+        }
+      }
+    };
+
+    void checkServer();
+    const timer = window.setInterval(() => void checkServer(), 5_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [authenticated, selectedServer.url]);
+
   async function runAction(action: BusyAction, busyMessage: string, task: () => Promise<void>) {
     if (busyAction) return;
 
@@ -436,14 +469,15 @@ export default function App() {
     }
 
     await runAction('room', '방 생성 중', async () => {
+      const roomPassword = entryMode === 'request' ? password.trim() || undefined : undefined;
       const room = await window.hapticRelay.startHostRoom(normalizeRelayUrl(relayUrl), {
         roomName: roomName.trim(),
-        password: password.trim() || undefined,
+        password: roomPassword,
         entryMode
       });
       setHostRoomInvite({
         roomName: room.roomName,
-        password: password.trim() || undefined,
+        password: roomPassword,
         entryMode,
         relayUrl: room.relayUrl
       });
@@ -481,8 +515,8 @@ export default function App() {
       const invite = decodeInviteCode(inviteCodeInput);
       setRelayUrl(invite.relayUrl);
       setRoomName(invite.roomName);
-      setPassword(invite.password ?? '');
-      setEntryMode(invite.entryMode);
+      setPassword(invite.entryMode === 'request' ? invite.password ?? '' : '');
+      changeEntryMode(invite.entryMode);
       setStatusMessage('ok', `초대 코드 적용됨: ${invite.roomName}`);
     } catch (error) {
       setStatusMessage('error', formatError(error));
@@ -499,7 +533,7 @@ export default function App() {
       const response = await window.hapticRelay.joinRoom(normalizeRelayUrl(relayUrl), {
         displayName: displayName.trim(),
         roomName: roomName.trim(),
-        password: password.trim() || undefined
+        password: entryMode === 'request' ? password.trim() || undefined : undefined
       });
       setViewerPage('room');
       setViewerTab('receive');
@@ -545,6 +579,11 @@ export default function App() {
       setMotionDemoActive(true);
       setStatusMessage('ok', `${modeLabel} 시연 시작됨 / 30Hz 전송 중`);
     });
+  }
+
+  function changeEntryMode(nextEntryMode: EntryMode) {
+    setEntryMode(nextEntryMode);
+    if (nextEntryMode === 'open') setPassword('');
   }
 
   async function leaveRoom() {
@@ -908,9 +947,9 @@ export default function App() {
 
   return (
     <>
-      <AppShell screen={screen} sessionScreen={activeRoom ? role === 'host' ? 'host-room' : 'participant-room' : undefined} username={username} server={selectedServer} servers={RELAY_SERVERS} serverOpen={serverOpen} relayConnected={activeRoom} deviceConnected={hardwareConnected} statusTone={status.tone} statusMessage={status.message} onToggleServers={() => setServerOpen(value => !value)} onSelectServer={chooseServer} onCustomServer={() => { setServerOpen(false); setDialog('custom'); }} onNavigate={setScreen} onLogout={logout}>{workspace}</AppShell>
-      {dialog === 'create' ? <Modal title="새 방 만들기" onClose={() => setDialog(undefined)} footer={<><button className="btn btn-secondary" onClick={() => setDialog(undefined)}>취소</button><button className="btn btn-primary" disabled={!canHost || isBusy} onClick={createRoom}>방 생성</button></>}><p className="dialog-note">방을 만들면 현재 로그인한 사용자가 스트리머가 됩니다.</p><div className="modal-form-grid"><label className="wide">방 이름<input value={roomName} onChange={event => setRoomName(event.target.value)} /></label><label>비밀번호<input value={password} onChange={event => setPassword(event.target.value)} placeholder="선택" /></label><label>입장 방식<select value={entryMode} onChange={event => setEntryMode(event.target.value as EntryMode)}><option value="open">자유입장</option><option value="request">신청입장</option></select></label><label className="wide">서버 URL<input value={relayUrl} onChange={event => setRelayUrl(event.target.value)} /></label></div></Modal> : null}
-      {dialog === 'join' ? <Modal title="초대 코드로 입장" onClose={() => setDialog(undefined)} footer={<><button className="btn btn-secondary" onClick={() => setDialog(undefined)}>취소</button><button className="btn btn-primary" disabled={!canJoin || isBusy} onClick={joinRoom}>입장 요청</button></>}><div className="join-modal-stack"><label>초대 코드<textarea value={inviteCodeInput} onChange={event => setInviteCodeInput(event.target.value)} rows={3} placeholder="HRS1..." /></label><button className="btn btn-secondary align-start" disabled={!inviteCodeInput.trim()} onClick={applyInviteCode}>초대 코드 적용</button><div className="modal-divider"><span>또는 직접 입력</span></div><div className="modal-form-grid"><label>표시 이름<input value={displayName} onChange={event => setDisplayName(event.target.value)} /></label><label>방 이름<input value={roomName} onChange={event => setRoomName(event.target.value)} /></label><label className="wide">서버 URL<input value={relayUrl} onChange={event => setRelayUrl(event.target.value)} /></label><label className="wide">비밀번호<input value={password} onChange={event => setPassword(event.target.value)} placeholder="선택" /></label></div></div></Modal> : null}
+      <AppShell screen={screen} sessionScreen={activeRoom ? role === 'host' ? 'host-room' : 'participant-room' : undefined} username={username} server={selectedServer} serverHealth={serverHealth} servers={RELAY_SERVERS} serverOpen={serverOpen} relayConnected={activeRoom} deviceConnected={hardwareConnected} statusTone={status.tone} statusMessage={status.message} onToggleServers={() => setServerOpen(value => !value)} onSelectServer={chooseServer} onCustomServer={() => { setServerOpen(false); setDialog('custom'); }} onNavigate={setScreen} onLogout={logout}>{workspace}</AppShell>
+      {dialog === 'create' ? <Modal title="새 방 만들기" onClose={() => setDialog(undefined)} footer={<><button className="btn btn-secondary" onClick={() => setDialog(undefined)}>취소</button><button className="btn btn-primary" disabled={!canHost || isBusy} onClick={createRoom}>방 생성</button></>}><p className="dialog-note">방을 만들면 현재 로그인한 사용자가 스트리머가 됩니다.</p><div className="modal-form-grid"><label className="wide">방 이름<input value={roomName} onChange={event => setRoomName(event.target.value)} /></label><label className={entryMode === 'open' ? 'field-disabled' : undefined}>비밀번호<input value={password} disabled={entryMode === 'open'} onChange={event => setPassword(event.target.value)} placeholder={entryMode === 'open' ? '자유 입장에서는 사용 안 함' : '선택'} /></label><label>입장 방식<select value={entryMode} onChange={event => changeEntryMode(event.target.value as EntryMode)}><option value="open">자유입장</option><option value="request">신청입장</option></select></label><label className="wide">서버 URL<input value={relayUrl} onChange={event => setRelayUrl(event.target.value)} /></label></div></Modal> : null}
+      {dialog === 'join' ? <Modal title="초대 코드로 입장" onClose={() => setDialog(undefined)} footer={<><button className="btn btn-secondary" onClick={() => setDialog(undefined)}>취소</button><button className="btn btn-primary" disabled={!canJoin || isBusy} onClick={joinRoom}>입장 요청</button></>}><div className="join-modal-stack"><label>초대 코드<textarea value={inviteCodeInput} onChange={event => setInviteCodeInput(event.target.value)} rows={3} placeholder="HRS1..." /></label><button className="btn btn-secondary align-start" disabled={!inviteCodeInput.trim()} onClick={applyInviteCode}>초대 코드 적용</button><div className="modal-divider"><span>또는 직접 입력</span></div><div className="modal-form-grid"><label>표시 이름<input value={displayName} onChange={event => setDisplayName(event.target.value)} /></label><label>방 이름<input value={roomName} onChange={event => setRoomName(event.target.value)} /></label><label className="wide">서버 URL<input value={relayUrl} onChange={event => setRelayUrl(event.target.value)} /></label><label className={`wide ${entryMode === 'open' ? 'field-disabled' : ''}`}>비밀번호<input value={password} disabled={entryMode === 'open'} onChange={event => setPassword(event.target.value)} placeholder={entryMode === 'open' ? '자유 입장에서는 사용 안 함' : '선택'} /></label></div></div></Modal> : null}
       {dialog === 'custom' ? <Modal title="사용자 서버 추가" onClose={() => setDialog(undefined)} footer={<><button className="btn btn-secondary" onClick={() => setDialog(undefined)}>취소</button><button className="btn btn-primary" onClick={saveCustomServer}>서버 사용</button></>}><div className="modal-form-grid"><label className="wide">서버 이름<input value={customServerName} onChange={event => setCustomServerName(event.target.value)} /></label><label className="wide">서버 URL<input value={customServerUrl} onChange={event => setCustomServerUrl(event.target.value)} placeholder="https://relay.example.com" /></label></div></Modal> : null}
     </>
   );

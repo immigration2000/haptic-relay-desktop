@@ -9,6 +9,7 @@ type AppShellProps = {
   sessionScreen?: 'host-room' | 'participant-room';
   username: string;
   server: RelayServerOption;
+  serverHealth: { status: 'checking' | 'online' | 'offline'; latencyMs?: number };
   servers: readonly RelayServerOption[];
   serverOpen: boolean;
   relayConnected: boolean;
@@ -24,6 +25,8 @@ type AppShellProps = {
 
 export function AppShell(props: AppShellProps) {
   const roomActive = props.screen === 'host-room' || props.screen === 'participant-room';
+  const serverHealthLabel = props.serverHealth.status === 'online' ? '서버 연결됨' : props.serverHealth.status === 'offline' ? '서버 연결 안 됨' : '서버 확인 중';
+  const serverDetail = props.serverHealth.status === 'online' ? `${props.serverHealth.latencyMs ?? 0}ms` : props.serverHealth.status === 'offline' ? '연결 안 됨' : '확인 중';
   return (
     <main className="app-shell">
       <header className="topbar">
@@ -32,7 +35,7 @@ export function AppShell(props: AppShellProps) {
           <div><strong>HAPTIC RELAY</strong><span>LIVE MOTION NETWORK</span></div>
         </div>
         <div className="server-picker">
-          <div className="server-current"><Server size={15} /><span><small>현재 서버</small><strong>{props.server.name} · {props.server.pingMs}ms</strong></span></div>
+          <div className="server-current"><Server size={15} /><span><small>현재 서버 <span className={`server-health-dot ${props.serverHealth.status}`} data-server-health={props.serverHealth.status} role="status" aria-label={serverHealthLabel} title={serverHealthLabel} /></small><strong>{props.server.name} · {serverDetail}</strong></span></div>
           <button className="btn btn-secondary" type="button" onClick={props.onToggleServers}>서버 선택 <ChevronDown size={14} /></button>
           {props.serverOpen ? (
             <div className="server-menu" role="menu">

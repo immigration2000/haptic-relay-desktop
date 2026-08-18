@@ -249,6 +249,12 @@ export class RelayClient {
     return directory.rooms;
   }
 
+  async checkHealth(relayUrl: string) {
+    const startedAt = Date.now();
+    await getJson<{ ok: true }>(`${relayUrl}/healthz`, AbortSignal.timeout(4_000));
+    return { online: true as const, latencyMs: Date.now() - startedAt };
+  }
+
   async joinRoom(relayUrl: string, request: { displayName: string; roomName: string; password?: string }) {
     const encodedRoomName = encodeURIComponent(request.roomName);
     const join = await postJson<{ ok: true; roomName: string; relayUrl: string; viewerToken: string }>(`${relayUrl}/api/rooms/${encodedRoomName}/join`, request);
@@ -477,8 +483,8 @@ async function postJson<T>(url: string, body: unknown) {
   return payload as T;
 }
 
-async function getJson<T>(url: string) {
-  const response = await fetch(url);
+async function getJson<T>(url: string, signal?: AbortSignal) {
+  const response = await fetch(url, { signal });
   const payload = await response.json() as T & { ok?: boolean; reason?: string };
   if (!response.ok || payload.ok === false) {
     throw new Error(payload.reason ?? `request-failed:${response.status}`);

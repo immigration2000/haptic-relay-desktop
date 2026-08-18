@@ -1,6 +1,6 @@
 {
   "name": "haptic-relay-desktop",
-  "version": "0.1.1-demo.7",
+  "version": "0.1.1-demo.8",
   "description": "Desktop haptic hardware relay for cross-platform live streaming rooms.",
   "private": true,
   "main": "dist-electron/main.js",

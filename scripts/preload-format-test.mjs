@@ -33,6 +33,8 @@ assert.match(preloadSource, /setMotionDelay:\s*\(delayMs/);
 assert.match(preloadSource, /ipcRenderer\.invoke\(['"]viewer:set-motion-delay['"],\s*delayMs\)/);
 assert.match(preloadSource, /listRooms:\s*\(relayUrl\).*?ipcRenderer\.invoke\(['"]room:list['"],\s*relayUrl\)/);
 assert.match(mainSource, /ipcMain\.handle\(['"]room:list['"][\s\S]*?assertTrustedSender\(event\)[\s\S]*?relay\.listRooms\(validateRelayUrl\(relayUrl\)\)/);
+assert.match(preloadSource, /checkServer:\s*\(relayUrl\).*?ipcRenderer\.invoke\(['"]server:check['"],\s*relayUrl\)/);
+assert.match(mainSource, /ipcMain\.handle\(['"]server:check['"][\s\S]*?assertTrustedSender\(event\)[\s\S]*?relay\.checkHealth\(validateRelayUrl\(relayUrl\)\)/);
 assert.match(mainSource, /sendToRenderer\(mainWindow, ['"]motion:received['"], snapshot\)/);
 assert.match(preloadSource, /startMotionDemo:\s*\(intensity, position\).*?ipcRenderer\.invoke\(['"]motion-demo:start['"], intensity, position\)/);
 assert.match(preloadSource, /updateMotionDemo:\s*\(intensity, position\).*?ipcRenderer\.send\(['"]motion-demo:update['"], intensity, position\)/);

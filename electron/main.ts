@@ -278,6 +278,10 @@ ipcMain.handle('room:list', (event, relayUrl: unknown) => {
   assertTrustedSender(event);
   return relay.listRooms(validateRelayUrl(relayUrl));
 });
+ipcMain.handle('server:check', (event, relayUrl: unknown) => {
+  assertTrustedSender(event);
+  return relay.checkHealth(validateRelayUrl(relayUrl));
+});
 ipcMain.handle('room:join', (event, relayUrl: unknown, request: unknown) => {
   assertTrustedSender(event);
   const joinRequest = validateJoinRequest(request);

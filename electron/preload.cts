@@ -34,6 +34,7 @@ contextBridge.exposeInMainWorld('hapticRelay', {
   setHardwareProtection: (protection: HardwareProtection) => ipcRenderer.invoke('hardware:set-protection', protection),
   startHostRoom: (relayUrl: string, settings: RoomSettings) => ipcRenderer.invoke('room:start-host', relayUrl, settings),
   listRooms: (relayUrl: string) => ipcRenderer.invoke('room:list', relayUrl),
+  checkServer: (relayUrl: string) => ipcRenderer.invoke('server:check', relayUrl),
   joinRoom: (relayUrl: string, request: { displayName: string; roomName: string; password?: string }) => ipcRenderer.invoke('room:join', relayUrl, request),
   approveViewer: (socketId: string, approved: boolean) => ipcRenderer.invoke('room:approve', socketId, approved),
   moderateViewer: (socketId: string, action: 'kick' | 'block') => ipcRenderer.invoke('room:moderate-viewer', socketId, action),

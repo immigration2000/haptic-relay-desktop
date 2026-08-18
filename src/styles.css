@@ -35,6 +35,7 @@ input, textarea, select {
 }
 input, select { min-height: 34px; }
 textarea { resize: vertical; }
+input:disabled, textarea:disabled, select:disabled { cursor: not-allowed; color: #777a7f; border-color: #d2d3d6; background: #ececef; }
 input:focus, textarea:focus, select:focus { border-color: var(--accent); box-shadow: 0 0 0 2px rgb(89 128 166 / 15%); }
 button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 button:disabled { cursor: not-allowed; opacity: .46; }
@@ -83,7 +84,11 @@ button:disabled { cursor: not-allowed; opacity: .46; }
 .brand-block span, .account-block small, .server-current small { color: var(--muted); font-size: 9px; }
 .server-picker { position: relative; display: flex; align-items: center; gap: 8px; min-width: 0; }
 .server-current { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.server-current small { display: flex; align-items: center; gap: 5px; }
 .server-current strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+.server-health-dot { width: 8px; height: 8px; flex: 0 0 auto; border-radius: 50%; background: #8a8d91; box-shadow: 0 0 0 2px rgb(138 141 145 / 14%); }
+.server-health-dot.online { background: var(--ok); box-shadow: 0 0 0 2px rgb(39 115 77 / 16%); }
+.server-health-dot.offline { background: var(--danger); box-shadow: 0 0 0 2px rgb(180 35 24 / 14%); }
 .server-picker .btn { min-height: 30px; padding: 5px 8px; font-size: 11px; }
 .server-menu { position: absolute; top: 39px; left: 0; width: 292px; max-height: 360px; overflow: auto; border: 1px solid #bfc1c5; background: white; box-shadow: var(--shadow); }
 .server-menu button { width: 100%; display: flex; justify-content: space-between; align-items: center; gap: 8px; border: 0; border-bottom: 1px solid #ececef; padding: 9px 11px; background: white; cursor: pointer; text-align: left; }
@@ -251,6 +256,7 @@ button:disabled { cursor: not-allowed; opacity: .46; }
 .dialog-note { margin-bottom: 12px; color: var(--muted); font-size: 11px; }
 .modal-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .modal-form-grid .wide { grid-column: 1 / -1; }
+.field-disabled { color: #8a8c90; }
 .join-modal-stack { display: grid; gap: 10px; }
 .modal-divider { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 9px; }
 .modal-divider::before, .modal-divider::after { content: ""; height: 1px; flex: 1; background: var(--divider); }

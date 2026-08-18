@@ -56,6 +56,7 @@ declare global {
       setHardwareProtection: (protection: HardwareProtection) => Promise<{ protection: HardwareProtection }>;
       startHostRoom: (relayUrl: string, settings: RoomSettings) => Promise<{ roomName: string; entryMode: string; relayUrl: string }>;
       listRooms: (relayUrl: string) => Promise<RoomDirectoryEntry[]>;
+      checkServer: (relayUrl: string) => Promise<{ online: true; latencyMs: number }>;
       joinRoom: (relayUrl: string, request: { displayName: string; roomName: string; password?: string }) => Promise<{ ok: boolean; reason?: string; roomName?: string }>;
       approveViewer: (socketId: string, approved: boolean) => Promise<unknown>;
       moderateViewer: (socketId: string, action: 'kick' | 'block') => Promise<unknown>;
