@@ -15,8 +15,8 @@
 
 ## 2. 공식 설치 파일 다운로드
 
-1. [Haptic Relay v0.1.1 Demo 6 릴리스](https://github.com/immigration2000/haptic-relay-desktop/releases/tag/v0.1.1-demo.6)를 엽니다.
-2. `Assets`에서 `Haptic.Relay-0.1.1-demo.6-win-x64.exe`를 내려받습니다.
+1. [Haptic Relay v0.1.1 Demo 7 릴리스](https://github.com/immigration2000/haptic-relay-desktop/releases/tag/v0.1.1-demo.7)를 엽니다.
+2. `Assets`에서 `Haptic.Relay-0.1.1-demo.7-win-x64.exe`를 내려받습니다.
 3. 필요한 경우 함께 제공되는 `.sha256` 파일도 내려받습니다.
 
 GitHub가 자동으로 제공하는 `Source code` ZIP/TAR 파일은 개발 소스입니다. 일반 사용자는 Windows EXE를 받아야 합니다.
@@ -26,7 +26,7 @@ GitHub가 자동으로 제공하는 `Source code` ZIP/TAR 파일은 개발 소�
 PowerShell에서 다음 명령을 실행합니다. 다운로드 위치가 다르면 `$file` 경로를 수정합니다.
 
 ```powershell
-$file = "$HOME\Downloads\Haptic.Relay-0.1.1-demo.6-win-x64.exe"
+$file = "$HOME\Downloads\Haptic.Relay-0.1.1-demo.7-win-x64.exe"
 $checksumFile = "$file.sha256"
 $expected = (Get-Content -LiteralPath $checksumFile).Split()[0].ToLowerInvariant()
 $actual = (Get-FileHash -Algorithm SHA256 -LiteralPath $file).Hash.ToLowerInvariant()
