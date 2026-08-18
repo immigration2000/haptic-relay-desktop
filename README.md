@@ -170,10 +170,13 @@ npm.cmd run server:start
 서버 PC PowerShell:
 
 ```powershell
-$env:HAPTIC_RELAY_HOST="0.0.0.0"
-$env:HAPTIC_PUBLIC_RELAY_URL="http://192.168.0.10:4174"
-npm.cmd run server:dev
+npm.cmd run build:server
+powershell.exe -ExecutionPolicy Bypass -File scripts\start-lan-relay.ps1 `
+  -Port 4174 `
+  -PublicRelayUrl http://192.168.0.10:4174
 ```
+
+`PublicRelayUrl`은 다른 PC가 실제로 접속할 수 있는 주소여야 합니다. 이 값이 빠져 서버가 `localhost`를 광고하면 초대 코드 적용 후 시청자 앱이 자기 PC의 로컬 서버로 연결되어 WebSocket 오류가 발생합니다.
 
 Windows 방화벽에서 Node.js의 개인 네트워크 인바운드 연결을 허용한 뒤, PC와 노트북 앱에서 `서버 선택 > 사용자 서버 추가`를 열어 모두 `http://192.168.0.10:4174`를 선택합니다. `localhost`는 각 장치 자신을 가리키므로 두 장치 테스트에 사용하면 안 됩니다. 공용 인터넷 주소의 평문 HTTP는 앱에서 계속 차단됩니다.
 

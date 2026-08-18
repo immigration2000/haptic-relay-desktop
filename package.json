@@ -20,6 +20,7 @@
     "test:ui": "npm run build && node scripts/electron-ui-smoke-test.mjs",
     "test:two-client": "node scripts/packaged-two-client-test.mjs",
     "test:demo-prep": "powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/hardware-demo-launcher-test.ps1",
+    "test:lan-relay": "powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/lan-relay-launcher-test.ps1",
     "test:redis": "npm run build:server && node scripts/redis-registry-test.mjs",
     "test:security": "npm run build:server && node scripts/http-security-test.mjs",
     "test:termux": "npm run build:server && node scripts/termux-bundle-test.mjs",

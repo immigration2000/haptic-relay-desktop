@@ -63,6 +63,7 @@ const hostDebugPort = await getAvailablePort();
 const viewerDebugPort = await getAvailablePort();
 const runId = Date.now().toString(36);
 const roomName = `studio-${runId}`;
+const roomPassword = `password-${runId}`;
 const viewerName = `viewer-${runId}`;
 const automaticPositionRange = { min: 0.2, max: 0.8 };
 const outputDirectory = path.join(os.tmpdir(), `haptic-relay-two-client-${runId}`);
@@ -99,8 +100,11 @@ try {
   await waitForExpression(hostCdp, `document.querySelector('[role="dialog"]')?.textContent.includes('새 방 만들기')`);
   await setInputByLabel(hostCdp, '서버 URL', relayUrl);
   await setInputByLabel(hostCdp, '방 이름', roomName);
+  await setInputByLabel(hostCdp, '비밀번호', roomPassword);
   await clickButton(hostCdp, '방 생성');
   await waitForExpression(hostCdp, `document.body.innerText.includes('HOST SESSION')`);
+  const inviteCode = await hostCdp.evaluate(`document.querySelector('.invite-code code')?.textContent.trim() ?? ''`);
+  assert.match(inviteCode, /^HRS1\./, 'host room exposes an invite code');
 
   viewer = launchApp('viewer', viewerDebugPort);
   captureOutput(viewer, 'viewer');
@@ -113,20 +117,17 @@ try {
   await setInputByLabel(viewerCdp, '서버 이름', '테스트 릴레이');
   await setInputByLabel(viewerCdp, '서버 URL', relayUrl);
   await clickButton(viewerCdp, '서버 사용');
-  await waitForExpression(viewerCdp, `(() => {
-    const cards = [...document.querySelectorAll('[data-room-card]')];
-    return cards.some(card => card.textContent.includes(${JSON.stringify(roomName)}));
-  })()`);
-  await viewerCdp.evaluate(`(() => {
-    const cards = [...document.querySelectorAll('[data-room-card]')];
-    const card = cards.find(item => item.textContent.includes(${JSON.stringify(roomName)}));
-    card?.querySelector('.room-card-open')?.click();
-  })()`);
+  await clickButton(viewerCdp, '초대 코드');
   await waitForExpression(viewerCdp, `document.querySelector('[role="dialog"]')?.textContent.includes('초대 코드로 입장')`);
+  await setTextareaByLabel(viewerCdp, '초대 코드', inviteCode);
+  await clickButton(viewerCdp, '초대 코드 적용');
   await setInputByLabel(viewerCdp, '표시 이름', viewerName);
   await waitForExpression(viewerCdp, `(() => {
     const labels = [...document.querySelectorAll('label')];
-    return labels.find(label => label.textContent.includes('방 이름'))?.querySelector('input')?.value === ${JSON.stringify(roomName)};
+    const value = text => labels.find(label => label.textContent.includes(text))?.querySelector('input')?.value;
+    return value('방 이름') === ${JSON.stringify(roomName)}
+      && value('서버 URL') === ${JSON.stringify(relayUrl)}
+      && value('비밀번호') === ${JSON.stringify(roomPassword)};
   })()`);
   await clickButton(viewerCdp, '입장 요청');
 
@@ -262,6 +263,20 @@ async function setInputByLabel(client, labelText, value) {
     return true;
   })()`);
   assert.equal(changed, true, `input is available: ${labelText}`);
+  await delay(80);
+}
+
+async function setTextareaByLabel(client, labelText, value) {
+  const changed = await client.evaluate(`(() => {
+    const label = [...document.querySelectorAll('label')].find(item => item.textContent.includes(${JSON.stringify(labelText)}));
+    const textarea = label?.querySelector('textarea');
+    if (!textarea) return false;
+    const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set;
+    setter.call(textarea, ${JSON.stringify(value)});
+    textarea.dispatchEvent(new Event('input', { bubbles: true }));
+    return true;
+  })()`);
+  assert.equal(changed, true, `textarea is available: ${labelText}`);
   await delay(80);
 }
 
