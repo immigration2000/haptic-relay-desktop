@@ -60,6 +60,14 @@ export type HardwareProtection = {
   paused: boolean;
 };
 
+export type HardwareOutputSnapshot = {
+  kind: 'motion' | 'test' | 'stop';
+  command: string;
+  completedAt: number;
+  portPath: string;
+  baudRate: number;
+};
+
 export type PlaybackSettings = {
   motionDelayMs: number;
 };

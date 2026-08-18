@@ -1,5 +1,5 @@
 import { SerialPort } from 'serialport';
-import type { HardwareProfile, HardwareProtection, MotionFrame } from '../protocol.js';
+import type { HardwareOutputSnapshot, HardwareProfile, HardwareProtection, MotionFrame } from '../protocol.js';
 import {
   clamp01,
   HARDWARE_MAX_HZ,
@@ -37,8 +37,18 @@ type HardwareLog = {
   details?: string;
 };
 
+type HardwarePort = Pick<SerialPort, 'path' | 'isOpen' | 'open' | 'close' | 'write' | 'once' | 'on' | 'off'>;
+
+type HardwareControllerOptions = {
+  onLog?: (entry: HardwareLog) => void;
+  onOutput?: (snapshot: HardwareOutputSnapshot) => void;
+  createPort?: (options: { path: string; baudRate: number; autoOpen: false }) => HardwarePort;
+  probeTimeoutMs?: number;
+};
+
 export class HardwareController {
-  private port: SerialPort | undefined;
+  private port: HardwarePort | undefined;
+  private readonly options: HardwareControllerOptions;
   private profile = DEFAULT_HARDWARE_PROFILE;
   private protection = DEFAULT_HARDWARE_PROTECTION;
   private latestFrame: MotionFrame | undefined;
@@ -48,7 +58,9 @@ export class HardwareController {
   private readonly minIntervalMs = maxHzToInterval(HARDWARE_MAX_HZ);
   private readonly safetyTimeoutMs = normalizeOptionalTimeoutMs(HARDWARE_SAFETY_TIMEOUT_MS);
 
-  constructor(private readonly onLog?: (entry: HardwareLog) => void) {}
+  constructor(options: HardwareControllerOptions | HardwareControllerOptions['onLog'] = {}) {
+    this.options = typeof options === 'function' ? { onLog: options } : options;
+  }
 
   async listPorts() {
     return SerialPort.list();
@@ -58,7 +70,8 @@ export class HardwareController {
     await this.disconnect();
     this.profile = normalizeProfile(profile);
 
-    this.port = new SerialPort({
+    const createPort = this.options.createPort ?? (options => new SerialPort(options));
+    this.port = createPort({
       path: pathName,
       baudRate: this.profile.baudRate,
       autoOpen: false
@@ -69,7 +82,7 @@ export class HardwareController {
     });
 
     const probe = await this.probeTCodeCapabilities();
-    this.onLog?.({ level: 'info', source: 'hardware', message: 'hardware-connected', details: `${pathName} @ ${this.profile.baudRate}` });
+    this.options.onLog?.({ level: 'info', source: 'hardware', message: 'hardware-connected', details: `${pathName} @ ${this.profile.baudRate}` });
     return { connected: true, path: pathName, baudRate: this.profile.baudRate, profile: this.profile, probe };
   }
 
@@ -77,9 +90,9 @@ export class HardwareController {
     this.protection = normalizeProtection(protection);
     if (this.protection.paused) {
       await this.emergencyStop();
-      this.onLog?.({ level: 'warning', source: 'protection', message: 'receive-paused' });
+      this.options.onLog?.({ level: 'warning', source: 'protection', message: 'receive-paused' });
     } else {
-      this.onLog?.({ level: 'info', source: 'protection', message: 'protection-updated', details: `intensity<=${this.protection.intensityLimit.toFixed(2)}, position ${this.protection.positionMin.toFixed(2)}-${this.protection.positionMax.toFixed(2)}` });
+      this.options.onLog?.({ level: 'info', source: 'protection', message: 'protection-updated', details: `intensity<=${this.protection.intensityLimit.toFixed(2)}, position ${this.protection.positionMin.toFixed(2)}-${this.protection.positionMax.toFixed(2)}` });
     }
 
     return { protection: this.protection };
@@ -101,7 +114,7 @@ export class HardwareController {
     await new Promise<void>((resolve, reject) => {
       this.port?.close(error => (error ? reject(error) : resolve()));
     });
-    this.onLog?.({ level: 'info', source: 'hardware', message: 'hardware-disconnected' });
+    this.options.onLog?.({ level: 'info', source: 'hardware', message: 'hardware-disconnected' });
     this.port = undefined;
     return { connected: false };
   }
@@ -114,7 +127,7 @@ export class HardwareController {
     const protectedFrame = applyProtection(frame, this.protection);
     if (!protectedFrame) {
       this.latestFrame = undefined;
-      this.onLog?.({ level: 'warning', source: 'protection', message: 'motion-dropped-paused' });
+      this.options.onLog?.({ level: 'warning', source: 'protection', message: 'motion-dropped-paused' });
       return { queued: false, reason: 'protection-paused' };
     }
 
@@ -142,9 +155,12 @@ export class HardwareController {
       stopPosition: this.profile.strokeMin
     });
 
-    const writeError = await this.writePayload(payload).then(() => undefined).catch(error => {
+    const writeError = await this.writePayload(payload).then(() => {
+      this.reportOutput('stop', payload);
+      return undefined;
+    }).catch(error => {
       console.error('hardware emergency stop failed', error);
-      this.onLog?.({ level: 'error', source: 'hardware', message: 'hardware-stop-write-failed', details: formatError(error) });
+      this.options.onLog?.({ level: 'error', source: 'hardware', message: 'hardware-stop-write-failed', details: formatError(error) });
       return error;
     });
 
@@ -152,7 +168,7 @@ export class HardwareController {
       return { stopped: false, reason: 'hardware-stop-write-failed' };
     }
 
-    this.onLog?.({ level: 'warning', source: 'hardware', message: 'hardware-stopped' });
+    this.options.onLog?.({ level: 'warning', source: 'hardware', message: 'hardware-stopped' });
     return { stopped: true };
   }
 
@@ -168,7 +184,7 @@ export class HardwareController {
       return { tested: false, reason: 'hardware-not-connected' };
     }
 
-    this.onLog?.({ level: 'info', source: 'hardware', message: 'hardware-test-started' });
+    this.options.onLog?.({ level: 'info', source: 'hardware', message: 'hardware-test-started' });
 
     try {
       for (const position of HARDWARE_TEST_POSITIONS) {
@@ -188,17 +204,18 @@ export class HardwareController {
           intervalMs: HARDWARE_TEST_STEP_DELAY_MS
         });
         await this.writePayload(payload);
+        this.reportOutput('test', payload);
         await delay(HARDWARE_TEST_STEP_DELAY_MS);
       }
 
       return { tested: true, steps: HARDWARE_TEST_POSITIONS.length };
     } catch (error) {
       console.error('hardware test pattern failed', error);
-      this.onLog?.({ level: 'error', source: 'hardware', message: 'hardware-test-failed', details: formatError(error) });
+      this.options.onLog?.({ level: 'error', source: 'hardware', message: 'hardware-test-failed', details: formatError(error) });
       throw error;
     } finally {
       await this.emergencyStop();
-      this.onLog?.({ level: 'info', source: 'hardware', message: 'hardware-test-finished' });
+      this.options.onLog?.({ level: 'info', source: 'hardware', message: 'hardware-test-finished' });
     }
   }
 
@@ -224,13 +241,16 @@ export class HardwareController {
       intervalMs: TCODE_INTERVAL_MS
     });
 
-    await this.writePayload(payload).catch(error => {
+    try {
+      await this.writePayload(payload);
+      this.reportOutput('motion', payload);
+    } catch (error) {
       console.error('hardware write failed', error);
-      this.onLog?.({ level: 'error', source: 'hardware', message: 'hardware-motion-write-failed', details: formatError(error) });
-    });
-
-    this.writing = false;
-    if (this.latestFrame) this.scheduleFlush();
+      this.options.onLog?.({ level: 'error', source: 'hardware', message: 'hardware-motion-write-failed', details: formatError(error) });
+    } finally {
+      this.writing = false;
+      if (this.latestFrame) this.scheduleFlush();
+    }
   }
 
   private scheduleSafetyStop() {
@@ -242,7 +262,7 @@ export class HardwareController {
       void this.emergencyStop().then(result => {
         if (result.stopped) {
           console.warn('hardware safety timeout triggered');
-          this.onLog?.({ level: 'warning', source: 'hardware', message: 'hardware-safety-timeout' });
+          this.options.onLog?.({ level: 'warning', source: 'hardware', message: 'hardware-safety-timeout' });
         }
       });
     }, this.safetyTimeoutMs);
@@ -265,10 +285,10 @@ export class HardwareController {
     this.port.on('data', onData);
     try {
       await this.writePayload(encodeTCodeProbe());
-      await new Promise(resolve => setTimeout(resolve, TCODE_PROBE_TIMEOUT_MS));
+      await new Promise(resolve => setTimeout(resolve, this.options.probeTimeoutMs ?? TCODE_PROBE_TIMEOUT_MS));
     } catch (error) {
       console.warn('hardware T-Code probe failed', error);
-      this.onLog?.({ level: 'warning', source: 'hardware', message: 'hardware-probe-failed', details: formatError(error) });
+      this.options.onLog?.({ level: 'warning', source: 'hardware', message: 'hardware-probe-failed', details: formatError(error) });
     } finally {
       this.port?.off('data', onData);
     }
@@ -289,10 +309,18 @@ export class HardwareController {
         return;
       }
 
-      const accepted = this.port.write(payload, error => (error ? reject(error) : resolve()));
-      if (accepted === false) {
-        this.port.once('drain', resolve);
-      }
+      this.port.write(payload, error => (error ? reject(error) : resolve()));
+    });
+  }
+
+  private reportOutput(kind: HardwareOutputSnapshot['kind'], payload: string) {
+    if (!this.port) return;
+    this.options.onOutput?.({
+      kind,
+      command: payload.trim(),
+      completedAt: Date.now(),
+      portPath: this.port.path,
+      baudRate: this.profile.baudRate
     });
   }
 }
