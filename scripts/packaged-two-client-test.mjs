@@ -202,9 +202,18 @@ try {
   await clickButton(hostCdp, '시연 중지');
   await waitForExpression(hostCdp, `document.querySelector('.stream-state')?.textContent.includes('전송 대기')`);
 
+  await clickButton(hostCdp, '방 종료');
+  await waitForExpression(hostCdp, `document.body.innerText.includes('방 찾기') && !document.body.innerText.includes('HOST SESSION')`);
+  await waitForExpression(viewerCdp, `document.body.innerText.includes('방 찾기') && !document.body.innerText.includes('PARTICIPANT SESSION')`);
+  await waitFor(async () => {
+    const response = await fetch(`${relayUrl}/api/rooms`).catch(() => undefined);
+    if (!response?.ok) return false;
+    const directory = await response.json();
+    return !directory.rooms?.some(room => room.roomName === roomName);
+  }, 3_000, 'host-ended room to leave the public directory');
+
   viewerCdp.send('Browser.close');
   await waitForExit(viewer, 5_000);
-  await waitForExpression(hostCdp, `document.querySelector('.viewer-chip')?.textContent.includes('0명 접속')`);
   hostCdp.send('Browser.close');
   await waitForExit(host, 5_000);
 
