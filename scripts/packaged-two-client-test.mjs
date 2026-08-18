@@ -59,6 +59,7 @@ const appExecutable = process.env.APP_EXECUTABLE?.trim()
 const relayPort = await getAvailablePort();
 const externalRelayUrl = process.env.RELAY_URL?.trim();
 const relayUrl = externalRelayUrl || `http://127.0.0.1:${relayPort}`;
+const useDefaultRelay = process.env.USE_DEFAULT_RELAY === '1';
 const hostDebugPort = await getAvailablePort();
 const viewerDebugPort = await getAvailablePort();
 const runId = Date.now().toString(36);
@@ -98,7 +99,12 @@ try {
   await loginClient(hostCdp, `host-${runId}`);
   await clickButton(hostCdp, '방 만들기');
   await waitForExpression(hostCdp, `document.querySelector('[role="dialog"]')?.textContent.includes('새 방 만들기')`);
-  await setInputByLabel(hostCdp, '서버 URL', relayUrl);
+  if (useDefaultRelay) {
+    const defaultRelayUrl = await getInputValueByLabel(hostCdp, '서버 URL');
+    assert.equal(defaultRelayUrl, relayUrl, 'new installs default to the expected relay URL');
+  } else {
+    await setInputByLabel(hostCdp, '서버 URL', relayUrl);
+  }
   await setInputByLabel(hostCdp, '방 이름', roomName);
   await setInputByLabel(hostCdp, '비밀번호', roomPassword);
   await clickButton(hostCdp, '방 생성');
@@ -112,11 +118,15 @@ try {
   await viewerCdp.call('Page.enable');
   await viewerCdp.call('Runtime.enable');
   await loginClient(viewerCdp, viewerName);
-  await clickButton(viewerCdp, '서버 선택');
-  await clickButton(viewerCdp, '사용자 서버 추가');
-  await setInputByLabel(viewerCdp, '서버 이름', '테스트 릴레이');
-  await setInputByLabel(viewerCdp, '서버 URL', relayUrl);
-  await clickButton(viewerCdp, '서버 사용');
+  if (useDefaultRelay) {
+    await waitForExpression(viewerCdp, `document.body.innerText.includes('공식 릴레이')`);
+  } else {
+    await clickButton(viewerCdp, '서버 선택');
+    await clickButton(viewerCdp, '사용자 서버 추가');
+    await setInputByLabel(viewerCdp, '서버 이름', '테스트 릴레이');
+    await setInputByLabel(viewerCdp, '서버 URL', relayUrl);
+    await clickButton(viewerCdp, '서버 사용');
+  }
   await clickButton(viewerCdp, '초대 코드');
   await waitForExpression(viewerCdp, `document.querySelector('[role="dialog"]')?.textContent.includes('초대 코드로 입장')`);
   await setTextareaByLabel(viewerCdp, '초대 코드', inviteCode);
@@ -273,6 +283,13 @@ async function setInputByLabel(client, labelText, value) {
   })()`);
   assert.equal(changed, true, `input is available: ${labelText}`);
   await delay(80);
+}
+
+async function getInputValueByLabel(client, labelText) {
+  return client.evaluate(`(() => {
+    const label = [...document.querySelectorAll('label')].find(item => item.textContent.includes(${JSON.stringify(labelText)}));
+    return label?.querySelector('input')?.value ?? '';
+  })()`);
 }
 
 async function setTextareaByLabel(client, labelText, value) {
