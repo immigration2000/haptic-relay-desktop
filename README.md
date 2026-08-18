@@ -8,6 +8,7 @@
 - [구현 설명서](docs/IMPLEMENTATION_GUIDE.md)
 - [배포 가이드](docs/DEPLOYMENT.md)
 - [Windows 설치 및 삭제 안내서](docs/WINDOWS_INSTALL_GUIDE.md)
+- [하드웨어 작업자 현장 테스트](docs/HARDWARE_SESSION_CHECKLIST.md)
 - [Android Termux 전송 가이드](docs/ANDROID_TERMUX_TRANSFER.md)
 - Android 외부접속 데모 서버는 `npm.cmd run build:termux`로 생성한 뒤 산출물의 `README.md`를 따릅니다.
 - [로드맵](docs/ROADMAP.md)
