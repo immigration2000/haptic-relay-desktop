@@ -72,6 +72,24 @@ async function runSmokeTest() {
   const hostBound = await emitWithAck(host, 'room:create', { token: created.payload.hostToken });
   record('host socket bind', hostBound.ok === true, JSON.stringify(hostBound));
 
+  const directoryAfterCreate = await get('/api/rooms');
+  const listedRoom = directoryAfterCreate.payload.rooms?.find(room => room.roomName === roomName);
+  const serializedDirectory = JSON.stringify(directoryAfterCreate.payload);
+  record(
+    'public room directory redacts credentials',
+    directoryAfterCreate.status === 200
+      && listedRoom?.entryMode === 'open'
+      && listedRoom.passwordProtected === true
+      && listedRoom.viewerCount === 0
+      && listedRoom.maxViewers === 500
+      && listedRoom.relayNodeId === 'local-1'
+      && Number.isFinite(listedRoom.createdAt)
+      && !serializedDirectory.includes('open-secret')
+      && !serializedDirectory.includes(created.payload.hostToken)
+      && !serializedDirectory.includes(host.id),
+    serializedDirectory
+  );
+
   const joined = await post(`/api/rooms/${encodeURIComponent(roomName)}/join`, {
     displayName: 'viewer-one',
     password: 'open-secret'
@@ -82,6 +100,14 @@ async function runSmokeTest() {
     token: joined.payload.viewerToken
   });
   record('viewer join', joined.status === 200 && viewerBound.ok === true, JSON.stringify(viewerBound));
+
+  const directoryAfterJoin = await get('/api/rooms');
+  const joinedDirectoryRoom = directoryAfterJoin.payload.rooms?.find(room => room.roomName === roomName);
+  record(
+    'public room directory updates viewer count',
+    directoryAfterJoin.status === 200 && joinedDirectoryRoom?.viewerCount === 1,
+    JSON.stringify(joinedDirectoryRoom)
+  );
 
   const mixedProtocolMotion = [];
   const mixedProtocolViewer = new RelayClient(frame => {
@@ -294,6 +320,11 @@ async function post(path, body) {
   });
   const payload = await response.json();
   return { status: response.status, payload, retryAfter: response.headers.get('retry-after') };
+}
+
+async function get(path) {
+  const response = await fetch(`${baseUrl}${path}`);
+  return { status: response.status, payload: await response.json() };
 }
 
 async function connectSocket() {

@@ -1,6 +1,6 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { Server, type Socket } from 'socket.io';
-import type { MotionFrame, RoomSettings, ViewerSession } from '../../src/shared/protocol.js';
+import type { MotionFrame, RoomDirectoryResponse, RoomSettings, ViewerSession } from '../../src/shared/protocol.js';
 import { clamp01, DEFAULT_RELAY_MAX_HZ } from '../../src/shared/tuning.js';
 import { decodeMotionPacket, encodeMotionPacket } from '../../src/shared/motion-packet.js';
 import { signRelayToken, verifyRelayToken, type RelayTokenPayload } from './control-token.js';
@@ -336,6 +336,24 @@ async function handleControlRequest(request: IncomingMessage, response: ServerRe
         };
       })
     });
+    return;
+  }
+
+  if (request.method === 'GET' && url.pathname === '/api/rooms') {
+    const rooms = await roomRegistry.listRooms();
+    const payload: RoomDirectoryResponse = {
+      ok: true,
+      rooms: rooms.map(room => ({
+        roomName: room.roomName,
+        entryMode: room.entryMode,
+        passwordProtected: Boolean(room.password),
+        viewerCount: getConnectedCount(room.roomName).viewers,
+        maxViewers: getRoomCapacity(room),
+        relayNodeId: room.relayNodeId,
+        createdAt: room.createdAt
+      }))
+    };
+    sendJson(response, 200, payload);
     return;
   }
 

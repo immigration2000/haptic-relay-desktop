@@ -6,6 +6,21 @@ export type RoomSettings = {
   entryMode: EntryMode;
 };
 
+export type RoomDirectoryEntry = {
+  roomName: string;
+  entryMode: EntryMode;
+  passwordProtected: boolean;
+  viewerCount: number;
+  maxViewers: number;
+  relayNodeId: string;
+  createdAt: number;
+};
+
+export type RoomDirectoryResponse = {
+  ok: true;
+  rooms: RoomDirectoryEntry[];
+};
+
 export type MotionFrame = {
   intensity: number;
   position: number;
