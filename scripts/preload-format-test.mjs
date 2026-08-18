@@ -47,6 +47,10 @@ assert.match(preloadSource, /removeListener\(['"]motion-demo:frame['"],\s*handle
 assert.match(preloadSource, /onMotionReceived:\s*\(listener/);
 assert.match(preloadSource, /ipcRenderer\.on\(['"]motion:received['"],\s*handler\)/);
 assert.match(preloadSource, /removeListener\(['"]motion:received['"],\s*handler\)/);
+assert.match(preloadSource, /onHardwareOutput:\s*\(listener/);
+assert.match(preloadSource, /ipcRenderer\.on\(['"]hardware:output['"],\s*handler\)/);
+assert.match(preloadSource, /removeListener\(['"]hardware:output['"],\s*handler\)/);
+assert.match(mainSource, /new HardwareController\(\{[\s\S]*?onOutput:[\s\S]*?hardware:output/);
 assert.match(mainSource, /async function readSettingsInTransaction\(writeAtomically\)/);
 assert.match(mainSource, /viewer:set-motion-delay[\s\S]*?getSettingsStore\(\)\.exclusive\(async \(?writeAtomically\)? => \{[\s\S]*?readSettingsInTransaction\(writeAtomically\)[\s\S]*?await writeAtomically\(settings\)/);
 assert.match(loadSettingsSource, /const requestId = \+\+settingsLoadRequestId\.current/);

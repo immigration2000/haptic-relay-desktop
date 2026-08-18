@@ -1,4 +1,4 @@
-import type { AppLogEntry, AppSettings, ApprovalRequest, HardwareProfile, HardwareProtection, MotionDemoSnapshot, MotionMonitorSnapshot, MotionPatternConfig, PortInfo, RoomSettings, ViewerSession } from './shared/protocol';
+import type { AppLogEntry, AppSettings, ApprovalRequest, HardwareOutputSnapshot, HardwareProfile, HardwareProtection, MotionDemoSnapshot, MotionMonitorSnapshot, MotionPatternConfig, PortInfo, RoomSettings, ViewerSession } from './shared/protocol';
 
 type ViewerStatus = {
   roomName: string;
@@ -67,6 +67,7 @@ declare global {
       onConnectionStatus: (listener: (status: RelayConnectionStatus) => void) => () => void;
       onMotionDemoFrame: (listener: (snapshot: MotionDemoSnapshot) => void) => () => void;
       onMotionReceived: (listener: (snapshot: MotionMonitorSnapshot) => void) => () => void;
+      onHardwareOutput: (listener: (snapshot: HardwareOutputSnapshot) => void) => () => void;
       getLogs: () => Promise<AppLogEntry[]>;
       exportLogs: () => Promise<{ exported: boolean; canceled: boolean; path?: string; count: number }>;
       copyText: (text: string) => Promise<{ copied: boolean }>;

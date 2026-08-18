@@ -69,7 +69,10 @@ function addLog(entry: Omit<AppLogEntry, 'id' | 'timestamp'>) {
   sendToRenderer(mainWindow, 'app:log', nextEntry);
 }
 
-const hardware = new HardwareController(entry => addLog(entry));
+const hardware = new HardwareController({
+  onLog: entry => addLog(entry),
+  onOutput: snapshot => sendToRenderer(mainWindow, 'hardware:output', snapshot)
+});
 const relay = new RelayClient(frame => {
   const result = hardware.queueMotion(frame);
   const snapshot: MotionMonitorSnapshot = {

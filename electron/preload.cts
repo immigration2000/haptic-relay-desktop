@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { AppLogEntry, AppSettings, ApprovalRequest, HardwareProfile, HardwareProtection, MotionDemoSnapshot, MotionMonitorSnapshot, MotionPatternConfig, RoomSettings, ViewerSession } from './protocol.js';
+import type { AppLogEntry, AppSettings, ApprovalRequest, HardwareOutputSnapshot, HardwareProfile, HardwareProtection, MotionDemoSnapshot, MotionMonitorSnapshot, MotionPatternConfig, RoomSettings, ViewerSession } from './protocol.js';
 
 type ViewerStatus = {
   roomName: string;
@@ -72,6 +72,11 @@ contextBridge.exposeInMainWorld('hapticRelay', {
     const handler = (_event: Electron.IpcRendererEvent, snapshot: MotionMonitorSnapshot) => listener(snapshot);
     ipcRenderer.on('motion:received', handler);
     return () => ipcRenderer.removeListener('motion:received', handler);
+  },
+  onHardwareOutput: (listener: (snapshot: HardwareOutputSnapshot) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, snapshot: HardwareOutputSnapshot) => listener(snapshot);
+    ipcRenderer.on('hardware:output', handler);
+    return () => ipcRenderer.removeListener('hardware:output', handler);
   },
   getLogs: () => ipcRenderer.invoke('app:logs'),
   exportLogs: () => ipcRenderer.invoke('app:export-logs'),
