@@ -108,11 +108,26 @@ try {
   await viewerCdp.call('Page.enable');
   await viewerCdp.call('Runtime.enable');
   await loginClient(viewerCdp, viewerName);
-  await clickButton(viewerCdp, '초대 코드');
-  await waitForExpression(viewerCdp, `document.querySelector('[role="dialog"]')?.textContent.includes('초대 코드로 입장')`);
+  await clickButton(viewerCdp, '서버 선택');
+  await clickButton(viewerCdp, '사용자 서버 추가');
+  await setInputByLabel(viewerCdp, '서버 이름', '테스트 릴레이');
   await setInputByLabel(viewerCdp, '서버 URL', relayUrl);
+  await clickButton(viewerCdp, '서버 사용');
+  await waitForExpression(viewerCdp, `(() => {
+    const cards = [...document.querySelectorAll('[data-room-card]')];
+    return cards.some(card => card.textContent.includes(${JSON.stringify(roomName)}));
+  })()`);
+  await viewerCdp.evaluate(`(() => {
+    const cards = [...document.querySelectorAll('[data-room-card]')];
+    const card = cards.find(item => item.textContent.includes(${JSON.stringify(roomName)}));
+    card?.querySelector('.room-card-open')?.click();
+  })()`);
+  await waitForExpression(viewerCdp, `document.querySelector('[role="dialog"]')?.textContent.includes('초대 코드로 입장')`);
   await setInputByLabel(viewerCdp, '표시 이름', viewerName);
-  await setInputByLabel(viewerCdp, '방 이름', roomName);
+  await waitForExpression(viewerCdp, `(() => {
+    const labels = [...document.querySelectorAll('label')];
+    return labels.find(label => label.textContent.includes('방 이름'))?.querySelector('input')?.value === ${JSON.stringify(roomName)};
+  })()`);
   await clickButton(viewerCdp, '입장 요청');
 
   await waitForExpression(viewerCdp, `document.body.innerText.includes('PARTICIPANT SESSION')`);
