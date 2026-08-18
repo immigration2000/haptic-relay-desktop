@@ -1,8 +1,9 @@
 ﻿[CmdletBinding()]
 param(
   [ValidateRange(1, 65535)]
-  [int]$Port = 4174,
+  [int]$Port = 4175,
   [switch]$ServerOnly,
+  [switch]$ReuseExistingRelay,
   [string]$RuntimeRoot = (Join-Path ([System.IO.Path]::GetTempPath()) 'HapticRelayHardwareDemo'),
   [string]$AppExecutable = "$env:LOCALAPPDATA\Programs\Haptic Relay\Haptic Relay.exe"
 )
@@ -54,7 +55,7 @@ if (Test-Path -LiteralPath $statePath) {
   Remove-Item -LiteralPath $statePath -Force
 }
 
-& $preflightScript -Port $Port -ServerOnly:$ServerOnly -AppExecutable $AppExecutable
+& $preflightScript -Port $Port -ServerOnly:$ServerOnly -ReuseExistingRelay:$ReuseExistingRelay -AppExecutable $AppExecutable
 
 New-Item -ItemType Directory -Path $RuntimeRoot -Force | Out-Null
 $logsPath = Join-Path $RuntimeRoot 'logs'
@@ -64,7 +65,7 @@ $relayUrl = "http://127.0.0.1:$Port"
 $relayAlreadyRunning = $false
 try {
   $existingHealth = Invoke-RestMethod -Uri "$relayUrl/healthz" -TimeoutSec 1
-  $relayAlreadyRunning = $existingHealth.ok -eq $true
+  $relayAlreadyRunning = $ReuseExistingRelay -and $existingHealth.ok -eq $true
 } catch {
   $relayAlreadyRunning = $false
 }

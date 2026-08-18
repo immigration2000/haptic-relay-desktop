@@ -41,7 +41,7 @@ try {
     throw 'Demo relay health check did not return ok=true.'
   }
 
-  & $startScript -Port $port -ServerOnly -RuntimeRoot $reuseRuntimeRoot
+  & $startScript -Port $port -ServerOnly -ReuseExistingRelay -RuntimeRoot $reuseRuntimeRoot
   $reuseStatePath = Join-Path $reuseRuntimeRoot 'state.json'
   $reuseState = Get-Content -Raw -LiteralPath $reuseStatePath | ConvertFrom-Json
   if ($reuseState.ownsRelay -ne $false -or $null -ne $reuseState.server) {

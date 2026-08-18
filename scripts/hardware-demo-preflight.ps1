@@ -1,8 +1,9 @@
 ﻿[CmdletBinding()]
 param(
   [ValidateRange(1, 65535)]
-  [int]$Port = 4174,
+  [int]$Port = 4175,
   [switch]$ServerOnly,
+  [switch]$ReuseExistingRelay,
   [string]$AppExecutable = "$env:LOCALAPPDATA\Programs\Haptic Relay\Haptic Relay.exe"
 )
 
@@ -27,6 +28,10 @@ try {
   $relayAlreadyRunning = $existingHealth.ok -eq $true
 } catch {
   $relayAlreadyRunning = $false
+}
+
+if ($relayAlreadyRunning -and -not $ReuseExistingRelay) {
+  throw "로컬 포트 $Port 에 기존 Haptic Relay가 실행 중입니다. 현재 빌드 보장을 위해 다른 포트를 사용하세요."
 }
 
 if (-not $relayAlreadyRunning) {
