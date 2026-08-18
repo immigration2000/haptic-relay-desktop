@@ -102,6 +102,14 @@ try {
   await setInputByLabel(cdp, '비밀번호', 'demo-password');
   await clickButton(cdp, '로그인');
   await waitForExpression(cdp, `document.body.innerText.includes('방 찾기')`);
+  await waitForExpression(cdp, `document.body.innerText.includes('공식 릴레이')`);
+  await clickButton(cdp, '방 만들기');
+  await waitForExpression(cdp, `document.querySelector('[role="dialog"]')?.textContent.includes('새 방 만들기')`);
+  await waitForExpression(cdp, `(() => {
+    const labels = [...document.querySelectorAll('label')];
+    return labels.find(label => label.textContent.includes('서버 URL'))?.querySelector('input')?.value === 'https://relay.syncra.uk';
+  })()`);
+  await clickButton(cdp, '취소');
   const savedSession = await cdp.evaluate(`JSON.parse(localStorage.getItem('haptic-relay.demo-session.v1'))`);
   assert.deepEqual(savedSession, { username: 'user01', remembered: true }, 'demo login persists username only');
   await clickButton(cdp, '서버 선택');

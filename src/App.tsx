@@ -70,7 +70,7 @@ export default function App() {
   const [roomQuery, setRoomQuery] = useState('');
   const [roomFilter, setRoomFilter] = useState<RoomFilter>('all');
   const [serverOpen, setServerOpen] = useState(false);
-  const [selectedServer, setSelectedServer] = useState<RelayServerOption>(RELAY_SERVERS[8]);
+  const [selectedServer, setSelectedServer] = useState<RelayServerOption>(RELAY_SERVERS[0]);
   const [customServerName, setCustomServerName] = useState('내 릴레이 서버');
   const [customServerUrl, setCustomServerUrl] = useState('');
   const [hardwareConnected, setHardwareConnected] = useState(false);
@@ -80,7 +80,7 @@ export default function App() {
   const [viewerPage, setViewerPage] = useState<ViewerPage>('join');
   const [hostTab, setHostTab] = useState<SessionTab>('overview');
   const [viewerTab, setViewerTab] = useState<SessionTab>('receive');
-  const [relayUrl, setRelayUrl] = useState(import.meta.env.VITE_RELAY_URL ?? 'http://localhost:4174');
+  const [relayUrl, setRelayUrl] = useState(import.meta.env.VITE_RELAY_URL ?? 'https://relay.syncra.uk');
   const [displayName, setDisplayName] = useState('viewer-01');
   const [roomName, setRoomName] = useState('studio-main');
   const [password, setPassword] = useState('');

@@ -1,7 +1,7 @@
 import type { RelayServerOption } from './model';
 
 export const RELAY_SERVERS: readonly RelayServerOption[] = [
-  { id: 'kr-seoul-1', name: '서울 1', url: 'https://relay-seoul-1.example.com', pingMs: 12, available: false },
+  { id: 'official-relay', name: '공식 릴레이', url: 'https://relay.syncra.uk', pingMs: 0, available: true },
   { id: 'kr-seoul-2', name: '서울 2', url: 'https://relay-seoul-2.example.com', pingMs: 18, available: false },
   { id: 'jp-tokyo', name: '도쿄', url: 'https://relay-tokyo.example.com', pingMs: 34, available: false },
   { id: 'sg-singapore', name: '싱가포르', url: 'https://relay-singapore.example.com', pingMs: 71, available: false },
