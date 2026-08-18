@@ -1,12 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { OctagonX } from 'lucide-react';
-import type { AppLogEntry, AppSettings, ApprovalRequest, EntryMode, HardwareProfile, HardwareProtection, MotionDemoMode, MotionMonitorSnapshot, MotionPatternConfig, PortInfo, ViewerSession } from './shared/protocol';
+import type { AppLogEntry, AppSettings, ApprovalRequest, EntryMode, HardwareProfile, HardwareProtection, MotionDemoMode, MotionMonitorSnapshot, MotionPatternConfig, PortInfo, RoomDirectoryEntry, ViewerSession } from './shared/protocol';
 import { createQrMatrix } from './qr-code';
 import { AppShell } from './ui/components/AppShell';
 import { HardwareOutputMonitor } from './ui/components/HardwareOutputMonitor';
 import { Modal } from './ui/components/Modal';
 import { MotionDemoPanel } from './ui/components/MotionDemoPanel';
-import { DEMO_ROOMS, RELAY_SERVERS } from './ui/demo-data';
+import { RELAY_SERVERS } from './ui/demo-data';
 import type { AppScreen, BrowserRoom, RelayServerOption, RoomFilter } from './ui/model';
 import { HardwareView } from './ui/views/HardwareView';
 import { LoginView } from './ui/views/LoginView';
@@ -63,8 +63,10 @@ export default function App() {
   const [rememberLogin, setRememberLogin] = useState(true);
   const [loginError, setLoginError] = useState('');
   const [screen, setScreen] = useState<AppScreen>('browser');
-  const [dialog, setDialog] = useState<'create' | 'join' | 'custom' | 'demo'>();
-  const [selectedDemoRoom, setSelectedDemoRoom] = useState<BrowserRoom>();
+  const [dialog, setDialog] = useState<'create' | 'join' | 'custom'>();
+  const [browserRooms, setBrowserRooms] = useState<BrowserRoom[]>([]);
+  const [roomDirectoryLoading, setRoomDirectoryLoading] = useState(false);
+  const [roomDirectoryError, setRoomDirectoryError] = useState('');
   const [roomQuery, setRoomQuery] = useState('');
   const [roomFilter, setRoomFilter] = useState<RoomFilter>('all');
   const [serverOpen, setServerOpen] = useState(false);
@@ -111,6 +113,7 @@ export default function App() {
   const [motionMonitorEntries, setMotionMonitorEntries] = useState<MotionMonitorSnapshot[]>([]);
   const [settingsLoading, setSettingsLoading] = useState(false);
   const settingsLoadRequestId = useRef(0);
+  const roomDirectoryRequestId = useRef(0);
 
   const canHost = useMemo(() => roomName.trim().length >= 3, [roomName]);
   const canJoin = useMemo(() => roomName.trim().length >= 3 && displayName.trim().length > 0, [displayName, roomName]);
@@ -267,10 +270,39 @@ export default function App() {
     }
   }
 
-  function openDemoRoom(room: BrowserRoom) {
-    setSelectedDemoRoom(room);
-    setDialog('demo');
+  function openLiveRoom(room: BrowserRoom) {
+    setRoomName(room.title);
+    setPassword('');
+    setEntryMode(room.entryMode);
+    setRelayUrl(selectedServer.url);
+    setDialog('join');
   }
+
+  const refreshRoomDirectory = useCallback(async (silent = false) => {
+    const requestId = ++roomDirectoryRequestId.current;
+    if (!silent) setRoomDirectoryLoading(true);
+    try {
+      const rooms = await window.hapticRelay.listRooms(normalizeRelayUrl(selectedServer.url));
+      if (requestId !== roomDirectoryRequestId.current) return;
+      setBrowserRooms(rooms.map(room => mapDirectoryRoom(room, selectedServer.name)));
+      setRoomDirectoryError('');
+    } catch (error) {
+      if (requestId === roomDirectoryRequestId.current) {
+        setRoomDirectoryError(formatError(error));
+      }
+    } finally {
+      if (requestId === roomDirectoryRequestId.current && !silent) {
+        setRoomDirectoryLoading(false);
+      }
+    }
+  }, [selectedServer.name, selectedServer.url]);
+
+  useEffect(() => {
+    if (!authenticated || screen !== 'browser') return;
+    void refreshRoomDirectory();
+    const timer = window.setInterval(() => void refreshRoomDirectory(true), 3_000);
+    return () => window.clearInterval(timer);
+  }, [authenticated, refreshRoomDirectory, screen]);
 
   async function runAction(action: BusyAction, busyMessage: string, task: () => Promise<void>) {
     if (busyAction) return;
@@ -849,7 +881,7 @@ export default function App() {
 
   let workspace;
   if (screen === 'browser') {
-    workspace = <RoomBrowserView rooms={DEMO_ROOMS} query={roomQuery} filter={roomFilter} onQueryChange={setRoomQuery} onFilterChange={setRoomFilter} onCreateRoom={() => setDialog('create')} onJoinByInvite={() => setDialog('join')} onOpenRoom={openDemoRoom} />;
+    workspace = <RoomBrowserView rooms={browserRooms} query={roomQuery} filter={roomFilter} loading={roomDirectoryLoading} error={roomDirectoryError} onQueryChange={setRoomQuery} onFilterChange={setRoomFilter} onRefresh={() => void refreshRoomDirectory()} onCreateRoom={() => setDialog('create')} onJoinByInvite={() => setDialog('join')} onOpenRoom={openLiveRoom} />;
   } else if (screen === 'host-room') {
     const tabs: Array<{ id: SessionTab; label: string }> = [
       { id: 'overview', label: '방 관리' }, { id: 'demo', label: '실시간 시연' }, { id: 'hardware', label: '하드웨어' }, { id: 'safety', label: '보호 설정' }, { id: 'logs', label: '로그' }
@@ -880,9 +912,30 @@ export default function App() {
       {dialog === 'create' ? <Modal title="새 방 만들기" onClose={() => setDialog(undefined)} footer={<><button className="btn btn-secondary" onClick={() => setDialog(undefined)}>취소</button><button className="btn btn-primary" disabled={!canHost || isBusy} onClick={createRoom}>방 생성</button></>}><p className="dialog-note">방을 만들면 현재 로그인한 사용자가 스트리머가 됩니다.</p><div className="modal-form-grid"><label className="wide">방 이름<input value={roomName} onChange={event => setRoomName(event.target.value)} /></label><label>비밀번호<input value={password} onChange={event => setPassword(event.target.value)} placeholder="선택" /></label><label>입장 방식<select value={entryMode} onChange={event => setEntryMode(event.target.value as EntryMode)}><option value="open">자유입장</option><option value="request">신청입장</option></select></label><label className="wide">서버 URL<input value={relayUrl} onChange={event => setRelayUrl(event.target.value)} /></label></div></Modal> : null}
       {dialog === 'join' ? <Modal title="초대 코드로 입장" onClose={() => setDialog(undefined)} footer={<><button className="btn btn-secondary" onClick={() => setDialog(undefined)}>취소</button><button className="btn btn-primary" disabled={!canJoin || isBusy} onClick={joinRoom}>입장 요청</button></>}><div className="join-modal-stack"><label>초대 코드<textarea value={inviteCodeInput} onChange={event => setInviteCodeInput(event.target.value)} rows={3} placeholder="HRS1..." /></label><button className="btn btn-secondary align-start" disabled={!inviteCodeInput.trim()} onClick={applyInviteCode}>초대 코드 적용</button><div className="modal-divider"><span>또는 직접 입력</span></div><div className="modal-form-grid"><label>표시 이름<input value={displayName} onChange={event => setDisplayName(event.target.value)} /></label><label>방 이름<input value={roomName} onChange={event => setRoomName(event.target.value)} /></label><label className="wide">서버 URL<input value={relayUrl} onChange={event => setRelayUrl(event.target.value)} /></label><label className="wide">비밀번호<input value={password} onChange={event => setPassword(event.target.value)} placeholder="선택" /></label></div></div></Modal> : null}
       {dialog === 'custom' ? <Modal title="사용자 서버 추가" onClose={() => setDialog(undefined)} footer={<><button className="btn btn-secondary" onClick={() => setDialog(undefined)}>취소</button><button className="btn btn-primary" onClick={saveCustomServer}>서버 사용</button></>}><div className="modal-form-grid"><label className="wide">서버 이름<input value={customServerName} onChange={event => setCustomServerName(event.target.value)} /></label><label className="wide">서버 URL<input value={customServerUrl} onChange={event => setCustomServerUrl(event.target.value)} placeholder="https://relay.example.com" /></label></div></Modal> : null}
-      {dialog === 'demo' && selectedDemoRoom ? <Modal title={selectedDemoRoom.title} onClose={() => setDialog(undefined)} footer={<button className="btn btn-primary" onClick={() => setDialog(undefined)}>확인</button>}><div className="demo-detail"><span className="room-kind demo">데모 데이터</span><p>{selectedDemoRoom.description}</p><dl><div><dt>HOST</dt><dd>{selectedDemoRoom.host}</dd></div><div><dt>VIEWERS</dt><dd>{selectedDemoRoom.viewerCount} / {selectedDemoRoom.maxViewers}</dd></div><div><dt>SERVER</dt><dd>{selectedDemoRoom.serverName}</dd></div><div><dt>ENTRY</dt><dd>{selectedDemoRoom.entryMode === 'open' ? '자유 입장' : '승인 필요'}</dd></div></dl><p className="demo-warning">이 항목은 UI 확인용 데모 데이터이며 실제 릴레이나 하드웨어에 연결되지 않습니다.</p></div></Modal> : null}
     </>
   );
+}
+
+function mapDirectoryRoom(room: RoomDirectoryEntry, serverName: string): BrowserRoom {
+  return {
+    id: `${room.relayNodeId}:${room.roomName}`,
+    kind: 'live',
+    title: room.roomName,
+    host: '스트리머',
+    description: '실시간 하드웨어 연동 방',
+    tags: [room.relayNodeId],
+    entryMode: room.entryMode,
+    viewerCount: room.viewerCount,
+    maxViewers: room.maxViewers,
+    serverName,
+    passwordProtected: room.passwordProtected,
+    updatedLabel: formatRoomCreatedAt(room.createdAt)
+  };
+}
+
+function formatRoomCreatedAt(createdAt: number) {
+  if (!Number.isFinite(createdAt)) return '-';
+  return new Date(createdAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false });
 }
 
 function MotionGauge({ label, value }: { label: string; value: number }) {

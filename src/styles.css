@@ -144,6 +144,7 @@ button:disabled { cursor: not-allowed; opacity: .46; }
 .room-card dt, .demo-detail dt { display: flex; align-items: center; gap: 3px; color: #85878b; font-size: 7px; font-weight: 800; }
 .room-card dd, .demo-detail dd { margin: 2px 0 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 9px; font-weight: 700; }
 .room-card > footer { display: flex; justify-content: space-between; padding: 7px 11px; border-top: 1px solid var(--divider); color: var(--muted); background: #ececef; font-size: 9px; }
+.room-refresh { border: 1px solid var(--divider); background: var(--surface); }
 .empty-state { grid-column: 1 / -1; min-height: 190px; display: grid; place-content: center; justify-items: center; gap: 5px; color: var(--muted); border: 1px dashed #b9bbc0; }
 
 .session-view { height: 100%; display: grid; grid-template-rows: auto 40px minmax(0, 1fr); overflow: hidden; }

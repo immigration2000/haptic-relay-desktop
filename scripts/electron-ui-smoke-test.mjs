@@ -55,6 +55,7 @@ class CdpClient {
 const root = path.resolve(import.meta.dirname, '..');
 const relayPort = await getAvailablePort();
 const debugPort = await getAvailablePort();
+const directoryRoomName = `directory-${Date.now().toString(36)}`;
 const outputDirectory = path.join(os.tmpdir(), 'haptic-relay-ui-smoke');
 const electronExecutable = path.join(root, 'node_modules', 'electron', 'dist', process.platform === 'win32' ? 'electron.exe' : 'electron');
 const logs = { server: '', electron: '' };
@@ -76,6 +77,12 @@ let electron;
 let cdp;
 try {
   await waitForHttp(`http://127.0.0.1:${relayPort}/healthz`);
+  const seededRoom = await fetch(`http://127.0.0.1:${relayPort}/api/rooms`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ roomName: directoryRoomName, password: 'directory-secret', entryMode: 'request' })
+  });
+  assert.equal(seededRoom.status, 201, 'directory test room is created');
   electron = spawn(electronExecutable, ['.', `--remote-debugging-port=${debugPort}`, `--user-data-dir=${path.join(outputDirectory, `profile-${Date.now()}`)}`], {
     cwd: root,
     env: { ...process.env, ELECTRON_ENABLE_LOGGING: '1' },
@@ -97,11 +104,22 @@ try {
   await waitForExpression(cdp, `document.body.innerText.includes('방 찾기')`);
   const savedSession = await cdp.evaluate(`JSON.parse(localStorage.getItem('haptic-relay.demo-session.v1'))`);
   assert.deepEqual(savedSession, { username: 'user01', remembered: true }, 'demo login persists username only');
+  await clickButton(cdp, '서버 선택');
+  await clickButton(cdp, '사용자 서버 추가');
+  await setInputByLabel(cdp, '서버 이름', 'QA Relay');
+  await setInputByLabel(cdp, '서버 URL', `http://127.0.0.1:${relayPort}`);
+  await clickButton(cdp, '서버 사용');
+  await waitForExpression(cdp, `document.querySelectorAll('[data-room-card]').length === 1 && document.body.innerText.includes(${JSON.stringify(directoryRoomName)})`);
+  await waitForExpression(cdp, `!document.body.innerText.includes('심야 드라이브')`);
   await captureScreenshot(cdp, path.join(outputDirectory, '01-room-browser.png'));
   await cdp.evaluate(`document.querySelector('.room-card-open')?.click()`);
-  await waitForExpression(cdp, `document.querySelector('[role="dialog"]')?.textContent.includes('실제 릴레이나 하드웨어에 연결되지 않습니다')`);
-  await clickButton(cdp, '확인');
-  await setInputByPlaceholder(cdp, '방 이름, 소개, 태그 검색', '리듬');
+  await waitForExpression(cdp, `document.querySelector('[role="dialog"]')?.textContent.includes('초대 코드로 입장')`);
+  await waitForExpression(cdp, `(() => {
+    const labels = [...document.querySelectorAll('label')];
+    return labels.find(label => label.textContent.includes('방 이름'))?.querySelector('input')?.value === ${JSON.stringify(directoryRoomName)};
+  })()`);
+  await clickButton(cdp, '취소');
+  await setInputByPlaceholder(cdp, '방 이름, 소개, 태그 검색', directoryRoomName);
   await waitForExpression(cdp, `document.querySelectorAll('[data-room-card]').length === 1`);
   await setInputByPlaceholder(cdp, '방 이름, 소개, 태그 검색', '');
   await clickButton(cdp, '방 만들기');
