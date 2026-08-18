@@ -15,8 +15,8 @@
 
 ## 2. 공식 설치 파일 다운로드
 
-1. [Haptic Relay v0.1.1 Demo 3 릴리스](https://github.com/immigration2000/haptic-relay-desktop/releases/tag/v0.1.1-demo.3)를 엽니다.
-2. `Assets`에서 `Haptic.Relay-0.1.1-demo.3-win-x64.exe`를 내려받습니다.
+1. [Haptic Relay v0.1.1 Demo 4 릴리스](https://github.com/immigration2000/haptic-relay-desktop/releases/tag/v0.1.1-demo.4)를 엽니다.
+2. `Assets`에서 `Haptic.Relay-0.1.1-demo.4-win-x64.exe`를 내려받습니다.
 3. 필요한 경우 함께 제공되는 `.sha256` 파일도 내려받습니다.
 
 GitHub가 자동으로 제공하는 `Source code` ZIP/TAR 파일은 개발 소스입니다. 일반 사용자는 Windows EXE를 받아야 합니다.
@@ -26,7 +26,7 @@ GitHub가 자동으로 제공하는 `Source code` ZIP/TAR 파일은 개발 소�
 PowerShell에서 다음 명령을 실행합니다. 다운로드 위치가 다르면 `$file` 경로를 수정합니다.
 
 ```powershell
-$file = "$HOME\Downloads\Haptic.Relay-0.1.1-demo.3-win-x64.exe"
+$file = "$HOME\Downloads\Haptic.Relay-0.1.1-demo.4-win-x64.exe"
 $checksumFile = "$file.sha256"
 $expected = (Get-Content -LiteralPath $checksumFile).Split()[0].ToLowerInvariant()
 $actual = (Get-FileHash -Algorithm SHA256 -LiteralPath $file).Hash.ToLowerInvariant()
@@ -137,3 +137,5 @@ Remove-Item -LiteralPath $dataPath -Recurse
 - `신청입장` 방이면 스트리머가 입장 요청을 승인했는지 확인합니다.
 
 개발용 로컬 서버 실행과 상세 진단은 [데스크톱 무하드웨어 시연 설명서](DESKTOP_DEMO_TEST_GUIDE.md)와 [문제 해결 기록](TROUBLESHOOTING.md)을 참고합니다.
+
+실제 OSR/T-Code 장비를 연결하는 날에는 [하드웨어 작업자 현장 테스트](HARDWARE_SESSION_CHECKLIST.md)를 순서대로 진행합니다.
