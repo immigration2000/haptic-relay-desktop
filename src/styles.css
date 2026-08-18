@@ -171,6 +171,16 @@ button:disabled { cursor: not-allowed; opacity: .46; }
 .muted { color: var(--muted); font-size: 10px; line-height: 1.5; }
 .form-grid, .profile-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
 .hardware-row { display: grid; grid-template-columns: minmax(160px, 1fr) auto auto auto; gap: 6px; margin-bottom: 12px; }
+.hardware-output-monitor { display: grid; gap: 8px; min-height: 116px; margin-bottom: 12px; padding: 10px; border: 1px solid var(--divider); background: var(--surface-muted); }
+.hardware-output-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.hardware-output-heading span, .hardware-output-heading strong { display: inline-flex; align-items: center; gap: 5px; font-size: 9px; }
+.hardware-output-heading strong { color: var(--muted); }
+.hardware-output-heading strong.ok { color: var(--ok); }
+.hardware-output-monitor code { min-height: 30px; padding: 8px; overflow: auto; background: #2b2b2d; color: #d6ebff; font-size: 10px; white-space: pre-wrap; }
+.hardware-output-monitor dl { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 0; }
+.hardware-output-monitor dl > div { min-width: 0; }
+.hardware-output-monitor dt { color: var(--muted); font-size: 8px; }
+.hardware-output-monitor dd { margin: 2px 0 0; overflow: hidden; text-overflow: ellipsis; font-size: 9px; font-weight: 800; white-space: nowrap; }
 .button-row { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 11px; }
 .log-actions { margin: 0; }
 .field-value { color: var(--accent-strong); font-size: 11px; font-weight: 800; }

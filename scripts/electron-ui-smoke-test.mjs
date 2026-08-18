@@ -155,16 +155,22 @@ try {
   await cdp.call('Emulation.setDeviceMetricsOverride', { width: 1180, height: 780, deviceScaleFactor: 1, mobile: false });
   await clickButton(cdp, '하드웨어');
   await waitForExpression(cdp, `document.body.innerText.includes('DEVICE CONFIGURATION')`);
+  await waitForExpression(cdp, `document.querySelector('[data-hardware-output]')?.textContent.includes('T-Code 출력이 완료되면 표시됩니다.')`);
+  await assertNoDocumentOverflow(cdp, '1180x780 hardware output monitor');
   await captureScreenshot(cdp, path.join(outputDirectory, '07-hardware.png'));
+  await cdp.call('Emulation.setDeviceMetricsOverride', { width: 960, height: 640, deviceScaleFactor: 1, mobile: false });
+  await assertNoDocumentOverflow(cdp, '960x640 hardware output monitor');
+  await captureScreenshot(cdp, path.join(outputDirectory, '08-hardware-output-960x640.png'));
+  await cdp.call('Emulation.setDeviceMetricsOverride', { width: 1180, height: 780, deviceScaleFactor: 1, mobile: false });
   await clickButton(cdp, '보호 설정');
   await waitForExpression(cdp, `document.body.innerText.includes('MOTION PROTECTION')`);
-  await captureScreenshot(cdp, path.join(outputDirectory, '08-safety.png'));
+  await captureScreenshot(cdp, path.join(outputDirectory, '09-safety.png'));
   await clickButton(cdp, '로그');
   await waitForExpression(cdp, `document.body.innerText.includes('EVENT INSPECTOR')`);
-  await captureScreenshot(cdp, path.join(outputDirectory, '09-logs.png'));
+  await captureScreenshot(cdp, path.join(outputDirectory, '10-logs.png'));
   await cdp.call('Emulation.setDeviceMetricsOverride', { width: 960, height: 640, deviceScaleFactor: 1, mobile: false });
   await assertNoDocumentOverflow(cdp, '960x640 logs');
-  await captureScreenshot(cdp, path.join(outputDirectory, '10-logs-960x640.png'));
+  await captureScreenshot(cdp, path.join(outputDirectory, '11-logs-960x640.png'));
 
   cdp.send('Browser.close');
   await waitForExit(electron, 5_000);
@@ -181,9 +187,10 @@ try {
       path.join(outputDirectory, '05-automatic-pattern.png'),
       path.join(outputDirectory, '06-automatic-pattern-960x640.png'),
       path.join(outputDirectory, '07-hardware.png'),
-      path.join(outputDirectory, '08-safety.png'),
-      path.join(outputDirectory, '09-logs.png'),
-      path.join(outputDirectory, '10-logs-960x640.png')
+      path.join(outputDirectory, '08-hardware-output-960x640.png'),
+      path.join(outputDirectory, '09-safety.png'),
+      path.join(outputDirectory, '10-logs.png'),
+      path.join(outputDirectory, '11-logs-960x640.png')
     ]
   }, null, 2));
 } finally {

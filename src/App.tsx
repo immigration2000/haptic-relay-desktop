@@ -3,6 +3,7 @@ import { OctagonX } from 'lucide-react';
 import type { AppLogEntry, AppSettings, ApprovalRequest, EntryMode, HardwareProfile, HardwareProtection, MotionDemoMode, MotionMonitorSnapshot, MotionPatternConfig, PortInfo, ViewerSession } from './shared/protocol';
 import { createQrMatrix } from './qr-code';
 import { AppShell } from './ui/components/AppShell';
+import { HardwareOutputMonitor } from './ui/components/HardwareOutputMonitor';
 import { Modal } from './ui/components/Modal';
 import { MotionDemoPanel } from './ui/components/MotionDemoPanel';
 import { DEMO_ROOMS, RELAY_SERVERS } from './ui/demo-data';
@@ -584,6 +585,7 @@ export default function App() {
         <button disabled={isBusy || !selectedPort} onClick={connectHardware}>연결</button>
         <button disabled={isBusy} onClick={testHardware}>테스트</button>
       </div>
+      <HardwareOutputMonitor connected={hardwareConnected} />
       <div className="profile-grid">
         <label>
           Baudrate
