@@ -274,6 +274,10 @@ ipcMain.handle('room:start-host', (event, relayUrl: unknown, settings: unknown) 
   addLog({ level: 'info', source: 'room', message: 'room-create-requested' });
   return relay.createRoom(validateRelayUrl(relayUrl), validateRoomSettings(settings));
 });
+ipcMain.handle('room:list', (event, relayUrl: unknown) => {
+  assertTrustedSender(event);
+  return relay.listRooms(validateRelayUrl(relayUrl));
+});
 ipcMain.handle('room:join', (event, relayUrl: unknown, request: unknown) => {
   assertTrustedSender(event);
   const joinRequest = validateJoinRequest(request);

@@ -1,6 +1,6 @@
 import { io, Socket } from 'socket.io-client';
 import { performance } from 'node:perf_hooks';
-import type { ApprovalRequest, MotionFrame, RoomSettings, ViewerSession } from '../protocol.js';
+import type { ApprovalRequest, MotionFrame, RoomDirectoryResponse, RoomSettings, ViewerSession } from '../protocol.js';
 import { clamp01, maxHzToInterval, RELAY_MAX_HZ } from '../tuning.js';
 import { decodeMotionPacket, encodeMotionPacket } from '../motion-packet.js';
 import { MotionDelayBuffer } from './motion-delay-buffer.js';
@@ -244,6 +244,11 @@ export class RelayClient {
     };
   }
 
+  async listRooms(relayUrl: string) {
+    const directory = await getJson<RoomDirectoryResponse>(`${relayUrl}/api/rooms`);
+    return directory.rooms;
+  }
+
   async joinRoom(relayUrl: string, request: { displayName: string; roomName: string; password?: string }) {
     const encodedRoomName = encodeURIComponent(request.roomName);
     const join = await postJson<{ ok: true; roomName: string; relayUrl: string; viewerToken: string }>(`${relayUrl}/api/rooms/${encodedRoomName}/join`, request);
@@ -465,6 +470,15 @@ async function postJson<T>(url: string, body: unknown) {
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body)
   });
+  const payload = await response.json() as T & { ok?: boolean; reason?: string };
+  if (!response.ok || payload.ok === false) {
+    throw new Error(payload.reason ?? `request-failed:${response.status}`);
+  }
+  return payload as T;
+}
+
+async function getJson<T>(url: string) {
+  const response = await fetch(url);
   const payload = await response.json() as T & { ok?: boolean; reason?: string };
   if (!response.ok || payload.ok === false) {
     throw new Error(payload.reason ?? `request-failed:${response.status}`);

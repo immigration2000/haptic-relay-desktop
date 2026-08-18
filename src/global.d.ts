@@ -1,4 +1,4 @@
-import type { AppLogEntry, AppSettings, ApprovalRequest, HardwareOutputSnapshot, HardwareProfile, HardwareProtection, MotionDemoSnapshot, MotionMonitorSnapshot, MotionPatternConfig, PortInfo, RoomSettings, ViewerSession } from './shared/protocol';
+import type { AppLogEntry, AppSettings, ApprovalRequest, HardwareOutputSnapshot, HardwareProfile, HardwareProtection, MotionDemoSnapshot, MotionMonitorSnapshot, MotionPatternConfig, PortInfo, RoomDirectoryEntry, RoomSettings, ViewerSession } from './shared/protocol';
 
 type ViewerStatus = {
   roomName: string;
@@ -55,6 +55,7 @@ declare global {
       stopMotionDemo: () => Promise<{ streaming: boolean }>;
       setHardwareProtection: (protection: HardwareProtection) => Promise<{ protection: HardwareProtection }>;
       startHostRoom: (relayUrl: string, settings: RoomSettings) => Promise<{ roomName: string; entryMode: string; relayUrl: string }>;
+      listRooms: (relayUrl: string) => Promise<RoomDirectoryEntry[]>;
       joinRoom: (relayUrl: string, request: { displayName: string; roomName: string; password?: string }) => Promise<{ ok: boolean; reason?: string; roomName?: string }>;
       approveViewer: (socketId: string, approved: boolean) => Promise<unknown>;
       moderateViewer: (socketId: string, action: 'kick' | 'block') => Promise<unknown>;
