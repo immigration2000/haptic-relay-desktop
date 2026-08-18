@@ -120,9 +120,12 @@ io.on('connection', socket => {
     void forwardMotion(socket, frame.roomName, frame);
   });
 
-  socket.on('disconnect', () => {
+  socket.on('disconnect', reason => {
     const roomName = hostRoomsBySocket.get(socket.id);
-    if (roomName) scheduleHostCleanup(roomName, socket.id);
+    if (roomName) {
+      if (reason === 'client namespace disconnect') closeHostRoomImmediately(roomName, socket.id);
+      else scheduleHostCleanup(roomName, socket.id);
+    }
     pendingApprovals.delete(socket.id);
     hostRoomsBySocket.delete(socket.id);
     removeViewerSession(socket.id);
@@ -488,6 +491,14 @@ function scheduleHostCleanup(roomName: string, socketId: string) {
   hostCleanupTimers.set(roomName, timer);
 }
 
+function closeHostRoomImmediately(roomName: string, socketId: string) {
+  activeRooms.delete(roomName);
+  cancelHostCleanup(roomName);
+  void removeHostedRoom(roomName, socketId).catch(error => {
+    console.error('explicit host room cleanup failed', error);
+  });
+}
+
 function cancelHostCleanup(roomName: string) {
   const timer = hostCleanupTimers.get(roomName);
   if (!timer) return;
@@ -497,11 +508,7 @@ function cancelHostCleanup(roomName: string) {
 
 async function finalizeHostCleanup(roomName: string, socketId: string, timer: NodeJS.Timeout) {
   try {
-    const room = await roomRegistry.getRoom(roomName);
-    if (!room || room.hostSocketId !== socketId) return;
-
-    closeViewerSessions(roomName);
-    await roomRegistry.removeHostSocket(socketId);
+    await removeHostedRoom(roomName, socketId);
   } catch (error) {
     console.error('host room cleanup failed', error);
   } finally {
@@ -674,4 +681,12 @@ function validateRuntimeConfig() {
       throw new Error('insecure-production-metrics-token');
     }
   }
+}
+
+async function removeHostedRoom(roomName: string, socketId: string) {
+  const room = await roomRegistry.getRoom(roomName);
+  if (!room || room.hostSocketId !== socketId) return;
+
+  closeViewerSessions(roomName);
+  await roomRegistry.removeHostSocket(socketId);
 }

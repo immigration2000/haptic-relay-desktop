@@ -17,8 +17,8 @@ process.env.HAPTIC_CONTROL_TOKEN_SECRET = 'smoke-test-secret-that-is-longer-than
 process.env.HAPTIC_HOST_RECONNECT_GRACE_MS = '250';
 process.env.HAPTIC_RELAY_BURST_FRAMES = '4';
 process.env.HAPTIC_METRICS_TOKEN = 'smoke-metrics-token-that-is-longer-than-32-characters';
-process.env.HAPTIC_ROOM_CREATE_RATE_LIMIT = '3';
-process.env.HAPTIC_ROOM_JOIN_RATE_LIMIT = '7';
+process.env.HAPTIC_ROOM_CREATE_RATE_LIMIT = '4';
+process.env.HAPTIC_ROOM_JOIN_RATE_LIMIT = '8';
 process.env.HAPTIC_CONTROL_RATE_WINDOW_MS = '60000';
 
 const { closeRelayServer, relayServerReady } = await import('../dist-server/server/src/relay-server.js');
@@ -267,10 +267,35 @@ async function runSmokeTest() {
   await approvedEvent;
   record('approval accepted', approvalResponse.ok === true && approvalResponse.approved === true, JSON.stringify(approvalResponse));
 
-  host.disconnect();
+  host.io.engine.close();
   const reconnectedHost = await connectSocket();
   const rejoin = await emitWithAck(reconnectedHost, 'room:create', { token: created.payload.hostToken });
   record('host reconnect with existing token', rejoin.ok === true, JSON.stringify(rejoin));
+
+  const explicitRoomName = uniqueRoomName('explicit-close');
+  const explicitCreated = await post('/api/rooms', { roomName: explicitRoomName, entryMode: 'open' });
+  const explicitHost = await connectSocket();
+  await emitWithAck(explicitHost, 'room:create', { token: explicitCreated.payload.hostToken });
+  const explicitJoin = await post(`/api/rooms/${encodeURIComponent(explicitRoomName)}/join`, {
+    displayName: 'explicit-close-viewer'
+  });
+  const explicitViewer = await connectSocket();
+  await emitWithAck(explicitViewer, 'viewer:join', {
+    displayName: 'explicit-close-viewer',
+    token: explicitJoin.payload.viewerToken
+  });
+  const explicitClosedEvent = onceEvent(explicitViewer, 'viewer:removed');
+  const explicitCloseStartedAt = performance.now();
+  explicitHost.disconnect();
+  const explicitClosed = await explicitClosedEvent;
+  const explicitCloseElapsedMs = performance.now() - explicitCloseStartedAt;
+  const directoryAfterExplicitClose = await get('/api/rooms');
+  const explicitRoomStillListed = directoryAfterExplicitClose.payload.rooms?.some(room => room.roomName === explicitRoomName);
+  record(
+    'explicit host leave removes room immediately',
+    explicitClosed.reason === 'host-disconnected' && explicitCloseElapsedMs < 150 && explicitRoomStillListed === false,
+    `elapsed=${explicitCloseElapsedMs} listed=${explicitRoomStillListed}`
+  );
 
   const expiringRoomName = uniqueRoomName('expires');
   const expiringCreated = await post('/api/rooms', { roomName: expiringRoomName, entryMode: 'open' });
@@ -286,7 +311,7 @@ async function runSmokeTest() {
   });
 
   const hostClosedEvent = onceEvent(expiringViewer, 'viewer:removed');
-  expiringHost.disconnect();
+  expiringHost.io.engine.close();
   const hostClosed = await hostClosedEvent;
   await delay(50);
   const joinAfterClose = await post(`/api/rooms/${encodeURIComponent(expiringRoomName)}/join`, {
