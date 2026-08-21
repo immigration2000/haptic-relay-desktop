@@ -430,6 +430,7 @@ DSTOP
 - 서버, 앱 릴레이, 하드웨어 출력은 각각 최대 Hz를 환경변수로 제한합니다.
 - 서버 rate limit은 token bucket으로 처리해 60Hz 근처의 타이머 지터를 과도하게 드롭하지 않습니다.
 - SerialPort 출력은 backpressure를 고려해 최신 프레임만 큐에 남깁니다.
+- SerialPort write가 500ms 안에 완료되지 않거나 포트 `error`가 발생하면 해당 연결을 폐기하고, 명시적으로 재연결하기 전까지 추가 출력을 차단합니다.
 - 하드웨어는 새 motion frame이 일정 시간 없으면 자동으로 `DSTOP`과 0 위치 fallback을 출력합니다.
 - 앱은 최근 300개 이벤트를 main process 메모리 로그로 보관하고 UI에는 최근 80개를 표시합니다.
 - 이벤트 로그는 UI의 `저장` 버튼으로 JSON 파일로 export할 수 있습니다.

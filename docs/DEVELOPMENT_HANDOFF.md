@@ -140,24 +140,21 @@ position 0.5, interval 17ms -> L05000I17\n
 
 ## 6. 최우선 미완료 및 위험
 
-### P0. SerialPort write 미응답 시 조용한 영구 정지
+### 해결됨. SerialPort write 미응답 시 조용한 영구 정지
 
-2026-08-19 실기기 시연 조사에서 발견된 가장 중요한 버그입니다. 아직 `origin/main`에는 수정되지 않았습니다.
+2026-08-19 실기기 시연 조사에서 발견된 버그이며, 현재 작업 브랜치에서 수정했습니다. 기존 Demo 8 설치본에는 이 수정이 포함되지 않습니다.
 
-- `electron/services/hardware-controller.ts`의 `writePayload`에 timeout이 없습니다.
-- SerialPort write callback이 돌아오지 않으면 Promise가 영원히 pending입니다.
-- `flushLatest`의 `finally`가 실행되지 않아 `writing=true`가 고착됩니다.
-- 이후 `queueMotion`이 모두 조용히 무시됩니다.
-- `emergencyStop()`도 resolve되지 않아 UI가 처리 중에 멈출 수 있습니다.
-- 실패 callback 자체가 없으므로 오류 로그도 남지 않는 것이 지문입니다.
+- 모든 SerialPort write에 500ms bounded timeout을 적용했습니다.
+- timeout 또는 포트 `error` 발생 시 연결을 fail-closed로 폐기하고 active write, timer, 최신 대기 frame을 정리합니다.
+- 실패 후에는 명시적으로 재연결하기 전까지 추가 motion을 거부합니다.
+- motion과 긴급정지 실패를 로그에 남기고, 긴급정지는 무한 대기하지 않고 실패 결과를 반환합니다.
+- Node Writable처럼 active callback이 다음 write를 막는 fake port로 callback 미호출, 재연결 복구, 긴급정지 timeout, 포트 error 회귀를 검증합니다.
 
-권장 수정 순서:
+남은 확인:
 
-1. `writePayload`에 bounded timeout, reject, 실패 로그 추가
-2. timeout/오류 뒤 `writing`과 pending write 상태가 항상 해제되는지 보장
-3. 긴급정지가 일반 motion write 고착과 독립적으로 빠르게 실패하거나 복구하게 설계
-4. probe 이후 SerialPort 수신 데이터를 계속 배수할 필요가 있는지 실기기로 확인
-5. fake port가 callback을 호출하지 않는 회귀 테스트부터 RED로 작성
+1. 실제 OSR/T-Code 장비에서 write timeout, 케이블 단절, 재연결을 확인
+2. probe 이후 SerialPort 수신 데이터를 계속 배수할 필요가 있는지 실기기로 확인
+3. 수정이 포함된 새 설치본을 빌드한 뒤 양쪽 PC에서 재검증
 
 공유 노트는 `scripts/hardware-write-stall-repro.mjs`가 로컬 `study/annotated` 브랜치에 있었다고 기록하지만, 2026-08-21 현재 이 checkout과 전체 Projects 검색에서는 해당 파일을 찾지 못했습니다. 새 채팅은 파일이 있다고 가정하지 말고 다른 clone/worktree를 찾거나 테스트를 재작성해야 합니다.
 
@@ -243,15 +240,14 @@ npm.cmd run release:check
 
 ## 9. 권장 다음 작업 순서
 
-1. P0 serial write callback stall 회귀 테스트를 재작성하고 timeout/복구/긴급정지 경로 수정
-2. 실제 OSR 장비로 수동, 삼각 반복, 시연 중지 후 재시작, 긴급정지, 케이블 단절/재연결 확인
-3. PC와 노트북 Demo 8 설치본으로 `https://relay.syncra.uk` 외부 방 생성/입장/방 종료 확인
-4. 사용자 제작 스크립트 모델과 안전 제한 설계
-5. 동작 녹화/재생
-6. 진단 패키지 기반 버그 리포트 기능
-7. 휴대폰 데모 서버에서 호스팅 relay로 이전
+1. 실제 OSR 장비로 수동, 삼각 반복, 시연 중지 후 재시작, 긴급정지, write timeout/케이블 단절/재연결 확인
+2. 수정이 포함된 설치본을 빌드하고 PC와 노트북에서 `https://relay.syncra.uk` 외부 방 생성/입장/방 종료 확인
+3. 사용자 제작 스크립트 모델과 안전 제한 설계
+4. 동작 녹화/재생
+5. 진단 패키지 기반 버그 리포트 기능
+6. 휴대폰 데모 서버에서 호스팅 relay로 이전
 
-현재 추천은 1번입니다. 사람 몸에 닿는 장비에서 긴급정지가 pending 상태에 묶일 수 있으므로 다른 기능보다 먼저 처리해야 합니다.
+현재 추천은 1번입니다. 자동 회귀 검증은 통과했지만 사람 몸에 닿는 실기기 안전 경로는 별도 합격이 필요합니다.
 
 ## 10. 관련 문서
 
