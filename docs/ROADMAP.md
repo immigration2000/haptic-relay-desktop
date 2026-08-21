@@ -1,5 +1,10 @@
 # Roadmap
 
+## Current Priority
+
+- [ ] Restore AWS relay server access and verify SSH, local `/healthz`, and external HTTPS in that order
+- [ ] Decide whether to move `relay.syncra.uk` from the current phone tunnel to AWS after direct AWS verification
+
 ## Phase 1: Desktop MVP
 
 - Host room creation
@@ -12,7 +17,7 @@
 - [x] Viewer local receipt-time motion delay
 - [x] Hardware-free automatic motion patterns (sine, triangle, pulse, sawtooth)
 - [x] Serial write timeout, fail-closed disconnect, and bounded emergency-stop failure (P0)
-- [ ] Physical OSR/T-Code end-to-end acceptance
+- [ ] Physical OSR/T-Code end-to-end acceptance (deferred: port discovery, D1/D2, limited motion, stop/restart, emergency stop, cable disconnect/reconnect)
 - [ ] Viewer local motion interpolation (next Phase 1 task)
 - [ ] Motion pattern recording and playback
 - [ ] Network diagnostics dashboard
