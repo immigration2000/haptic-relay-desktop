@@ -4,6 +4,7 @@
 
 ## 문서
 
+- [새 채팅 개발 인계](docs/DEVELOPMENT_HANDOFF.md)
 - [아키텍처](docs/ARCHITECTURE.md)
 - [구현 설명서](docs/IMPLEMENTATION_GUIDE.md)
 - [배포 가이드](docs/DEPLOYMENT.md)

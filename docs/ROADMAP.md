@@ -11,6 +11,7 @@
 - [x] Viewer sequence filtering
 - [x] Viewer local receipt-time motion delay
 - [x] Hardware-free automatic motion patterns (sine, triangle, pulse, sawtooth)
+- [ ] Serial write timeout and emergency-stop recovery (P0)
 - [ ] Physical OSR/T-Code end-to-end acceptance
 - [ ] Viewer local motion interpolation (next Phase 1 task)
 - [ ] Motion pattern recording and playback

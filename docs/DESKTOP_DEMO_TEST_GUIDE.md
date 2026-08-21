@@ -33,7 +33,7 @@ npm.cmd --version
 
 ### 방법 A: GitHub ZIP 다운로드
 
-1. GitHub 저장소의 `feature/viewer-motion-delay-pr` 브랜치를 엽니다.
+1. GitHub 저장소의 `main` 브랜치를 엽니다.
 2. `Code` 버튼을 누릅니다.
 3. `Download ZIP`을 선택합니다.
 4. ZIP 파일을 원하는 폴더에 압축 해제합니다.
@@ -42,7 +42,7 @@ npm.cmd --version
 ### 방법 B: Git 사용
 
 ```powershell
-git clone --branch feature/viewer-motion-delay-pr https://github.com/immigration2000/haptic-relay-desktop.git
+git clone --branch main https://github.com/immigration2000/haptic-relay-desktop.git
 cd haptic-relay-desktop
 ```
 
