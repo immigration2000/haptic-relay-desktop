@@ -64,6 +64,8 @@ type ActiveWrite = {
 
 export class HardwareController {
   private port: HardwarePort | undefined;
+  private failedPort: HardwarePort | undefined;
+  private failedPortCleanup: Promise<void> | undefined;
   private readonly options: HardwareControllerOptions;
   private profile = DEFAULT_HARDWARE_PROFILE;
   private protection = DEFAULT_HARDWARE_PROTECTION;
@@ -79,6 +81,7 @@ export class HardwareController {
   private readonly writeTimeoutMs: number;
   private connectionStatus: HardwareConnectionStatus = { connected: false };
   private safeDisconnectInProgress = false;
+  private operationGeneration = 0;
 
   constructor(options: HardwareControllerOptions | HardwareControllerOptions['onLog'] = {}) {
     this.options = typeof options === 'function' ? { onLog: options } : options;
@@ -154,6 +157,7 @@ export class HardwareController {
   }
 
   async disconnect() {
+    this.operationGeneration += 1;
     if (this.flushTimer) {
       clearTimeout(this.flushTimer);
       this.flushTimer = undefined;
@@ -168,6 +172,7 @@ export class HardwareController {
         this.detachPortCloseHandler(port);
       }
       this.port = undefined;
+      await this.retryFailedPortCleanup();
       this.reportConnectionStatus({ connected: false, reason: 'hardware-disconnected', unexpected: false });
       return { connected: false };
     }
@@ -203,6 +208,7 @@ export class HardwareController {
       return { queued: false, reason: 'protection-paused' };
     }
 
+    this.operationGeneration += 1;
     this.latestFrame = protectedFrame;
     this.scheduleSafetyStop();
     this.scheduleFlush();
@@ -210,6 +216,7 @@ export class HardwareController {
   }
 
   async emergencyStop() {
+    this.operationGeneration += 1;
     if (this.flushTimer) {
       clearTimeout(this.flushTimer);
       this.flushTimer = undefined;
@@ -256,10 +263,14 @@ export class HardwareController {
       return { tested: false, reason: 'hardware-not-connected' };
     }
 
+    const operationGeneration = ++this.operationGeneration;
     this.options.onLog?.({ level: 'info', source: 'hardware', message: 'hardware-test-started' });
 
     try {
       for (const position of HARDWARE_TEST_POSITIONS) {
+        if (operationGeneration !== this.operationGeneration) {
+          return { tested: false, reason: 'hardware-test-cancelled' };
+        }
         const protectedFrame = applyProtection({
           intensity: 0.25,
           position,
@@ -276,6 +287,9 @@ export class HardwareController {
           intervalMs: HARDWARE_TEST_STEP_DELAY_MS
         });
         await this.writePayload(payload);
+        if (operationGeneration !== this.operationGeneration) {
+          return { tested: false, reason: 'hardware-test-cancelled' };
+        }
         this.reportOutput('test', payload);
         await delay(HARDWARE_TEST_STEP_DELAY_MS);
       }
@@ -286,7 +300,7 @@ export class HardwareController {
       this.options.onLog?.({ level: 'error', source: 'hardware', message: 'hardware-test-failed', details: formatError(error) });
       throw error;
     } finally {
-      await this.emergencyStop();
+      if (operationGeneration === this.operationGeneration) await this.emergencyStop();
       this.options.onLog?.({ level: 'info', source: 'hardware', message: 'hardware-test-finished' });
     }
   }
@@ -393,8 +407,12 @@ export class HardwareController {
         settled = true;
         if (timeout) clearTimeout(timeout);
         if (activeWrite) this.activeWrites.delete(activeWrite);
-        if (error) reject(error);
-        else resolve();
+        if (!error) {
+          resolve();
+          return;
+        }
+        if (this.port === port) this.failPort(port, error, 'hardware-write-failed');
+        reject(error);
       };
 
       activeWrite = { port, fail: finish };
@@ -424,6 +442,7 @@ export class HardwareController {
   private failPort(port: HardwarePort, error: Error, reason: string) {
     if (this.port !== port) return;
     this.port = undefined;
+    this.operationGeneration += 1;
     if (this.flushTimer) {
       clearTimeout(this.flushTimer);
       this.flushTimer = undefined;
@@ -440,20 +459,48 @@ export class HardwareController {
     const errorHandler = this.portErrorHandlers.get(port);
     const closeHandler = this.portCloseHandlers.get(port);
     if (!port.isOpen) {
+      if (this.failedPort === port) this.failedPort = undefined;
       this.detachPortErrorHandler(port, errorHandler);
       this.detachPortCloseHandler(port, closeHandler);
       return;
     }
+    this.failedPort = port;
+    const cleanup = this.closeFailedPort(port, errorHandler, closeHandler).catch(() => undefined);
+    this.failedPortCleanup = cleanup;
+    void cleanup.finally(() => {
+      if (this.failedPortCleanup === cleanup) this.failedPortCleanup = undefined;
+    });
+  }
+
+  private async retryFailedPortCleanup() {
+    if (this.failedPortCleanup) await this.failedPortCleanup;
+    const port = this.failedPort;
+    if (!port) return;
+    const errorHandler = this.portErrorHandlers.get(port);
+    const closeHandler = this.portCloseHandlers.get(port);
+    if (!port.isOpen) {
+      this.failedPort = undefined;
+      this.detachPortErrorHandler(port, errorHandler);
+      this.detachPortCloseHandler(port, closeHandler);
+      return;
+    }
+    await this.closeFailedPort(port, errorHandler, closeHandler);
+  }
+
+  private async closeFailedPort(
+    port: HardwarePort,
+    errorHandler: ((error: Error) => void) | undefined,
+    closeHandler: (() => void) | undefined
+  ) {
     try {
-      port.close(closeError => {
-        if (closeError) {
-          this.options.onLog?.({ level: 'error', source: 'hardware', message: 'hardware-port-close-failed', details: formatError(closeError) });
-        }
-        this.schedulePortHandlersDetach(port, errorHandler, closeHandler);
+      await new Promise<void>((resolve, reject) => {
+        port.close(error => (error ? reject(error) : resolve()));
       });
-    } catch (closeError) {
-      this.options.onLog?.({ level: 'error', source: 'hardware', message: 'hardware-port-close-failed', details: formatError(closeError) });
+      if (this.failedPort === port) this.failedPort = undefined;
       this.schedulePortHandlersDetach(port, errorHandler, closeHandler);
+    } catch (error) {
+      this.options.onLog?.({ level: 'error', source: 'hardware', message: 'hardware-port-close-failed', details: formatError(error) });
+      throw error;
     }
   }
 

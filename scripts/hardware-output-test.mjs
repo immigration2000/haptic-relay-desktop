@@ -10,6 +10,7 @@ class FakePort extends EventEmitter {
     this.isOpen = false;
     this.writes = [];
     this.failNextWrite = false;
+    this.throwNextWrite = false;
     this.failNextClose = false;
     this.stallNextWrite = false;
     this.activeWrite = undefined;
@@ -41,6 +42,10 @@ class FakePort extends EventEmitter {
   }
 
   write(payload, callback) {
+    if (this.throwNextWrite) {
+      this.throwNextWrite = false;
+      throw new Error('serial-write-threw');
+    }
     this.writes.push(payload);
     const write = {
       callback,
@@ -92,7 +97,7 @@ await controller.connect('COM9', {
 });
 
 controller.queueMotion({ position: 0.5, intensity: 0.25, timestamp: Date.now() });
-await delay(50);
+await waitFor(() => outputs.length === 1);
 assert.equal(outputs.length, 1);
 assert.deepEqual(outputs[0], {
   kind: 'motion',
@@ -105,17 +110,30 @@ assert.ok(Number.isFinite(outputs[0].completedAt));
 
 port.failNextWrite = true;
 controller.queueMotion({ position: 0.7, intensity: 0.25, timestamp: Date.now() });
-await delay(50);
+await waitFor(() => !controller.getConnectionStatus().connected);
 assert.equal(outputs.length, 1, 'failed writes do not report successful output');
 assert.ok(logs.some(entry => entry.message === 'hardware-motion-write-failed'));
+assert.deepEqual(
+  controller.queueMotion({ position: 0.8, intensity: 0.25, timestamp: Date.now() }),
+  { queued: false, reason: 'hardware-not-connected' },
+  'a callback write error fails closed instead of accepting more motion'
+);
+
+await controller.connect('COM9', {
+  baudRate: 115200,
+  linearAxis: 'L0',
+  strokeMin: 0,
+  strokeMax: 1,
+  invertPosition: false
+});
 
 const outputsBeforeStall = outputs.length;
 port.stallNextWrite = true;
 controller.queueMotion({ position: 0.6, intensity: 0.25, timestamp: Date.now() });
-await delay(50);
+await waitFor(() => logs.some(entry => entry.message === 'hardware-motion-write-failed' && entry.details === 'hardware-write-timeout'));
 assert.ok(
   logs.some(entry => entry.message === 'hardware-motion-write-failed' && entry.details === 'hardware-write-timeout'),
-  'a stalled motion write is rejected after the bounded timeout'
+  `a stalled motion write is rejected after the bounded timeout: ${JSON.stringify(logs)}`
 );
 assert.equal(port.closeErrorHadListener, true, 'close-induced write errors retain an error listener');
 assert.deepEqual(
@@ -132,7 +150,7 @@ await controller.connect('COM9', {
   invertPosition: false
 });
 controller.queueMotion({ position: 0.8, intensity: 0.25, timestamp: Date.now() });
-await delay(50);
+await waitFor(() => outputs.length === outputsBeforeStall + 1);
 assert.equal(outputs.length, outputsBeforeStall + 1, 'motion output recovers after reconnecting the failed port');
 assert.equal(outputs.at(-1).command, 'L08000I17');
 
@@ -190,6 +208,35 @@ assert.deepEqual(
 );
 
 await controller.disconnect();
+
+const cancelledPatternOutputs = [];
+const cancelledPatternPort = new FakePort('COM19');
+const cancelledPatternController = new HardwareController({
+  createPort: () => cancelledPatternPort,
+  onOutput: output => cancelledPatternOutputs.push(output),
+  probeTimeoutMs: 0,
+  writeTimeoutMs: 20
+});
+await cancelledPatternController.connect('COM19', {
+  baudRate: 115200,
+  linearAxis: 'L0',
+  strokeMin: 0.2,
+  strokeMax: 0.8,
+  stopPosition: 0.3,
+  invertPosition: false
+});
+const cancelledPattern = cancelledPatternController.runTestPattern();
+await delay(40);
+assert.deepEqual(await cancelledPatternController.emergencyStop(), { stopped: true });
+assert.deepEqual(await cancelledPattern, { tested: false, reason: 'hardware-test-cancelled' });
+const cancellationStopIndex = cancelledPatternOutputs.findIndex(output => output.kind === 'stop');
+assert.notEqual(cancellationStopIndex, -1, 'emergency stop output is recorded during the test pattern');
+assert.equal(
+  cancelledPatternOutputs.slice(cancellationStopIndex + 1).some(output => output.kind === 'test'),
+  false,
+  'no test motion is written after an emergency stop cancels the pattern'
+);
+await cancelledPatternController.disconnect();
 
 const probePort = new FakePort();
 const probeController = new HardwareController({
@@ -251,11 +298,11 @@ closeFailurePort.failNextClose = true;
 await assert.rejects(closeFailureController.disconnect(), /serial-close-failed/);
 assert.equal(closeFailurePort.isOpen, true, 'a failed close leaves the physical port open');
 assert.equal(
-  closeFailureController.queueMotion({ position: 0.5, intensity: 0.25, timestamp: Date.now() }).queued,
+closeFailureController.queueMotion({ position: 0.5, intensity: 0.25, timestamp: Date.now() }).queued,
   true,
   'a failed disconnect restores the open port so it can be controlled or disconnected again'
 );
-await delay(50);
+await waitFor(() => closeFailurePort.writes.some(payload => payload.trim() === 'L05000I17'));
 await closeFailureController.disconnect();
 
 const safeStatuses = [];
@@ -402,8 +449,59 @@ await legacyStopController.emergencyStop();
 assert.match(legacyStopPort.writes.at(-1).trim(), /^DSTOP\nL02500I1$/);
 await legacyStopController.disconnect();
 
+const thrownWritePort = new FakePort('COM20');
+const thrownWriteController = new HardwareController({
+  createPort: () => thrownWritePort,
+  probeTimeoutMs: 0,
+  writeTimeoutMs: 20
+});
+await thrownWriteController.connect('COM20', {
+  baudRate: 115200,
+  linearAxis: 'L0',
+  strokeMin: 0,
+  strokeMax: 1,
+  invertPosition: false
+});
+thrownWritePort.throwNextWrite = true;
+thrownWriteController.queueMotion({ position: 0.5, intensity: 0.25, timestamp: Date.now() });
+await waitFor(() => !thrownWriteController.getConnectionStatus().connected);
+assert.deepEqual(
+  thrownWriteController.queueMotion({ position: 0.6, intensity: 0.25, timestamp: Date.now() }),
+  { queued: false, reason: 'hardware-not-connected' },
+  'a synchronous write exception fails closed'
+);
+
+const failedCleanupPort = new FakePort('COM21');
+const failedCleanupController = new HardwareController({
+  createPort: () => failedCleanupPort,
+  probeTimeoutMs: 0,
+  writeTimeoutMs: 20
+});
+await failedCleanupController.connect('COM21', {
+  baudRate: 115200,
+  linearAxis: 'L0',
+  strokeMin: 0,
+  strokeMax: 1,
+  invertPosition: false
+});
+failedCleanupPort.stallNextWrite = true;
+failedCleanupPort.failNextClose = true;
+failedCleanupController.queueMotion({ position: 0.5, intensity: 0.25, timestamp: Date.now() });
+await waitFor(() => !failedCleanupPort.failNextClose && !failedCleanupController.getConnectionStatus().connected);
+assert.equal(failedCleanupPort.isOpen, true, 'failed fail-closed cleanup retains an open OS port');
+await failedCleanupController.disconnect();
+assert.equal(failedCleanupPort.isOpen, false, 'explicit disconnect retries closing a failed port cleanup');
+
 console.log('hardware output tests passed');
 
 function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function waitFor(predicate, timeoutMs = 250) {
+  const deadline = Date.now() + timeoutMs;
+  while (!predicate()) {
+    if (Date.now() >= deadline) throw new Error('condition-wait-timeout');
+    await delay(5);
+  }
 }

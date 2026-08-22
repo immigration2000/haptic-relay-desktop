@@ -86,7 +86,7 @@ export default function App() {
   const [viewerPage, setViewerPage] = useState<ViewerPage>('join');
   const [hostTab, setHostTab] = useState<SessionTab>('overview');
   const [viewerTab, setViewerTab] = useState<SessionTab>('receive');
-  const [relayUrl, setRelayUrl] = useState(import.meta.env.VITE_RELAY_URL ?? 'https://relay.syncra.uk');
+  const [relayUrl, setRelayUrl] = useState(import.meta.env.VITE_RELAY_URL ?? RELAY_SERVERS[0].url);
   const [displayName, setDisplayName] = useState('viewer-01');
   const [roomName, setRoomName] = useState('studio-main');
   const [password, setPassword] = useState('');
@@ -698,7 +698,7 @@ export default function App() {
       <div className="profile-grid">
         <label>
           Baudrate
-          <select value={hardwareProfile.baudRate} onChange={event => updateHardwareProfile({ baudRate: Number(event.target.value) })}>
+          <select value={hardwareProfile.baudRate} disabled={hardwareConnected || isBusy} onChange={event => updateHardwareProfile({ baudRate: Number(event.target.value) })}>
             <option value={9600}>9600</option>
             <option value={57600}>57600</option>
             <option value={115200}>115200</option>
@@ -708,19 +708,19 @@ export default function App() {
         </label>
         <label>
           Stroke 축
-          <input value={hardwareProfile.linearAxis} onChange={event => updateHardwareProfile({ linearAxis: event.target.value.toUpperCase() })} />
+          <input value={hardwareProfile.linearAxis} disabled={hardwareConnected || isBusy} onChange={event => updateHardwareProfile({ linearAxis: event.target.value.toUpperCase() })} />
         </label>
         <label>
           진동 축
-          <input value={hardwareProfile.vibrationAxis ?? ''} onChange={event => updateHardwareProfile({ vibrationAxis: event.target.value.toUpperCase() })} placeholder="선택, 예: V0" />
+          <input value={hardwareProfile.vibrationAxis ?? ''} disabled={hardwareConnected || isBusy} onChange={event => updateHardwareProfile({ vibrationAxis: event.target.value.toUpperCase() })} placeholder="선택, 예: V0" />
         </label>
         <label>
           최소 위치
-          <input type="number" min="0" max="1" step="0.01" value={hardwareProfile.strokeMin} onChange={event => updateHardwareProfile({ strokeMin: Number(event.target.value) })} />
+          <input type="number" min="0" max="1" step="0.01" value={hardwareProfile.strokeMin} disabled={hardwareConnected || isBusy} onChange={event => updateHardwareProfile({ strokeMin: Number(event.target.value) })} />
         </label>
         <label>
           최대 위치
-          <input type="number" min="0" max="1" step="0.01" value={hardwareProfile.strokeMax} onChange={event => updateHardwareProfile({ strokeMax: Number(event.target.value) })} />
+          <input type="number" min="0" max="1" step="0.01" value={hardwareProfile.strokeMax} disabled={hardwareConnected || isBusy} onChange={event => updateHardwareProfile({ strokeMax: Number(event.target.value) })} />
         </label>
         <label>
           긴급 정지 위치
@@ -735,13 +735,13 @@ export default function App() {
           />
         </label>
         <label className="checkbox-row">
-          <input type="checkbox" checked={hardwareProfile.invertPosition} onChange={event => updateHardwareProfile({ invertPosition: event.target.checked })} />
+          <input type="checkbox" checked={hardwareProfile.invertPosition} disabled={hardwareConnected || isBusy} onChange={event => updateHardwareProfile({ invertPosition: event.target.checked })} />
           방향 반전
         </label>
       </div>
       <div className="button-row">
         <button disabled={isBusy || settingsLoading || !savedSettings} onClick={saveSettings}>설정 저장</button>
-        <button disabled={isBusy || settingsLoading || !savedSettings} onClick={loadSettings}>설정 불러오기</button>
+        <button disabled={isBusy || settingsLoading || !savedSettings || hardwareConnected} onClick={loadSettings}>설정 불러오기</button>
       </div>
     </section>
   );
@@ -1221,6 +1221,11 @@ function formatReason(reason: string) {
     'room-stop-failed': '긴급 정지 전송에 실패했습니다',
     'host-disconnected': '스트리머 연결이 종료되었습니다',
     'hardware-stop-write-failed': '긴급 정지 명령을 하드웨어에 쓰지 못했습니다',
+    'hardware-write-timeout': '하드웨어 쓰기 응답 시간이 초과되어 연결을 종료했습니다',
+    'hardware-write-failed': '하드웨어 쓰기에 실패하여 연결을 종료했습니다',
+    'hardware-port-error': '하드웨어 포트 오류로 연결이 종료되었습니다',
+    'hardware-port-closed': '하드웨어 포트 연결이 끊겼습니다',
+    'hardware-disconnected-stop-failed': '정지 명령에 실패했습니다. 장비 전원을 직접 차단하세요',
     'hardware-test-failed': '하드웨어 테스트에 실패했습니다',
     'invalid-hardware-profile': '하드웨어 프로필 설정이 올바르지 않습니다',
     'invalid-baud-rate': 'baudrate 값이 올바르지 않습니다',
@@ -1229,6 +1234,7 @@ function formatReason(reason: string) {
     'invalid-stroke-range': '최소 위치는 최대 위치보다 작아야 합니다',
     'invalid-strokeMin': '최소 위치는 0부터 1 사이여야 합니다',
     'invalid-strokeMax': '최대 위치는 0부터 1 사이여야 합니다',
+    'invalid-stop-position': '긴급 정지 위치는 최소 위치와 최대 위치 사이여야 합니다',
     'invalid-hardware-protection': '보호 옵션 설정이 올바르지 않습니다',
     'unsupported-settings-version': '지원하지 않는 설정 파일 버전입니다',
     'invalid-protection-position-range': '보호 최소 위치는 최대 위치보다 작아야 합니다',

@@ -1,12 +1,14 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-const [mainSource, preloadSource, appSource, motionDemoPanelSource, roomSessionSource] = await Promise.all([
+const [mainSource, preloadSource, appSource, motionDemoPanelSource, roomSessionSource, demoDataSource, stylesSource] = await Promise.all([
   readFile(new URL('../dist-electron/main.js', import.meta.url), 'utf8'),
   readFile(new URL('../dist-electron/preload.cjs', import.meta.url), 'utf8'),
   readFile(new URL('../src/App.tsx', import.meta.url), 'utf8'),
   readFile(new URL('../src/ui/components/MotionDemoPanel.tsx', import.meta.url), 'utf8'),
-  readFile(new URL('../src/ui/views/RoomSessionView.tsx', import.meta.url), 'utf8')
+  readFile(new URL('../src/ui/views/RoomSessionView.tsx', import.meta.url), 'utf8'),
+  readFile(new URL('../src/ui/demo-data.ts', import.meta.url), 'utf8'),
+  readFile(new URL('../src/styles.css', import.meta.url), 'utf8')
 ]);
 
 function sourceSection(source, start, end) {
@@ -78,6 +80,25 @@ assert.match(hardwarePanelSource, /value=\{hardwareProfile\.stopPosition\}/);
 assert.match(hardwarePanelSource, /disabled=\{hardwareConnected \|\| isBusy\}/);
 assert.match(hardwarePanelSource, /updateHardwareProfile\(\{ stopPosition: Number\(event\.target\.value\) \}\)/);
 assert.match(appSource, /stopPosition:\s*Math\.min\(high, Math\.max\(low, next\.stopPosition\)\)/);
+assert.match(hardwarePanelSource, /Baudrate[\s\S]*?<select[^>]*disabled=\{hardwareConnected \|\| isBusy\}/);
+assert.match(hardwarePanelSource, /최소 위치[\s\S]*?<input[^>]*disabled=\{hardwareConnected \|\| isBusy\}/);
+assert.match(hardwarePanelSource, /최대 위치[\s\S]*?<input[^>]*disabled=\{hardwareConnected \|\| isBusy\}/);
+assert.match(hardwarePanelSource, /disabled=\{isBusy \|\| settingsLoading \|\| !savedSettings \|\| hardwareConnected\} onClick=\{loadSettings\}>설정 불러오기/);
+assert.match(demoDataSource, /\[\s*\{ id: ['"]aws-main['"], name: ['"]AWS 메인 릴레이['"], url: ['"]https:\/\/aws-relay\.syncra\.uk['"]/);
+assert.match(demoDataSource, /\{ id: ['"]phone-backup['"], name: ['"]휴대폰 예비 릴레이['"], url: ['"]https:\/\/relay\.syncra\.uk['"]/);
+assert.doesNotMatch(demoDataSource, /example\.com/);
+assert.match(appSource, /useState\(import\.meta\.env\.VITE_RELAY_URL \?\? RELAY_SERVERS\[0\]\.url\)/);
+assert.match(stylesSource, /\.hardware-row\s*\{[^}]*grid-template-columns:\s*minmax\(160px, 1fr\) repeat\(4, auto\)/);
+for (const reason of [
+  'hardware-write-timeout',
+  'hardware-write-failed',
+  'hardware-port-error',
+  'hardware-port-closed',
+  'hardware-disconnected-stop-failed',
+  'invalid-stop-position'
+]) {
+  assert.match(appSource, new RegExp(`['"]${reason}['"]\\s*:`), `missing Korean reason mapping: ${reason}`);
+}
 assert.match(mainSource, /async function readSettingsInTransaction\(writeAtomically\)/);
 assert.match(mainSource, /viewer:set-motion-delay[\s\S]*?getSettingsStore\(\)\.exclusive\(async \(?writeAtomically\)? => \{[\s\S]*?readSettingsInTransaction\(writeAtomically\)[\s\S]*?await writeAtomically\(settings\)/);
 assert.match(loadSettingsSource, /const requestId = \+\+settingsLoadRequestId\.current/);
@@ -91,7 +112,7 @@ assert.match(saveSettingsSource, /setAppliedMotionDelayMs\(result\.settings\.pla
 assert.match(saveSettingsSource, /setSavedSettings\(result\.settings\)/);
 assert.doesNotMatch(saveSettingsSource, /setMotionDelayMs\(/);
 assert.match(hardwarePanelSource, /<button disabled=\{isBusy \|\| settingsLoading \|\| !savedSettings\} onClick=\{saveSettings\}/);
-assert.match(hardwarePanelSource, /<button disabled=\{isBusy \|\| settingsLoading \|\| !savedSettings\} onClick=\{loadSettings\}/);
+assert.match(hardwarePanelSource, /<button disabled=\{isBusy \|\| settingsLoading \|\| !savedSettings \|\| hardwareConnected\} onClick=\{loadSettings\}/);
 assert.match(motionDelayPanelSource, /<section className="panel">/);
 assert.match(motionDelayPanelSource, /<input className="range"[\s\S]*?disabled=\{isBusy \|\| settingsLoading \|\| !savedSettings\}/);
 assert.match(appSource, /const hasPendingMotionDelay = motionDelayMs !== appliedMotionDelayMs;/);
