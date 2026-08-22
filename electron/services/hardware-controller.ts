@@ -71,6 +71,7 @@ export class HardwareController {
   private safetyTimer: NodeJS.Timeout | undefined;
   private writing = false;
   private readonly portErrorHandlers = new Map<HardwarePort, (error: Error) => void>();
+  private readonly portCloseHandlers = new Map<HardwarePort, () => void>();
   private readonly activeWrites = new Set<ActiveWrite>();
   private readonly minIntervalMs = maxHzToInterval(HARDWARE_MAX_HZ);
   private readonly safetyTimeoutMs = normalizeOptionalTimeoutMs(HARDWARE_SAFETY_TIMEOUT_MS);
@@ -161,7 +162,10 @@ export class HardwareController {
 
     const port = this.port;
     if (!port?.isOpen) {
-      if (port) this.detachPortErrorHandler(port);
+      if (port) {
+        this.detachPortErrorHandler(port);
+        this.detachPortCloseHandler(port);
+      }
       this.port = undefined;
       this.reportConnectionStatus({ connected: false, reason: 'hardware-disconnected', unexpected: false });
       return { connected: false };
@@ -170,6 +174,7 @@ export class HardwareController {
     this.port = undefined;
     this.failActiveWrites(port, new Error('hardware-disconnected'));
     const errorHandler = this.portErrorHandlers.get(port);
+    const closeHandler = this.portCloseHandlers.get(port);
     try {
       await new Promise<void>((resolve, reject) => {
         port.close(error => (error ? reject(error) : resolve()));
@@ -178,7 +183,7 @@ export class HardwareController {
       if (!this.port && port.isOpen) this.port = port;
       throw error;
     } finally {
-      this.schedulePortErrorHandlerDetach(port, errorHandler);
+      this.schedulePortHandlersDetach(port, errorHandler, closeHandler);
     }
     this.reportConnectionStatus({ connected: false, reason: 'hardware-disconnected', unexpected: false });
     this.options.onLog?.({ level: 'info', source: 'hardware', message: 'hardware-disconnected' });
@@ -408,6 +413,13 @@ export class HardwareController {
     this.failPort(port, error, 'hardware-port-error');
   }
 
+  private handlePortClose(port: HardwarePort) {
+    if (this.port !== port) return;
+    const error = new Error('hardware-port-closed');
+    this.options.onLog?.({ level: 'error', source: 'hardware', message: 'hardware-port-closed' });
+    this.failPort(port, error, 'hardware-port-closed');
+  }
+
   private failPort(port: HardwarePort, error: Error, reason: string) {
     if (this.port !== port) return;
     this.port = undefined;
@@ -425,8 +437,10 @@ export class HardwareController {
     });
 
     const errorHandler = this.portErrorHandlers.get(port);
+    const closeHandler = this.portCloseHandlers.get(port);
     if (!port.isOpen) {
       this.detachPortErrorHandler(port, errorHandler);
+      this.detachPortCloseHandler(port, closeHandler);
       return;
     }
     try {
@@ -434,11 +448,11 @@ export class HardwareController {
         if (closeError) {
           this.options.onLog?.({ level: 'error', source: 'hardware', message: 'hardware-port-close-failed', details: formatError(closeError) });
         }
-        this.schedulePortErrorHandlerDetach(port, errorHandler);
+        this.schedulePortHandlersDetach(port, errorHandler, closeHandler);
       });
     } catch (closeError) {
       this.options.onLog?.({ level: 'error', source: 'hardware', message: 'hardware-port-close-failed', details: formatError(closeError) });
-      this.schedulePortErrorHandlerDetach(port, errorHandler);
+      this.schedulePortHandlersDetach(port, errorHandler, closeHandler);
     }
   }
 
@@ -450,14 +464,25 @@ export class HardwareController {
 
   private attachPortErrorHandler(port: HardwarePort) {
     this.detachPortErrorHandler(port);
+    this.detachPortCloseHandler(port);
     const errorHandler = (error: Error) => this.handlePortError(port, error);
+    const closeHandler = () => this.handlePortClose(port);
     this.portErrorHandlers.set(port, errorHandler);
+    this.portCloseHandlers.set(port, closeHandler);
     port.on('error', errorHandler);
+    port.on('close', closeHandler);
   }
 
-  private schedulePortErrorHandlerDetach(port: HardwarePort, errorHandler: ((error: Error) => void) | undefined) {
+  private schedulePortHandlersDetach(
+    port: HardwarePort,
+    errorHandler: ((error: Error) => void) | undefined,
+    closeHandler: (() => void) | undefined
+  ) {
     setImmediate(() => {
-      if (!port.isOpen) this.detachPortErrorHandler(port, errorHandler);
+      if (!port.isOpen) {
+        this.detachPortErrorHandler(port, errorHandler);
+        this.detachPortCloseHandler(port, closeHandler);
+      }
     });
   }
 
@@ -466,6 +491,13 @@ export class HardwareController {
     if (!errorHandler || (expectedHandler && errorHandler !== expectedHandler)) return;
     port.off('error', errorHandler);
     this.portErrorHandlers.delete(port);
+  }
+
+  private detachPortCloseHandler(port: HardwarePort, expectedHandler?: () => void) {
+    const closeHandler = this.portCloseHandlers.get(port);
+    if (!closeHandler || (expectedHandler && closeHandler !== expectedHandler)) return;
+    port.off('close', closeHandler);
+    this.portCloseHandlers.delete(port);
   }
 
   private reportConnectionStatus(status: HardwareConnectionStatus) {

@@ -334,6 +334,34 @@ assert.deepEqual(unexpectedStatuses.at(-1), {
   unexpected: true
 });
 
+const closeOnlyStatuses = [];
+const closeOnlyPort = new FakePort('COM17');
+const closeOnlyController = new HardwareController({
+  createPort: () => closeOnlyPort,
+  onConnectionStatus: status => closeOnlyStatuses.push(status),
+  probeTimeoutMs: 0,
+  writeTimeoutMs: 20
+});
+await closeOnlyController.connect('COM17', {
+  baudRate: 115200,
+  linearAxis: 'L0',
+  strokeMin: 0,
+  strokeMax: 1,
+  invertPosition: false
+});
+closeOnlyPort.isOpen = false;
+closeOnlyPort.emit('close');
+assert.deepEqual(closeOnlyStatuses.at(-1), {
+  connected: false,
+  reason: 'hardware-port-closed',
+  unexpected: true
+});
+assert.deepEqual(
+  closeOnlyController.queueMotion({ position: 0.4, intensity: 0.25, timestamp: Date.now() }),
+  { queued: false, reason: 'hardware-not-connected' },
+  'a close-only port loss invalidates the connected controller'
+);
+
 const safeCloseFailureStatuses = [];
 const safeCloseFailurePort = new FakePort('COM16');
 const safeCloseFailureController = new HardwareController({
