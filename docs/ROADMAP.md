@@ -4,7 +4,9 @@
 
 - [x] Restore AWS relay server access and verify SSH, local `/healthz`, and external HTTPS in that order
 - [x] Deploy the AWS staging relay behind Cloudflare Tunnel at `https://aws-relay.syncra.uk`
-- [ ] Decide whether to move `relay.syncra.uk` from the current phone tunnel to AWS after direct AWS verification
+- [x] Make `https://aws-relay.syncra.uk` the desktop app's main/default relay
+- [x] Keep `https://relay.syncra.uk` in the built-in list as the manually selected phone backup
+- [ ] Decide whether the legacy `relay.syncra.uk` DNS name should eventually move to AWS; no automatic failover is implemented
 
 ## Phase 1: Desktop MVP
 
@@ -18,6 +20,7 @@
 - [x] Viewer local receipt-time motion delay
 - [x] Hardware-free automatic motion patterns (sine, triangle, pulse, sawtooth)
 - [x] Serial write timeout, fail-closed disconnect, and bounded emergency-stop failure (P0)
+- [x] Safe disconnect button: attempt the configured absolute stop for up to 500ms, then close the port
 - [ ] Physical OSR/T-Code end-to-end acceptance (deferred: port discovery, D1/D2, limited motion, stop/restart, emergency stop, cable disconnect/reconnect)
 - [ ] Viewer local motion interpolation (next Phase 1 task)
 - [ ] Motion pattern recording and playback

@@ -15,8 +15,8 @@
 
 ## 2. 공식 설치 파일 다운로드
 
-1. [Haptic Relay v0.1.1 Demo 8 릴리스](https://github.com/immigration2000/haptic-relay-desktop/releases/tag/v0.1.1-demo.8)를 엽니다.
-2. `Assets`에서 `Haptic.Relay-0.1.1-demo.8-win-x64.exe`를 내려받습니다.
+1. [Haptic Relay v0.1.1 Demo 9 릴리스](https://github.com/immigration2000/haptic-relay-desktop/releases/tag/v0.1.1-demo.9)를 엽니다.
+2. `Assets`에서 `Haptic.Relay-0.1.1-demo.9-win-x64.exe`를 내려받습니다.
 
 GitHub가 자동으로 제공하는 `Source code` ZIP/TAR 파일은 개발 소스입니다. 일반 사용자는 Windows EXE를 받아야 합니다.
 
@@ -25,8 +25,8 @@ GitHub가 자동으로 제공하는 `Source code` ZIP/TAR 파일은 개발 소�
 PowerShell에서 다음 명령을 실행합니다. 다운로드 위치가 다르면 `$file` 경로를 수정합니다.
 
 ```powershell
-$file = "$HOME\Downloads\Haptic.Relay-0.1.1-demo.8-win-x64.exe"
-$expected = '1d2c5416e59fd5f592e1c037987929eb3514cf9898748fb4b5e8e2b40842f435'
+$file = "$HOME\Downloads\Haptic.Relay-0.1.1-demo.9-win-x64.exe"
+$expected = 'ea6f809ff235ae7eab10b90eec71236098463389a164d8ad1ffab09f169211a6'
 $actual = (Get-FileHash -Algorithm SHA256 -LiteralPath $file).Hash.ToLowerInvariant()
 if ($actual -ne $expected) { throw '설치 파일 SHA-256이 일치하지 않습니다.' }
 "SHA-256 확인 완료: $actual"
@@ -51,6 +51,8 @@ if ($actual -ne $expected) { throw '설치 파일 SHA-256이 일치하지 않습
 백신이나 SmartScreen을 전체 비활성화할 필요는 없습니다. 공식 파일과 해시가 확인되지 않은 상태에서는 예외 등록도 하지 마십시오.
 
 ## 5. 스트리머 방 만들기
+
+새 설치에서는 `AWS 메인 릴레이`(`https://aws-relay.syncra.uk`)가 기본값입니다. AWS를 사용할 수 없을 때 서버 목록에서 `휴대폰 예비 릴레이`(`https://relay.syncra.uk`)를 수동으로 선택할 수 있으며 자동 전환은 하지 않습니다.
 
 1. 앱 상단에서 `스트리머`를 선택합니다.
 2. `서버 URL`에 준비된 릴레이 서버 주소를 입력합니다.
