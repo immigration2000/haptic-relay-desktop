@@ -224,7 +224,7 @@ export class HardwareController {
     const payload = encodeTCodeStop({
       linearAxis: this.profile.linearAxis,
       vibrationAxis: this.profile.vibrationAxis,
-      stopPosition: this.profile.strokeMin
+      stopPosition: this.profile.stopPosition
     });
 
     const writeError = await this.writePayload(payload).then(() => {
@@ -540,13 +540,19 @@ function normalizeWriteTimeoutMs(value: number | undefined) {
 }
 
 function normalizeProfile(profile: HardwareProfile): HardwareProfile {
+  const strokeMin = clamp01(profile.strokeMin);
+  const strokeMax = clamp01(profile.strokeMax);
+  const low = Math.min(strokeMin, strokeMax);
+  const high = Math.max(strokeMin, strokeMax);
+  const requestedStopPosition = clamp01(profile.stopPosition ?? strokeMin);
+
   return {
     baudRate: profile.baudRate,
     linearAxis: profile.linearAxis.trim().toUpperCase(),
     vibrationAxis: profile.vibrationAxis?.trim().toUpperCase() || undefined,
-    strokeMin: clamp01(profile.strokeMin),
-    strokeMax: clamp01(profile.strokeMax),
-    stopPosition: profile.stopPosition,
+    strokeMin,
+    strokeMax,
+    stopPosition: Math.min(high, Math.max(low, requestedStopPosition)),
     invertPosition: profile.invertPosition
   };
 }

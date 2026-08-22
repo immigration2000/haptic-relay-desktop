@@ -175,13 +175,14 @@ assert.deepEqual(
 await controller.connect('COM9', {
   baudRate: 115200,
   linearAxis: 'L0',
-  strokeMin: 0,
-  strokeMax: 1,
-  invertPosition: false
+  strokeMin: 0.2,
+  strokeMax: 0.8,
+  stopPosition: 0.3,
+  invertPosition: true
 });
 await controller.emergencyStop();
 assert.equal(outputs.at(-1).kind, 'stop');
-assert.match(outputs.at(-1).command, /^DSTOP\nL00000I1$/);
+assert.equal(outputs.at(-1).command, 'DSTOP\nL03000I1');
 assert.deepEqual(
   controller.getConnectionStatus(),
   { connected: true, path: 'COM9' },
@@ -270,13 +271,14 @@ await safeController.connect('COM13', {
   linearAxis: 'L0',
   strokeMin: 0,
   strokeMax: 1,
+  stopPosition: 0.6,
   invertPosition: false
 });
 assert.deepEqual(safeController.getConnectionStatus(), { connected: true, path: 'COM13' });
 
 const safeResult = await safeController.disconnectSafely();
 assert.deepEqual(safeResult, { connected: false, stop: { stopped: true } });
-assert.match(safePort.writes.at(-1).trim(), /^DSTOP\nL00000I1$/);
+assert.match(safePort.writes.at(-1).trim(), /^DSTOP\nL06000I1$/);
 assert.deepEqual(safeStatuses, [
   { connected: true, path: 'COM13' },
   { connected: false, reason: 'hardware-disconnected', unexpected: false }
@@ -382,6 +384,23 @@ await assert.rejects(safeCloseFailureController.disconnectSafely(), /serial-clos
 assert.deepEqual(safeCloseFailureController.getConnectionStatus(), { connected: true, path: 'COM16' });
 assert.deepEqual(safeCloseFailureStatuses, [{ connected: true, path: 'COM16' }]);
 await safeCloseFailureController.disconnect();
+
+const legacyStopPort = new FakePort('COM18');
+const legacyStopController = new HardwareController({
+  createPort: () => legacyStopPort,
+  probeTimeoutMs: 0,
+  writeTimeoutMs: 20
+});
+await legacyStopController.connect('COM18', {
+  baudRate: 115200,
+  linearAxis: 'L0',
+  strokeMin: 0.25,
+  strokeMax: 0.75,
+  invertPosition: false
+});
+await legacyStopController.emergencyStop();
+assert.match(legacyStopPort.writes.at(-1).trim(), /^DSTOP\nL02500I1$/);
+await legacyStopController.disconnect();
 
 console.log('hardware output tests passed');
 
