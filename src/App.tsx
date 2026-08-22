@@ -722,6 +722,18 @@ export default function App() {
           최대 위치
           <input type="number" min="0" max="1" step="0.01" value={hardwareProfile.strokeMax} onChange={event => updateHardwareProfile({ strokeMax: Number(event.target.value) })} />
         </label>
+        <label>
+          긴급 정지 위치
+          <input
+            type="number"
+            min={hardwareProfile.strokeMin}
+            max={hardwareProfile.strokeMax}
+            step="0.01"
+            value={hardwareProfile.stopPosition}
+            disabled={hardwareConnected || isBusy}
+            onChange={event => updateHardwareProfile({ stopPosition: Number(event.target.value) })}
+          />
+        </label>
         <label className="checkbox-row">
           <input type="checkbox" checked={hardwareProfile.invertPosition} onChange={event => updateHardwareProfile({ invertPosition: event.target.checked })} />
           방향 반전
@@ -1040,9 +1052,15 @@ function readDemoSession(): { username: string } | undefined {
 }
 
 function updateProfileValue(profile: HardwareProfile, patch: Partial<HardwareProfile>): HardwareProfile {
-  return {
+  const next = {
     ...profile,
     ...patch
+  };
+  const low = Math.min(next.strokeMin, next.strokeMax);
+  const high = Math.max(next.strokeMin, next.strokeMax);
+  return {
+    ...next,
+    stopPosition: Math.min(high, Math.max(low, next.stopPosition))
   };
 }
 
