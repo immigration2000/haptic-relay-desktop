@@ -26,7 +26,7 @@ PowerShell에서 다음 명령을 실행합니다. 다운로드 위치가 다르
 
 ```powershell
 $file = "$HOME\Downloads\Haptic.Relay-0.1.1-demo.9-win-x64.exe"
-$expected = 'ea6f809ff235ae7eab10b90eec71236098463389a164d8ad1ffab09f169211a6'
+$expected = '43af2c271eef04f9eb80190a811584eb759e38109d6d7d707661c4fbe8b12bc8'
 $actual = (Get-FileHash -Algorithm SHA256 -LiteralPath $file).Hash.ToLowerInvariant()
 if ($actual -ne $expected) { throw '설치 파일 SHA-256이 일치하지 않습니다.' }
 "SHA-256 확인 완료: $actual"

@@ -36,8 +36,8 @@ PandaTV 같은 외부 방송 플랫폼에서도 플랫폼 영상 시스템과 �
 - 최신 릴리스: `v0.1.1-demo.9`
 - 릴리스 페이지: `https://github.com/immigration2000/haptic-relay-desktop/releases/tag/v0.1.1-demo.9`
 - EXE: `Haptic.Relay-0.1.1-demo.9-win-x64.exe`
-- 크기: `107,289,556` bytes
-- SHA-256: `ea6f809ff235ae7eab10b90eec71236098463389a164d8ad1ffab09f169211a6`
+- 크기: `107,289,654` bytes
+- SHA-256: `43af2c271eef04f9eb80190a811584eb759e38109d6d7d707661c4fbe8b12bc8`
 - NSIS 생성, ASAR, SerialPort 네이티브 모듈 패키징 검증 완료
 
 ### 외부 릴레이
