@@ -27,6 +27,9 @@ const motionDelayPanelSource = sourceSection(appSource, '  const motionDelayPane
 const createRoomSource = sourceSection(appSource, '  async function createRoom()', '  async function copyInvite()');
 const joinRoomSource = sourceSection(appSource, '  async function joinRoom()', '  async function decideApproval(');
 const motionDemoSource = sourceSection(appSource, '  async function toggleMotionDemo()', '  async function leaveRoom()');
+const runActionSource = sourceSection(appSource, '  async function runAction(', '  function updateHardwareProfile(');
+const testHardwareSource = sourceSection(appSource, '  async function testHardware()', '  async function createRoom()');
+const emergencyStopSource = sourceSection(appSource, '  async function emergencyStop()', '  async function exportLogs()');
 
 assert.match(mainSource, /preload:\s*path\.join\(__dirname, ['"]preload\.cjs['"]\)/);
 assert.match(preloadSource, /require\(['"]electron['"]\)/);
@@ -69,6 +72,14 @@ assert.match(appSource, /async function disconnectHardware\(\)[\s\S]*?window\.ha
 assert.match(appSource, /window\.hapticRelay\.getHardwareStatus\(\)/);
 assert.match(appSource, /window\.hapticRelay\.onHardwareConnectionStatus\(nextStatus\s*=>/);
 assert.match(appSource, /removeHardwareConnectionStatus\(\)/);
+assert.match(appSource, /const actionGenerationRef = useRef\(0\)/);
+assert.match(runActionSource, /const actionGeneration = \+\+actionGenerationRef\.current/);
+assert.match(runActionSource, /if \(actionGeneration === actionGenerationRef\.current\) setBusyAction\(undefined\)/);
+assert.match(testHardwareSource, /runAction\(['"]hardware['"], ['"]하드웨어 테스트 중['"], async setActionStatus =>/);
+assert.match(testHardwareSource, /setActionStatus\(['"]warning['"], formatReason\(result\.reason \?\? ['"]hardware-test-failed['"]\)\)/);
+assert.doesNotMatch(testHardwareSource, /setStatusMessage\(/);
+assert.match(emergencyStopSource, /const actionGeneration = \+\+actionGenerationRef\.current/);
+assert.match(emergencyStopSource, /if \(actionGeneration === actionGenerationRef\.current\) setBusyAction\(undefined\)/);
 assert.match(hardwarePanelSource, /disabled=\{isBusy \|\| hardwareConnected \|\| !selectedPort\}[\s\S]*?>연결<\/button>/);
 assert.match(hardwarePanelSource, /disabled=\{isBusy \|\| !hardwareConnected\}[\s\S]*?onClick=\{disconnectHardware\}>연결 해제<\/button>/);
 assert.match(hardwarePanelSource, /disabled=\{isBusy \|\| !hardwareConnected\}[\s\S]*?onClick=\{testHardware\}>테스트<\/button>/);
@@ -95,6 +106,7 @@ for (const reason of [
   'hardware-port-error',
   'hardware-port-closed',
   'hardware-disconnected-stop-failed',
+  'hardware-test-cancelled',
   'invalid-stop-position'
 ]) {
   assert.match(appSource, new RegExp(`['"]${reason}['"]\\s*:`), `missing Korean reason mapping: ${reason}`);
