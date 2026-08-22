@@ -1,4 +1,4 @@
-import type { AppLogEntry, AppSettings, ApprovalRequest, HardwareOutputSnapshot, HardwareProfile, HardwareProtection, MotionDemoSnapshot, MotionMonitorSnapshot, MotionPatternConfig, PortInfo, RoomDirectoryEntry, RoomSettings, ViewerSession } from './shared/protocol';
+import type { AppLogEntry, AppSettings, ApprovalRequest, HardwareConnectionStatus, HardwareDisconnectResult, HardwareOutputSnapshot, HardwareProfile, HardwareProtection, MotionDemoSnapshot, MotionMonitorSnapshot, MotionPatternConfig, PortInfo, RoomDirectoryEntry, RoomSettings, ViewerSession } from './shared/protocol';
 
 type ViewerStatus = {
   roomName: string;
@@ -44,7 +44,8 @@ declare global {
     hapticRelay: {
       listPorts: () => Promise<PortInfo[]>;
       connectHardware: (pathName: string, profile: HardwareProfile) => Promise<HardwareConnectResult>;
-      disconnectHardware: () => Promise<unknown>;
+      disconnectHardware: () => Promise<HardwareDisconnectResult>;
+      getHardwareStatus: () => Promise<HardwareConnectionStatus>;
       stopHardware: () => Promise<unknown>;
       testHardware: () => Promise<{ tested: boolean; steps?: number; reason?: string }>;
       sendMotion: (intensity: number, position: number) => Promise<unknown>;
@@ -70,6 +71,7 @@ declare global {
       onMotionDemoFrame: (listener: (snapshot: MotionDemoSnapshot) => void) => () => void;
       onMotionReceived: (listener: (snapshot: MotionMonitorSnapshot) => void) => () => void;
       onHardwareOutput: (listener: (snapshot: HardwareOutputSnapshot) => void) => () => void;
+      onHardwareConnectionStatus: (listener: (status: HardwareConnectionStatus) => void) => () => void;
       getLogs: () => Promise<AppLogEntry[]>;
       exportLogs: () => Promise<{ exported: boolean; canceled: boolean; path?: string; count: number }>;
       copyText: (text: string) => Promise<{ copied: boolean }>;

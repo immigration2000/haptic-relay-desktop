@@ -83,6 +83,21 @@ export type HardwareOutputSnapshot = {
   baudRate: number;
 };
 
+export type HardwareConnectionStatus = {
+  connected: boolean;
+  path?: string;
+  reason?: string;
+  unexpected?: boolean;
+};
+
+export type HardwareDisconnectResult = {
+  connected: false;
+  stop: {
+    stopped: boolean;
+    reason?: string;
+  };
+};
+
 export type PlaybackSettings = {
   motionDelayMs: number;
 };

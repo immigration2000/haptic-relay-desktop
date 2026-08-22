@@ -71,7 +71,8 @@ function addLog(entry: Omit<AppLogEntry, 'id' | 'timestamp'>) {
 
 const hardware = new HardwareController({
   onLog: entry => addLog(entry),
-  onOutput: snapshot => sendToRenderer(mainWindow, 'hardware:output', snapshot)
+  onOutput: snapshot => sendToRenderer(mainWindow, 'hardware:output', snapshot),
+  onConnectionStatus: status => sendToRenderer(mainWindow, 'hardware:connection-status', status)
 });
 const relay = new RelayClient(frame => {
   const result = hardware.queueMotion(frame);
@@ -195,6 +196,10 @@ ipcMain.handle('hardware:list', event => {
   assertTrustedSender(event);
   return hardware.listPorts();
 });
+ipcMain.handle('hardware:status', event => {
+  assertTrustedSender(event);
+  return hardware.getConnectionStatus();
+});
 ipcMain.handle('hardware:connect', async (event, pathName: unknown, profile: unknown) => {
   assertTrustedSender(event);
   try {
@@ -206,7 +211,7 @@ ipcMain.handle('hardware:connect', async (event, pathName: unknown, profile: unk
 });
 ipcMain.handle('hardware:disconnect', event => {
   assertTrustedSender(event);
-  return hardware.disconnect();
+  return hardware.disconnectSafely();
 });
 ipcMain.handle('hardware:emergency-stop', event => {
   assertTrustedSender(event);
