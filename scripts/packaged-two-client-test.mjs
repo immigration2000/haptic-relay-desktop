@@ -64,7 +64,6 @@ const hostDebugPort = await getAvailablePort();
 const viewerDebugPort = await getAvailablePort();
 const runId = Date.now().toString(36);
 const roomName = `studio-${runId}`;
-const roomPassword = `password-${runId}`;
 const viewerName = `viewer-${runId}`;
 const automaticPositionRange = { min: 0.2, max: 0.8 };
 const outputDirectory = path.join(os.tmpdir(), `haptic-relay-two-client-${runId}`);
@@ -106,7 +105,6 @@ try {
     await setInputByLabel(hostCdp, '서버 URL', relayUrl);
   }
   await setInputByLabel(hostCdp, '방 이름', roomName);
-  await setInputByLabel(hostCdp, '비밀번호', roomPassword);
   await clickButton(hostCdp, '방 생성');
   await waitForExpression(hostCdp, `document.body.innerText.includes('HOST SESSION')`);
   const inviteCode = await hostCdp.evaluate(`document.querySelector('.invite-code code')?.textContent.trim() ?? ''`);
@@ -119,7 +117,7 @@ try {
   await viewerCdp.call('Runtime.enable');
   await loginClient(viewerCdp, viewerName);
   if (useDefaultRelay) {
-    await waitForExpression(viewerCdp, `document.body.innerText.includes('공식 릴레이')`);
+    await waitForExpression(viewerCdp, `document.body.innerText.includes('AWS 메인 릴레이')`);
   } else {
     await clickButton(viewerCdp, '서버 선택');
     await clickButton(viewerCdp, '사용자 서버 추가');
@@ -137,7 +135,7 @@ try {
     const value = text => labels.find(label => label.textContent.includes(text))?.querySelector('input')?.value;
     return value('방 이름') === ${JSON.stringify(roomName)}
       && value('서버 URL') === ${JSON.stringify(relayUrl)}
-      && value('비밀번호') === ${JSON.stringify(roomPassword)};
+      && value('비밀번호') === '';
   })()`);
   await clickButton(viewerCdp, '입장 요청');
 

@@ -176,7 +176,7 @@ button:disabled { cursor: not-allowed; opacity: .46; }
 .panel-header h2 { margin: 0; }
 .muted { color: var(--muted); font-size: 10px; line-height: 1.5; }
 .form-grid, .profile-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
-.hardware-row { display: grid; grid-template-columns: minmax(160px, 1fr) auto auto auto; gap: 6px; margin-bottom: 12px; }
+.hardware-row { display: grid; grid-template-columns: minmax(160px, 1fr) repeat(4, auto); gap: 6px; margin-bottom: 12px; }
 .hardware-output-monitor { display: grid; gap: 8px; min-height: 116px; margin-bottom: 12px; padding: 10px; border: 1px solid var(--divider); background: var(--surface-muted); }
 .hardware-output-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .hardware-output-heading span, .hardware-output-heading strong { display: inline-flex; align-items: center; gap: 5px; font-size: 9px; }

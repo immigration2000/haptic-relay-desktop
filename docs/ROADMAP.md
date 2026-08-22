@@ -1,5 +1,13 @@
 # Roadmap
 
+## Current Priority
+
+- [x] Restore AWS relay server access and verify SSH, local `/healthz`, and external HTTPS in that order
+- [x] Deploy the AWS staging relay behind Cloudflare Tunnel at `https://aws-relay.syncra.uk`
+- [x] Make `https://aws-relay.syncra.uk` the desktop app's main/default relay
+- [x] Keep `https://relay.syncra.uk` in the built-in list as the manually selected phone backup
+- [ ] Decide whether the legacy `relay.syncra.uk` DNS name should eventually move to AWS; no automatic failover is implemented
+
 ## Phase 1: Desktop MVP
 
 - Host room creation
@@ -11,8 +19,9 @@
 - [x] Viewer sequence filtering
 - [x] Viewer local receipt-time motion delay
 - [x] Hardware-free automatic motion patterns (sine, triangle, pulse, sawtooth)
-- [ ] Serial write timeout and emergency-stop recovery (P0)
-- [ ] Physical OSR/T-Code end-to-end acceptance
+- [x] Serial write timeout, fail-closed disconnect, and bounded emergency-stop failure (P0)
+- [x] Safe disconnect button: attempt the configured absolute stop for up to 500ms, then close the port
+- [ ] Physical OSR/T-Code end-to-end acceptance (deferred: port discovery, D1/D2, limited motion, stop/restart, emergency stop, cable disconnect/reconnect)
 - [ ] Viewer local motion interpolation (next Phase 1 task)
 - [ ] Motion pattern recording and playback
 - [ ] Network diagnostics dashboard

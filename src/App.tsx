@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { OctagonX } from 'lucide-react';
-import type { AppLogEntry, AppSettings, ApprovalRequest, EntryMode, HardwareProfile, HardwareProtection, MotionDemoMode, MotionMonitorSnapshot, MotionPatternConfig, PortInfo, RoomDirectoryEntry, ViewerSession } from './shared/protocol';
+import type { AppLogEntry, AppSettings, ApprovalRequest, EntryMode, HardwareConnectionStatus, HardwareProfile, HardwareProtection, MotionDemoMode, MotionMonitorSnapshot, MotionPatternConfig, PortInfo, RoomDirectoryEntry, ViewerSession } from './shared/protocol';
 import { createQrMatrix } from './qr-code';
 import { AppShell } from './ui/components/AppShell';
 import { HardwareOutputMonitor } from './ui/components/HardwareOutputMonitor';
@@ -49,6 +49,7 @@ const DEFAULT_HARDWARE_PROFILE: HardwareProfile = {
   vibrationAxis: '',
   strokeMin: 0,
   strokeMax: 1,
+  stopPosition: 0,
   invertPosition: false
 };
 const DEFAULT_HARDWARE_PROTECTION: HardwareProtection = {
@@ -57,7 +58,7 @@ const DEFAULT_HARDWARE_PROTECTION: HardwareProtection = {
   positionMax: 1,
   paused: false
 };
-const CURRENT_SETTINGS_SCHEMA_VERSION = 2;
+const CURRENT_SETTINGS_SCHEMA_VERSION = 3;
 
 export default function App() {
   const [savedSession] = useState(readDemoSession);
@@ -85,7 +86,7 @@ export default function App() {
   const [viewerPage, setViewerPage] = useState<ViewerPage>('join');
   const [hostTab, setHostTab] = useState<SessionTab>('overview');
   const [viewerTab, setViewerTab] = useState<SessionTab>('receive');
-  const [relayUrl, setRelayUrl] = useState(import.meta.env.VITE_RELAY_URL ?? 'https://relay.syncra.uk');
+  const [relayUrl, setRelayUrl] = useState(import.meta.env.VITE_RELAY_URL ?? RELAY_SERVERS[0].url);
   const [displayName, setDisplayName] = useState('viewer-01');
   const [roomName, setRoomName] = useState('studio-main');
   const [password, setPassword] = useState('');
@@ -120,6 +121,7 @@ export default function App() {
   const settingsLoadRequestId = useRef(0);
   const serverHealthRequestId = useRef(0);
   const roomDirectoryRequestId = useRef(0);
+  const actionGenerationRef = useRef(0);
 
   const canHost = useMemo(() => roomName.trim().length >= 3, [roomName]);
   const canJoin = useMemo(() => roomName.trim().length >= 3 && displayName.trim().length > 0, [displayName, roomName]);
@@ -201,17 +203,41 @@ export default function App() {
       }
       setStatusMessage('error', `릴레이 오류: ${formatReason(nextStatus.reason ?? 'connect_error')}`);
     });
+    let hardwareStatusActive = true;
+    let hardwareStatusEventSeen = false;
+    const applyHardwareStatus = (nextStatus: HardwareConnectionStatus) => {
+      setHardwareConnected(nextStatus.connected);
+      if (!nextStatus.connected && nextStatus.unexpected) {
+        setStatusMessage(
+          'error',
+          `하드웨어 연결이 끊겼습니다: ${formatReason(nextStatus.reason ?? 'hardware-not-connected')}. 다시 연결하세요.`
+        );
+      }
+    };
+    const removeHardwareConnectionStatus = window.hapticRelay.onHardwareConnectionStatus(nextStatus => {
+      hardwareStatusEventSeen = true;
+      applyHardwareStatus(nextStatus);
+    });
+    void window.hapticRelay.getHardwareStatus()
+      .then(nextStatus => {
+        if (hardwareStatusActive && !hardwareStatusEventSeen) applyHardwareStatus(nextStatus);
+      })
+      .catch(error => {
+        if (hardwareStatusActive) setStatusMessage('error', formatError(error));
+      });
     const removeMotionReceived = window.hapticRelay.onMotionReceived(snapshot => {
       setMotionMonitorEntries(current => [snapshot, ...current].slice(0, 10));
     });
 
     return () => {
+      hardwareStatusActive = false;
       removeLog();
       removeApprovalRequest();
       removeViewerStatus();
       removeViewerList();
       removeEmergencyStop();
       removeConnectionStatus();
+      removeHardwareConnectionStatus();
       removeMotionReceived();
     };
   }, []);
@@ -337,17 +363,25 @@ export default function App() {
     };
   }, [authenticated, selectedServer.url]);
 
-  async function runAction(action: BusyAction, busyMessage: string, task: () => Promise<void>) {
+  async function runAction(
+    action: BusyAction,
+    busyMessage: string,
+    task: (setActionStatus: (tone: StatusTone, message: string) => void) => Promise<void>
+  ) {
     if (busyAction) return;
 
+    const actionGeneration = ++actionGenerationRef.current;
+    const setActionStatus = (tone: StatusTone, message: string) => {
+      if (actionGeneration === actionGenerationRef.current) setStatusMessage(tone, message);
+    };
     setBusyAction(action);
     setStatusMessage('busy', busyMessage);
     try {
-      await task();
+      await task(setActionStatus);
     } catch (error) {
-      setStatusMessage('error', formatError(error));
+      setActionStatus('error', formatError(error));
     } finally {
-      setBusyAction(undefined);
+      if (actionGeneration === actionGenerationRef.current) setBusyAction(undefined);
     }
   }
 
@@ -386,7 +420,7 @@ export default function App() {
   async function saveSettings() {
     if (!savedSettings) throw new Error('settings-not-loaded');
 
-    await runAction('hardware', '설정 저장 중', async () => {
+    await runAction('hardware', '설정 저장 중', async setActionStatus => {
       const result = await window.hapticRelay.saveSettings({
         schemaVersion: CURRENT_SETTINGS_SCHEMA_VERSION,
         hardwareProfile,
@@ -397,35 +431,35 @@ export default function App() {
       setHardwareProtection(result.settings.hardwareProtection);
       setAppliedMotionDelayMs(result.settings.playback.motionDelayMs);
       setSavedSettings(result.settings);
-      setStatusMessage('ok', '하드웨어/보호 설정 저장됨');
+      setActionStatus('ok', '하드웨어/보호 설정 저장됨');
     });
   }
 
   async function applyMotionDelay() {
-    await runAction('delay', '모션 지연 적용 중', async () => {
+    await runAction('delay', '모션 지연 적용 중', async setActionStatus => {
       const result = await window.hapticRelay.setMotionDelay(motionDelayMs);
       setMotionDelayMs(result.settings.playback.motionDelayMs);
       setAppliedMotionDelayMs(result.settings.playback.motionDelayMs);
       setSavedSettings(result.settings);
-      setStatusMessage('ok', `모션 지연 적용됨: ${(result.settings.playback.motionDelayMs / 1000).toFixed(1)}초`);
+      setActionStatus('ok', `모션 지연 적용됨: ${(result.settings.playback.motionDelayMs / 1000).toFixed(1)}초`);
     });
   }
 
   async function applyHardwareProtection() {
-    await runAction('hardware', '보호 옵션 적용 중', async () => {
+    await runAction('hardware', '보호 옵션 적용 중', async setActionStatus => {
       const result = await window.hapticRelay.setHardwareProtection(hardwareProtection);
       setHardwareProtection(result.protection);
-      setStatusMessage(result.protection.paused ? 'warning' : 'ok', result.protection.paused ? '수신 일시정지 적용됨' : '보호 옵션 적용됨');
+      setActionStatus(result.protection.paused ? 'warning' : 'ok', result.protection.paused ? '수신 일시정지 적용됨' : '보호 옵션 적용됨');
     });
   }
 
   async function refreshPorts(silent = false) {
-    await runAction('ports', silent ? '포트 확인 중' : '하드웨어 포트 새로고침 중', async () => {
+    await runAction('ports', silent ? '포트 확인 중' : '하드웨어 포트 새로고침 중', async setActionStatus => {
       const nextPorts = await window.hapticRelay.listPorts();
       setPorts(nextPorts);
       if (!selectedPort && nextPorts[0]) setSelectedPort(nextPorts[0].path);
       if (!silent) {
-        setStatusMessage(nextPorts.length > 0 ? 'ok' : 'warning', nextPorts.length > 0 ? `포트 ${nextPorts.length}개 발견` : '사용 가능한 하드웨어 포트가 없습니다');
+        setActionStatus(nextPorts.length > 0 ? 'ok' : 'warning', nextPorts.length > 0 ? `포트 ${nextPorts.length}개 발견` : '사용 가능한 하드웨어 포트가 없습니다');
       }
     });
   }
@@ -436,29 +470,41 @@ export default function App() {
       return;
     }
 
-    await runAction('hardware', '하드웨어 연결 중', async () => {
+    await runAction('hardware', '하드웨어 연결 중', async setActionStatus => {
       const result = await window.hapticRelay.connectHardware(selectedPort, hardwareProfile);
       setHardwareConnected(true);
       if (result.probe.detected) {
         const version = result.probe.version ? ` / TCode ${result.probe.version}` : '';
         const axes = result.probe.axes.length > 0 ? ` / 축 ${result.probe.axes.join(', ')}` : '';
-        setStatusMessage('ok', `하드웨어 연결됨: ${selectedPort} / ${result.profile.baudRate}${version}${axes}`);
+        setActionStatus('ok', `하드웨어 연결됨: ${selectedPort} / ${result.profile.baudRate}${version}${axes}`);
         return;
       }
 
-      setStatusMessage('warning', `하드웨어 연결됨: ${selectedPort} / ${result.profile.baudRate} / TCode 응답 없음`);
+      setActionStatus('warning', `하드웨어 연결됨: ${selectedPort} / ${result.profile.baudRate} / TCode 응답 없음`);
+    });
+  }
+
+  async function disconnectHardware() {
+    await runAction('hardware', '정지 명령 전송 후 하드웨어 연결 해제 중', async setActionStatus => {
+      const result = await window.hapticRelay.disconnectHardware();
+      setHardwareConnected(result.connected);
+      if (!result.stop.stopped && result.stop.reason !== 'hardware-not-connected') {
+        setActionStatus('error', '정지 명령을 확인하지 못했습니다. 장비 전원을 직접 차단하세요.');
+        return;
+      }
+      setActionStatus('ok', '하드웨어 연결 해제됨');
     });
   }
 
   async function testHardware() {
-    await runAction('hardware', '하드웨어 테스트 중', async () => {
+    await runAction('hardware', '하드웨어 테스트 중', async setActionStatus => {
       const result = await window.hapticRelay.testHardware();
       if (!result.tested) {
-        setStatusMessage('warning', formatReason(result.reason ?? 'hardware-test-failed'));
+        setActionStatus('warning', formatReason(result.reason ?? 'hardware-test-failed'));
         return;
       }
 
-      setStatusMessage('ok', `하드웨어 테스트 완료: ${result.steps ?? 0}단계`);
+      setActionStatus('ok', `하드웨어 테스트 완료: ${result.steps ?? 0}단계`);
     });
   }
 
@@ -468,7 +514,7 @@ export default function App() {
       return;
     }
 
-    await runAction('room', '방 생성 중', async () => {
+    await runAction('room', '방 생성 중', async setActionStatus => {
       const roomPassword = entryMode === 'request' ? password.trim() || undefined : undefined;
       const room = await window.hapticRelay.startHostRoom(normalizeRelayUrl(relayUrl), {
         roomName: roomName.trim(),
@@ -488,25 +534,25 @@ export default function App() {
       setRole('host');
       setScreen('host-room');
       setDialog(undefined);
-      setStatusMessage('ok', `방 생성됨: ${room.roomName} / ${room.relayUrl}`);
+      setActionStatus('ok', `방 생성됨: ${room.roomName} / ${room.relayUrl}`);
     });
   }
 
   async function copyInvite() {
     if (!hostRoomInvite) return;
 
-    await runAction('room', '입장 정보 복사 중', async () => {
+    await runAction('room', '입장 정보 복사 중', async setActionStatus => {
       await window.hapticRelay.copyText(formatInviteText(hostRoomInvite));
-      setStatusMessage('ok', '방 입장 정보가 클립보드에 복사됨');
+      setActionStatus('ok', '방 입장 정보가 클립보드에 복사됨');
     });
   }
 
   async function copyInviteCode() {
     if (!hostRoomInvite) return;
 
-    await runAction('room', '초대 코드 복사 중', async () => {
+    await runAction('room', '초대 코드 복사 중', async setActionStatus => {
       await window.hapticRelay.copyText(encodeInviteCode(hostRoomInvite));
-      setStatusMessage('ok', '초대 코드가 클립보드에 복사됨');
+      setActionStatus('ok', '초대 코드가 클립보드에 복사됨');
     });
   }
 
@@ -529,7 +575,7 @@ export default function App() {
       return;
     }
 
-    await runAction('join', '방 입장 요청 중', async () => {
+    await runAction('join', '방 입장 요청 중', async setActionStatus => {
       const response = await window.hapticRelay.joinRoom(normalizeRelayUrl(relayUrl), {
         displayName: displayName.trim(),
         roomName: roomName.trim(),
@@ -541,43 +587,43 @@ export default function App() {
       setScreen('participant-room');
       setDialog(undefined);
       if (response.reason === 'approval-required') {
-        setStatusMessage('warning', `입장 승인 대기 중: ${roomName.trim()}`);
+        setActionStatus('warning', `입장 승인 대기 중: ${roomName.trim()}`);
         return;
       }
-      setStatusMessage('ok', `방 입장됨: ${roomName.trim()}`);
+      setActionStatus('ok', `방 입장됨: ${roomName.trim()}`);
     });
   }
 
   async function decideApproval(request: ApprovalRequest, approved: boolean) {
-    await runAction('approval', `${request.displayName} ${approved ? '승인' : '거절'} 처리 중`, async () => {
+    await runAction('approval', `${request.displayName} ${approved ? '승인' : '거절'} 처리 중`, async setActionStatus => {
       await window.hapticRelay.approveViewer(request.socketId, approved);
       setApprovalRequests(current => current.filter(item => item.socketId !== request.socketId));
-      setStatusMessage('ok', `${request.displayName} ${approved ? '승인됨' : '거절됨'}`);
+      setActionStatus('ok', `${request.displayName} ${approved ? '승인됨' : '거절됨'}`);
     });
   }
 
   async function moderateViewer(viewer: ViewerSession, action: 'kick' | 'block') {
-    await runAction('moderation', `${viewer.displayName} ${action === 'block' ? '차단' : '강퇴'} 처리 중`, async () => {
+    await runAction('moderation', `${viewer.displayName} ${action === 'block' ? '차단' : '강퇴'} 처리 중`, async setActionStatus => {
       await window.hapticRelay.moderateViewer(viewer.socketId, action);
       setViewerSessions(current => current.filter(item => item.socketId !== viewer.socketId));
-      setStatusMessage('ok', `${viewer.displayName} ${action === 'block' ? '차단됨' : '강퇴됨'}`);
+      setActionStatus('ok', `${viewer.displayName} ${action === 'block' ? '차단됨' : '강퇴됨'}`);
     });
   }
 
   async function toggleMotionDemo() {
     const modeLabel = motionDemoMode === 'pattern' ? '자동 패턴' : '수동';
-    await runAction('motion', `${modeLabel} 시연 ${motionDemoActive ? '중지' : '시작'} 중`, async () => {
+    await runAction('motion', `${modeLabel} 시연 ${motionDemoActive ? '중지' : '시작'} 중`, async setActionStatus => {
       if (motionDemoActive) {
         await window.hapticRelay.stopMotionDemo();
         setMotionDemoActive(false);
-        setStatusMessage('ok', `${modeLabel} 시연 중지됨`);
+        setActionStatus('ok', `${modeLabel} 시연 중지됨`);
         return;
       }
 
       if (motionDemoMode === 'pattern') await window.hapticRelay.startMotionPattern(motionPattern);
       else await window.hapticRelay.startMotionDemo(intensity, position);
       setMotionDemoActive(true);
-      setStatusMessage('ok', `${modeLabel} 시연 시작됨 / 30Hz 전송 중`);
+      setActionStatus('ok', `${modeLabel} 시연 시작됨 / 30Hz 전송 중`);
     });
   }
 
@@ -587,7 +633,7 @@ export default function App() {
   }
 
   async function leaveRoom() {
-    await runAction('room', role === 'host' ? '방 종료 중' : '방 나가는 중', async () => {
+    await runAction('room', role === 'host' ? '방 종료 중' : '방 나가는 중', async setActionStatus => {
       if (motionDemoActive) await window.hapticRelay.stopMotionDemo();
       await window.hapticRelay.disconnectRoom();
       setMotionDemoActive(false);
@@ -602,11 +648,12 @@ export default function App() {
         setViewerTab('receive');
       }
       setScreen('browser');
-      setStatusMessage('ok', role === 'host' ? '방이 종료됨' : '방에서 나왔습니다');
+      setActionStatus('ok', role === 'host' ? '방이 종료됨' : '방에서 나왔습니다');
     });
   }
 
   async function emergencyStop() {
+    const actionGeneration = ++actionGenerationRef.current;
     setBusyAction('stop');
     setStatusMessage('busy', '긴급 정지 처리 중');
     try {
@@ -627,19 +674,19 @@ export default function App() {
     } catch (error) {
       setStatusMessage('error', formatError(error));
     } finally {
-      setBusyAction(undefined);
+      if (actionGeneration === actionGenerationRef.current) setBusyAction(undefined);
     }
   }
 
   async function exportLogs() {
-    await runAction('logs', '로그 저장 중', async () => {
+    await runAction('logs', '로그 저장 중', async setActionStatus => {
       const result = await window.hapticRelay.exportLogs();
       if (result.canceled) {
-        setStatusMessage('warning', '로그 저장이 취소됨');
+        setActionStatus('warning', '로그 저장이 취소됨');
         return;
       }
 
-      setStatusMessage('ok', `로그 저장 완료: ${result.count}개`);
+      setActionStatus('ok', `로그 저장 완료: ${result.count}개`);
     });
   }
 
@@ -653,14 +700,15 @@ export default function App() {
           ))}
         </select>
         <button disabled={isBusy} onClick={() => refreshPorts()}>새로고침</button>
-        <button disabled={isBusy || !selectedPort} onClick={connectHardware}>연결</button>
-        <button disabled={isBusy} onClick={testHardware}>테스트</button>
+        <button disabled={isBusy || hardwareConnected || !selectedPort} onClick={connectHardware}>연결</button>
+        <button disabled={isBusy || !hardwareConnected} onClick={disconnectHardware}>연결 해제</button>
+        <button disabled={isBusy || !hardwareConnected} onClick={testHardware}>테스트</button>
       </div>
       <HardwareOutputMonitor connected={hardwareConnected} />
       <div className="profile-grid">
         <label>
           Baudrate
-          <select value={hardwareProfile.baudRate} onChange={event => updateHardwareProfile({ baudRate: Number(event.target.value) })}>
+          <select value={hardwareProfile.baudRate} disabled={hardwareConnected || isBusy} onChange={event => updateHardwareProfile({ baudRate: Number(event.target.value) })}>
             <option value={9600}>9600</option>
             <option value={57600}>57600</option>
             <option value={115200}>115200</option>
@@ -670,28 +718,40 @@ export default function App() {
         </label>
         <label>
           Stroke 축
-          <input value={hardwareProfile.linearAxis} onChange={event => updateHardwareProfile({ linearAxis: event.target.value.toUpperCase() })} />
+          <input value={hardwareProfile.linearAxis} disabled={hardwareConnected || isBusy} onChange={event => updateHardwareProfile({ linearAxis: event.target.value.toUpperCase() })} />
         </label>
         <label>
           진동 축
-          <input value={hardwareProfile.vibrationAxis ?? ''} onChange={event => updateHardwareProfile({ vibrationAxis: event.target.value.toUpperCase() })} placeholder="선택, 예: V0" />
+          <input value={hardwareProfile.vibrationAxis ?? ''} disabled={hardwareConnected || isBusy} onChange={event => updateHardwareProfile({ vibrationAxis: event.target.value.toUpperCase() })} placeholder="선택, 예: V0" />
         </label>
         <label>
           최소 위치
-          <input type="number" min="0" max="1" step="0.01" value={hardwareProfile.strokeMin} onChange={event => updateHardwareProfile({ strokeMin: Number(event.target.value) })} />
+          <input type="number" min="0" max="1" step="0.01" value={hardwareProfile.strokeMin} disabled={hardwareConnected || isBusy} onChange={event => updateHardwareProfile({ strokeMin: Number(event.target.value) })} />
         </label>
         <label>
           최대 위치
-          <input type="number" min="0" max="1" step="0.01" value={hardwareProfile.strokeMax} onChange={event => updateHardwareProfile({ strokeMax: Number(event.target.value) })} />
+          <input type="number" min="0" max="1" step="0.01" value={hardwareProfile.strokeMax} disabled={hardwareConnected || isBusy} onChange={event => updateHardwareProfile({ strokeMax: Number(event.target.value) })} />
+        </label>
+        <label>
+          긴급 정지 위치
+          <input
+            type="number"
+            min={hardwareProfile.strokeMin}
+            max={hardwareProfile.strokeMax}
+            step="0.01"
+            value={hardwareProfile.stopPosition}
+            disabled={hardwareConnected || isBusy}
+            onChange={event => updateHardwareProfile({ stopPosition: Number(event.target.value) })}
+          />
         </label>
         <label className="checkbox-row">
-          <input type="checkbox" checked={hardwareProfile.invertPosition} onChange={event => updateHardwareProfile({ invertPosition: event.target.checked })} />
+          <input type="checkbox" checked={hardwareProfile.invertPosition} disabled={hardwareConnected || isBusy} onChange={event => updateHardwareProfile({ invertPosition: event.target.checked })} />
           방향 반전
         </label>
       </div>
       <div className="button-row">
         <button disabled={isBusy || settingsLoading || !savedSettings} onClick={saveSettings}>설정 저장</button>
-        <button disabled={isBusy || settingsLoading || !savedSettings} onClick={loadSettings}>설정 불러오기</button>
+        <button disabled={isBusy || settingsLoading || !savedSettings || hardwareConnected} onClick={loadSettings}>설정 불러오기</button>
       </div>
     </section>
   );
@@ -1002,9 +1062,15 @@ function readDemoSession(): { username: string } | undefined {
 }
 
 function updateProfileValue(profile: HardwareProfile, patch: Partial<HardwareProfile>): HardwareProfile {
-  return {
+  const next = {
     ...profile,
     ...patch
+  };
+  const low = Math.min(next.strokeMin, next.strokeMax);
+  const high = Math.max(next.strokeMin, next.strokeMax);
+  return {
+    ...next,
+    stopPosition: Math.min(high, Math.max(low, next.stopPosition))
   };
 }
 
@@ -1165,7 +1231,13 @@ function formatReason(reason: string) {
     'room-stop-failed': '긴급 정지 전송에 실패했습니다',
     'host-disconnected': '스트리머 연결이 종료되었습니다',
     'hardware-stop-write-failed': '긴급 정지 명령을 하드웨어에 쓰지 못했습니다',
+    'hardware-write-timeout': '하드웨어 쓰기 응답 시간이 초과되어 연결을 종료했습니다',
+    'hardware-write-failed': '하드웨어 쓰기에 실패하여 연결을 종료했습니다',
+    'hardware-port-error': '하드웨어 포트 오류로 연결이 종료되었습니다',
+    'hardware-port-closed': '하드웨어 포트 연결이 끊겼습니다',
+    'hardware-disconnected-stop-failed': '정지 명령에 실패했습니다. 장비 전원을 직접 차단하세요',
     'hardware-test-failed': '하드웨어 테스트에 실패했습니다',
+    'hardware-test-cancelled': '다른 하드웨어 작업으로 테스트가 취소되었습니다',
     'invalid-hardware-profile': '하드웨어 프로필 설정이 올바르지 않습니다',
     'invalid-baud-rate': 'baudrate 값이 올바르지 않습니다',
     'invalid-linearAxis': 'stroke 축은 L0, R0, V0, A0 형식이어야 합니다',
@@ -1173,6 +1245,7 @@ function formatReason(reason: string) {
     'invalid-stroke-range': '최소 위치는 최대 위치보다 작아야 합니다',
     'invalid-strokeMin': '최소 위치는 0부터 1 사이여야 합니다',
     'invalid-strokeMax': '최대 위치는 0부터 1 사이여야 합니다',
+    'invalid-stop-position': '긴급 정지 위치는 최소 위치와 최대 위치 사이여야 합니다',
     'invalid-hardware-protection': '보호 옵션 설정이 올바르지 않습니다',
     'unsupported-settings-version': '지원하지 않는 설정 파일 버전입니다',
     'invalid-protection-position-range': '보호 최소 위치는 최대 위치보다 작아야 합니다',

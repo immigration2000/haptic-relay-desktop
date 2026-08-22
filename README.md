@@ -376,7 +376,7 @@ DSTOP
 - `4200`: 정규화 위치 `0.42`를 0-9999 범위로 변환한 값
 - `I16`: 해당 위치까지 이동할 interval ms
 - 여러 T-Code channel은 한 줄 안에서 공백으로 구분합니다.
-- 긴급 정지는 `DSTOP`을 먼저 보내고 0 위치 fallback 명령을 이어서 보냅니다.
+- 긴급 정지는 `DSTOP`을 먼저 보내고 프로필의 절대 `긴급 정지 위치` fallback 명령을 이어서 보냅니다.
 - `HAPTIC_TCODE_LINEAR_AXIS`: 기본 `L0`
 - `HAPTIC_TCODE_VIBRATION_AXIS`: 선택값, 예: `V0`
 - `HAPTIC_TCODE_INTERVAL_MS`: 기본 `16`
@@ -388,7 +388,10 @@ DSTOP
 - `Stroke 축`: 기본 `L0`
 - `진동 축`: 선택값, 예: `V0`
 - `최소/최대 위치`: 수신 position `0.0-1.0`을 실제 출력 범위로 매핑
+- `긴급 정지 위치`: `DSTOP` 다음에 출력할 절대 위치. 최소/최대 위치 안에서 지정
 - `방향 반전`: position `0.0`과 `1.0` 방향을 반대로 매핑
+
+연결 중에는 main process에 적용된 프로필과 화면 값이 달라지지 않도록 프로필 변경과 설정 불러오기를 잠급니다. 프로필을 바꾸려면 먼저 `연결 해제`를 누릅니다. 연결 해제는 정지 명령을 최대 500ms 시도한 뒤 포트를 닫으며, 정지 명령이 실패하면 장비 전원을 직접 차단하라는 경고를 표시합니다.
 
 연결 후 `테스트` 버튼은 낮은 강도와 짧은 interval로 `0.2 -> 0.5 -> 0.8 -> 0.5` 위치를 순서대로 출력한 뒤 자동으로 긴급 정지를 실행합니다. 실제 장비 방향, stroke 범위, baudrate, T-Code 축 설정을 빠르게 확인하기 위한 로컬 테스트이며 릴레이 서버에는 motion을 보내지 않습니다.
 
@@ -398,12 +401,14 @@ DSTOP
 - `최소/최대 위치`: 수신 position을 시청자가 허용한 범위 안으로 재매핑
 - `수신 일시정지`: 새 motion frame을 하드웨어에 출력하지 않고 즉시 로컬 정지
 
-하드웨어 프로필, 보호 옵션, 재생 설정은 Electron `userData` 경로의 `settings.json`에 저장합니다. 현재 설정 schema는 v2입니다. 설정 파일이 없으면 기본값을 사용하고, `schemaVersion`이 없거나 v1인 기존 설정 파일은 하드웨어 설정을 유지한 채 v2로 마이그레이션합니다. 모션 지연의 기본값과 마이그레이션 값은 모두 `0ms`입니다.
+하드웨어 프로필, 보호 옵션, 재생 설정은 Electron `userData` 경로의 `settings.json`에 저장합니다. 현재 설정 schema는 v3입니다. v1/v2 설정은 기존 `strokeMin`을 절대 긴급 정지 위치로 사용해 v3로 마이그레이션하며, v1의 모션 지연 마이그레이션 값은 `0ms`입니다.
 
 ```json
 {
-  "schemaVersion": 2,
-  "hardwareProfile": {},
+  "schemaVersion": 3,
+  "hardwareProfile": {
+    "stopPosition": 0
+  },
   "hardwareProtection": {},
   "playback": {
     "motionDelayMs": 0
@@ -430,7 +435,8 @@ DSTOP
 - 서버, 앱 릴레이, 하드웨어 출력은 각각 최대 Hz를 환경변수로 제한합니다.
 - 서버 rate limit은 token bucket으로 처리해 60Hz 근처의 타이머 지터를 과도하게 드롭하지 않습니다.
 - SerialPort 출력은 backpressure를 고려해 최신 프레임만 큐에 남깁니다.
-- 하드웨어는 새 motion frame이 일정 시간 없으면 자동으로 `DSTOP`과 0 위치 fallback을 출력합니다.
+- SerialPort write가 500ms 안에 완료되지 않거나 포트 `error`가 발생하면 해당 연결을 폐기하고, 명시적으로 재연결하기 전까지 추가 출력을 차단합니다.
+- 하드웨어는 새 motion frame이 일정 시간 없으면 자동으로 `DSTOP`과 설정된 절대 긴급 정지 위치 fallback을 출력합니다.
 - 앱은 최근 300개 이벤트를 main process 메모리 로그로 보관하고 UI에는 최근 80개를 표시합니다.
 - 이벤트 로그는 UI의 `저장` 버튼으로 JSON 파일로 export할 수 있습니다.
 

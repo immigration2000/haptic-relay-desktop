@@ -102,17 +102,18 @@ try {
   await setInputByLabel(cdp, '비밀번호', 'demo-password');
   await clickButton(cdp, '로그인');
   await waitForExpression(cdp, `document.body.innerText.includes('방 찾기')`);
-  await waitForExpression(cdp, `document.body.innerText.includes('공식 릴레이')`);
+  await waitForExpression(cdp, `document.body.innerText.includes('AWS 메인 릴레이')`);
   await clickButton(cdp, '방 만들기');
   await waitForExpression(cdp, `document.querySelector('[role="dialog"]')?.textContent.includes('새 방 만들기')`);
   await waitForExpression(cdp, `(() => {
     const labels = [...document.querySelectorAll('label')];
-    return labels.find(label => label.textContent.includes('서버 URL'))?.querySelector('input')?.value === 'https://relay.syncra.uk';
+    return labels.find(label => label.textContent.includes('서버 URL'))?.querySelector('input')?.value === 'https://aws-relay.syncra.uk';
   })()`);
   await clickButton(cdp, '취소');
   const savedSession = await cdp.evaluate(`JSON.parse(localStorage.getItem('haptic-relay.demo-session.v1'))`);
   assert.deepEqual(savedSession, { username: 'user01', remembered: true }, 'demo login persists username only');
   await clickButton(cdp, '서버 선택');
+  await waitForExpression(cdp, `document.body.innerText.includes('휴대폰 예비 릴레이')`);
   await clickButton(cdp, '사용자 서버 추가');
   await setInputByLabel(cdp, '서버 이름', 'QA Relay');
   await setInputByLabel(cdp, '서버 URL', `http://127.0.0.1:${relayPort}`);
@@ -149,7 +150,7 @@ try {
   await assertNoDocumentOverflow(cdp, '1180x780 host room');
   await captureScreenshot(cdp, path.join(outputDirectory, '03-room-management.png'));
   await clickButton(cdp, '방 찾기');
-  await waitForExpression(cdp, `document.body.innerText.includes('studio-main')`);
+  await waitForExpression(cdp, `[...document.querySelectorAll('[data-room-card]')].some(card => card.textContent.includes('studio-main'))`);
   await clickRoomCard(cdp, 'studio-main');
   await waitForExpression(cdp, `document.querySelector('[role="dialog"]')?.textContent.includes('초대 코드로 입장')`);
   assert.deepEqual(await getInputStateByLabel(cdp, '비밀번호'), { value: '', focused: false, disabled: true }, '자유 입장 방에 들어갈 때는 비밀번호 입력을 사용할 수 없다');

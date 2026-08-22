@@ -65,6 +65,7 @@ export type HardwareProfile = {
   vibrationAxis?: string;
   strokeMin: number;
   strokeMax: number;
+  stopPosition: number;
   invertPosition: boolean;
 };
 
@@ -83,6 +84,21 @@ export type HardwareOutputSnapshot = {
   baudRate: number;
 };
 
+export type HardwareConnectionStatus = {
+  connected: boolean;
+  path?: string;
+  reason?: string;
+  unexpected?: boolean;
+};
+
+export type HardwareDisconnectResult = {
+  connected: false;
+  stop: {
+    stopped: boolean;
+    reason?: string;
+  };
+};
+
 export type PlaybackSettings = {
   motionDelayMs: number;
 };
@@ -97,7 +113,7 @@ export type AppLogEntry = {
 };
 
 export type AppSettings = {
-  schemaVersion: 2;
+  schemaVersion: 3;
   hardwareProfile: HardwareProfile;
   hardwareProtection: HardwareProtection;
   playback: PlaybackSettings;

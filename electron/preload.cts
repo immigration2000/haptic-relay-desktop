@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { AppLogEntry, AppSettings, ApprovalRequest, HardwareOutputSnapshot, HardwareProfile, HardwareProtection, MotionDemoSnapshot, MotionMonitorSnapshot, MotionPatternConfig, RoomSettings, ViewerSession } from './protocol.js';
+import type { AppLogEntry, AppSettings, ApprovalRequest, HardwareConnectionStatus, HardwareOutputSnapshot, HardwareProfile, HardwareProtection, MotionDemoSnapshot, MotionMonitorSnapshot, MotionPatternConfig, RoomSettings, ViewerSession } from './protocol.js';
 
 type ViewerStatus = {
   roomName: string;
@@ -23,6 +23,7 @@ contextBridge.exposeInMainWorld('hapticRelay', {
   listPorts: () => ipcRenderer.invoke('hardware:list'),
   connectHardware: (pathName: string, profile: HardwareProfile) => ipcRenderer.invoke('hardware:connect', pathName, profile),
   disconnectHardware: () => ipcRenderer.invoke('hardware:disconnect'),
+  getHardwareStatus: () => ipcRenderer.invoke('hardware:status'),
   stopHardware: () => ipcRenderer.invoke('hardware:emergency-stop'),
   testHardware: () => ipcRenderer.invoke('hardware:test'),
   sendMotion: (intensity: number, position: number) => ipcRenderer.invoke('hardware:send', intensity, position),
@@ -79,6 +80,11 @@ contextBridge.exposeInMainWorld('hapticRelay', {
     const handler = (_event: Electron.IpcRendererEvent, snapshot: HardwareOutputSnapshot) => listener(snapshot);
     ipcRenderer.on('hardware:output', handler);
     return () => ipcRenderer.removeListener('hardware:output', handler);
+  },
+  onHardwareConnectionStatus: (listener: (status: HardwareConnectionStatus) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, status: HardwareConnectionStatus) => listener(status);
+    ipcRenderer.on('hardware:connection-status', handler);
+    return () => ipcRenderer.removeListener('hardware:connection-status', handler);
   },
   getLogs: () => ipcRenderer.invoke('app:logs'),
   exportLogs: () => ipcRenderer.invoke('app:export-logs'),

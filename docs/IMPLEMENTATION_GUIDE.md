@@ -476,7 +476,7 @@ T-Code ASCII over SerialPort
 
 연결 직후 앱은 `D1`/`D2`를 보내 장비의 T-Code 버전과 지원 axis를 best-effort로 확인합니다. OSR/SR6 펌웨어별 응답 형식이 다를 수 있으므로 probe 응답이 없어도 연결은 유지하고, UI에는 응답 없음 상태를 표시합니다.
 
-긴급 정지는 일반 motion queue보다 우선합니다. 앱은 pending frame을 삭제하고 `DSTOP`을 먼저 쓴 뒤 0 위치/0 강도 fallback T-Code를 씁니다.
+긴급 정지는 일반 motion queue와 진행 중인 하드웨어 테스트보다 우선합니다. 앱은 pending frame을 삭제하고 테스트의 후속 출력을 취소한 뒤 `DSTOP`과 프로필에 저장된 절대 정지 위치 fallback T-Code를 씁니다.
 
 기본 출력:
 
@@ -520,7 +520,10 @@ HAPTIC_HARDWARE_SAFETY_TIMEOUT_MS=1000
 - linear stroke axis
 - optional vibration axis
 - stroke min/max range
+- absolute emergency stop position within the stroke range
 - invert position
+
+연결 중에는 renderer의 프로필 입력과 설정 불러오기를 잠가 연결 시 main process에 전달한 활성 프로필과 화면 표시가 일치하도록 합니다. 연결 해제는 같은 긴급 정지 payload를 최대 500ms 시도한 뒤 포트를 닫습니다.
 
 수신 motion frame은 네트워크 프로토콜에서는 항상 `0.0-1.0` 정규화 값을 유지합니다. 하드웨어 프로필은 SerialPort 출력 직전에만 적용합니다.
 
@@ -586,8 +589,10 @@ renderer는 시작 시 `app:get-settings` IPC로 설정을 읽고, `app:save-set
 
 ```json
 {
-  "schemaVersion": 2,
-  "hardwareProfile": {},
+  "schemaVersion": 3,
+  "hardwareProfile": {
+    "stopPosition": 0
+  },
   "hardwareProtection": {},
   "playback": {
     "motionDelayMs": 0
@@ -597,8 +602,9 @@ renderer는 시작 시 `app:get-settings` IPC로 설정을 읽고, `app:save-set
 
 마이그레이션 규칙:
 
-- `schemaVersion`이 없거나 `schemaVersion: 1`이면 하드웨어 설정을 유지하고 `playback.motionDelayMs: 0`을 추가해 v2로 다시 저장
-- `schemaVersion: 2`이면 playback을 포함한 전체 설정을 검증
+- `schemaVersion`이 없거나 `schemaVersion: 1`이면 `playback.motionDelayMs: 0`과 `hardwareProfile.stopPosition: strokeMin`을 추가해 v3로 다시 저장
+- `schemaVersion: 2`이면 기존 playback을 유지하고 `hardwareProfile.stopPosition: strokeMin`을 추가해 v3로 다시 저장
+- `schemaVersion: 3`이면 절대 정지 위치를 포함한 전체 설정을 검증
 - 지원하지 않는 version이면 설정 읽기를 거부하고 이벤트 로그에 이유를 남김
 
 ## 11.3 이벤트 로그

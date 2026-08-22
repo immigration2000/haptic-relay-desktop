@@ -20,6 +20,10 @@ assert.equal(
   encoder.encodeTCodeStop({ linearAxis: 'L0', vibrationAxis: 'V0', stopPosition: 0.2 }),
   'DSTOP\nL02000I1 V00000\n'
 );
+assert.equal(
+  encoder.encodeTCodeStop({ linearAxis: 'L0', stopPosition: 0.3 }),
+  'DSTOP\nL03000I1\n'
+);
 assert.equal(encoder.encodeTCodeProbe(), 'D1\nD2\n');
 assert.deepEqual(
   encoder.parseTCodeProbe(['T-Code: v0.3', 'axes L0 R1 V0']),
