@@ -1,7 +1,7 @@
 import type { AppSettings, HardwareProfile, HardwareProtection } from './protocol.js';
 import { validateMotionDelayMs } from './services/motion-delay-buffer.js';
 
-export const CURRENT_SETTINGS_SCHEMA_VERSION = 2;
+export const CURRENT_SETTINGS_SCHEMA_VERSION = 3;
 export const DEFAULT_SETTINGS: AppSettings = {
   schemaVersion: CURRENT_SETTINGS_SCHEMA_VERSION,
   hardwareProfile: {
@@ -10,6 +10,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     vibrationAxis: undefined,
     strokeMin: 0,
     strokeMax: 1,
+    stopPosition: 0,
     invertPosition: false
   },
   hardwareProtection: {
@@ -33,13 +34,29 @@ export function validateAppSettings(value: unknown): AppSettings {
   };
 }
 
+function migrateLegacyHardwareProfile(value: unknown) {
+  if (!isRecord(value)) return value;
+  return {
+    ...value,
+    stopPosition: value.strokeMin
+  };
+}
+
 export function migrateAppSettings(value: unknown): AppSettings {
   if (!isRecord(value)) throw new Error('invalid-app-settings');
   if (value.schemaVersion === CURRENT_SETTINGS_SCHEMA_VERSION) return validateAppSettings(value);
+  if (value.schemaVersion === 2) {
+    return validateAppSettings({
+      schemaVersion: CURRENT_SETTINGS_SCHEMA_VERSION,
+      hardwareProfile: migrateLegacyHardwareProfile(value.hardwareProfile),
+      hardwareProtection: value.hardwareProtection,
+      playback: value.playback
+    });
+  }
   if (value.schemaVersion === 1 || value.schemaVersion === undefined) {
     return validateAppSettings({
       schemaVersion: CURRENT_SETTINGS_SCHEMA_VERSION,
-      hardwareProfile: value.hardwareProfile,
+      hardwareProfile: migrateLegacyHardwareProfile(value.hardwareProfile),
       hardwareProtection: value.hardwareProtection,
       playback: { motionDelayMs: 0 }
     });
@@ -53,6 +70,10 @@ export function validateHardwareProfile(value: unknown): HardwareProfile {
   const strokeMin = validateUnitInterval(value.strokeMin, 'strokeMin');
   const strokeMax = validateUnitInterval(value.strokeMax, 'strokeMax');
   if (strokeMin >= strokeMax) throw new Error('invalid-stroke-range');
+  const stopPosition = validateUnitInterval(value.stopPosition, 'stop-position');
+  if (stopPosition < strokeMin || stopPosition > strokeMax) {
+    throw new Error('invalid-stop-position');
+  }
 
   const vibrationAxis = value.vibrationAxis === undefined || value.vibrationAxis === ''
     ? undefined
@@ -64,6 +85,7 @@ export function validateHardwareProfile(value: unknown): HardwareProfile {
     vibrationAxis,
     strokeMin,
     strokeMax,
+    stopPosition,
     invertPosition: validateBoolean(value.invertPosition, 'invertPosition')
   };
 }

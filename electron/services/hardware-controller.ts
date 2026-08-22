@@ -29,6 +29,7 @@ const DEFAULT_HARDWARE_PROFILE: HardwareProfile = {
   vibrationAxis: TCODE_VIBRATION_AXIS,
   strokeMin: 0,
   strokeMax: 1,
+  stopPosition: 0,
   invertPosition: false
 };
 const DEFAULT_HARDWARE_PROTECTION: HardwareProtection = {
@@ -545,6 +546,7 @@ function normalizeProfile(profile: HardwareProfile): HardwareProfile {
     vibrationAxis: profile.vibrationAxis?.trim().toUpperCase() || undefined,
     strokeMin: clamp01(profile.strokeMin),
     strokeMax: clamp01(profile.strokeMax),
+    stopPosition: profile.stopPosition,
     invertPosition: profile.invertPosition
   };
 }

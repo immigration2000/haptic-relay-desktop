@@ -65,6 +65,7 @@ export type HardwareProfile = {
   vibrationAxis?: string;
   strokeMin: number;
   strokeMax: number;
+  stopPosition: number;
   invertPosition: boolean;
 };
 
@@ -112,7 +113,7 @@ export type AppLogEntry = {
 };
 
 export type AppSettings = {
-  schemaVersion: 2;
+  schemaVersion: 3;
   hardwareProfile: HardwareProfile;
   hardwareProtection: HardwareProtection;
   playback: PlaybackSettings;

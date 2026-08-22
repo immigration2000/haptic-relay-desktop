@@ -49,6 +49,7 @@ const DEFAULT_HARDWARE_PROFILE: HardwareProfile = {
   vibrationAxis: '',
   strokeMin: 0,
   strokeMax: 1,
+  stopPosition: 0,
   invertPosition: false
 };
 const DEFAULT_HARDWARE_PROTECTION: HardwareProtection = {
@@ -57,7 +58,7 @@ const DEFAULT_HARDWARE_PROTECTION: HardwareProtection = {
   positionMax: 1,
   paused: false
 };
-const CURRENT_SETTINGS_SCHEMA_VERSION = 2;
+const CURRENT_SETTINGS_SCHEMA_VERSION = 3;
 
 export default function App() {
   const [savedSession] = useState(readDemoSession);
