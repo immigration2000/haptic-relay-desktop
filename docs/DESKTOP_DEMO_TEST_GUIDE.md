@@ -54,7 +54,11 @@ cd haptic-relay-desktop
 npm.cmd install
 ```
 
-`--ignore-scripts` 옵션을 사용하지 마십시오. Electron 실행 파일과 SerialPort 네이티브 모듈 설치 과정이 필요합니다.
+Electron 43은 첫 CLI 실행 때 런타임을 내려받습니다. 다음 명령으로 런타임 다운로드와 실행을 확인합니다.
+
+```powershell
+npm.cmd exec electron -- --version
+```
 
 설치가 끝나면 다음 파일이 존재하는지 확인합니다.
 
@@ -117,7 +121,7 @@ npm.cmd run electron:demo-client
 첫 번째 Haptic Relay 창에서 진행합니다.
 
 1. 로비 오른쪽 위의 `방 만들기`를 누릅니다.
-2. 서버 URL이 `http://localhost:4174`인지 확인합니다.
+2. 서버 URL을 로컬 테스트 서버인 `http://localhost:4174`로 바꿉니다. 새 설치본의 기본값은 AWS 릴레이입니다.
 3. 방 이름을 입력합니다. 예: `studio-main`
 4. 빠른 테스트를 위해 입장 방식을 `자유입장`으로 선택합니다.
 5. `방 생성`을 누릅니다.
@@ -215,7 +219,7 @@ npm.cmd run build:electron
 npm.cmd run electron:dev
 ```
 
-`npm install --ignore-scripts`로 설치했다면 정상 설치 명령을 다시 실행합니다.
+Electron 런타임이 없으면 `npm.cmd exec electron -- --version`을 실행한 뒤 앱을 다시 시작합니다.
 
 ### 서버 연결 실패
 

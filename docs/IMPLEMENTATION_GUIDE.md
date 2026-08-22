@@ -135,7 +135,7 @@ Dockerfile.server
 - Windows target: `nsis`
 - output directory: `release`
 
-릴리스 빌드 환경에서는 Electron 런타임이 설치되어 있거나 다운로드 가능해야 한다. 샌드박스 검증처럼 `npm install --ignore-scripts`로 의존성을 설치하면 Electron postinstall이 실행되지 않으므로 `electron-builder`가 Electron 바이너리를 찾거나 내려받는 단계에서 실패할 수 있다.
+릴리스 빌드 환경에서는 Electron 런타임을 다운로드할 수 있어야 한다. Electron 43은 첫 CLI 실행 때 런타임을 내려받으므로 패키징 전에 `npm.cmd exec electron -- --version`으로 설치 상태를 확인한다.
 
 ## 4. 서버 구조
 

@@ -20,8 +20,10 @@
 2. 스트리머가 Haptic Relay Desktop에서 릴레이 서버에 연결하고 방 이름, 비밀번호, 입장 방식을 설정합니다.
 3. 스트리머가 방송 화면이나 채팅으로 방 이름과 비밀번호를 안내합니다.
 4. 시청자는 앱을 설치하고 방에 입장합니다.
-5. 스트리머가 하드웨어를 연결하고 움직이면 모션 프레임이 방의 시청자에게 릴레이됩니다.
+5. 스트리머가 앱의 수동 조작이나 자동 패턴을 실행하면 모션 프레임이 방의 시청자에게 릴레이됩니다.
 6. 시청자 앱은 수신한 모션 프레임을 각자의 하드웨어 제어 프로토콜로 변환합니다.
+
+새 설치본은 AWS 릴레이 `https://aws-relay.syncra.uk`를 기본 서버로 사용합니다. 휴대폰 릴레이 `https://relay.syncra.uk`는 사용자가 직접 선택하는 예비 서버이며 자동 장애 조치는 하지 않습니다.
 
 ## 현재 포함된 범위
 
@@ -35,7 +37,8 @@
 - 릴레이 재연결 후 자동 방 재입장
 - SerialPort 기반 하드웨어 포트 검색, 연결, T-Code 프로토콜 송신
 - 하드웨어 연결 시 T-Code `D1`/`D2` capability probe
-- baudrate, T-Code 축, stroke 범위, 방향 반전 하드웨어 프로필 설정
+- baudrate, T-Code 축, stroke 범위, 절대 긴급 정지 위치, 방향 반전 하드웨어 프로필 설정
+- 정지 명령을 최대 500ms 시도한 뒤 포트를 닫는 안전한 하드웨어 연결 해제
 - 시청자 강도 상한, 위치 범위 제한, 수신 일시정지 보호 옵션
 - 하드웨어 프로필 및 보호 옵션 저장/불러오기
 - relay, room, hardware, protection 최근 이벤트 로그
@@ -60,7 +63,11 @@
 npm install
 ```
 
-`--ignore-scripts`로 설치하면 Electron postinstall이 실행되지 않아 앱을 띄울 수 없습니다. 설치 후 아래 두 경로가 있는지 확인합니다.
+Electron 43은 첫 CLI 실행 때 런타임을 내려받습니다. 설치 후 다음 명령을 실행해 런타임과 SerialPort 바인딩을 확인합니다.
+
+```powershell
+npm.cmd exec electron -- --version
+```
 
 - `node_modules/electron/dist/electron.exe`
 - `node_modules/@serialport/bindings-cpp/prebuilds/`
@@ -128,7 +135,7 @@ npm.cmd run electron:demo-client
 스트리머 쪽:
 
 1. 앱에서 `스트리머`를 선택합니다.
-2. `서버 URL`에 릴레이 서버 주소를 입력합니다. 기본값은 `http://localhost:4174`입니다.
+2. `서버 URL`을 확인합니다. 설치본 기본값은 AWS 릴레이 `https://aws-relay.syncra.uk`이며, 로컬 서버 테스트 때만 `http://localhost:4174`로 바꿉니다.
 3. 방 이름, 비밀번호, 입장 방식을 정하고 `방 생성`을 누릅니다.
 4. 표시된 초대 코드나 QR을 시청자에게 전달합니다.
 5. `스트리머 하드웨어`에서 포트를 고르고 `연결`을 누릅니다. `테스트` 버튼은 릴레이로 전송하지 않고 로컬 장비만 확인합니다.
@@ -209,7 +216,7 @@ npm.cmd run release:check
 
 패키징 산출물은 `release/`에 생성합니다. SerialPort native binding은 ASAR 안에 넣지 않고 `app.asar.unpacked`로 풀어 배포하도록 `asarUnpack`을 설정했습니다.
 
-릴리스 머신에서는 Electron 런타임이 설치되어 있거나 다운로드 가능해야 합니다. 이 저장소를 샌드박스처럼 `npm install --ignore-scripts`로 설치하면 Electron postinstall이 실행되지 않아 `electron-builder`가 Electron 바이너리를 찾거나 내려받아야 합니다.
+릴리스 머신은 Electron 런타임을 내려받을 수 있어야 합니다. Electron 43은 첫 CLI 실행 때 런타임을 가져오므로 패키징 전에 `npm.cmd exec electron -- --version`으로 설치 상태를 확인합니다.
 
 ## 릴레이 부하 테스트
 

@@ -228,7 +228,7 @@ The relay protocol and hardware protocol are intentionally different.
 
 ## Access Modes
 
-- `open`: the Demo 8 desktop UI does not use a password and disables the password field. The server retains open-room password compatibility for older/API clients.
+- `open`: the Demo 9 desktop UI does not use a password and disables the password field. The server retains open-room password compatibility for older/API clients.
 - `request`: viewer join requests remain connected in approval wait state until the host approves or rejects them.
 - Host moderation can kick active viewers or block the same display name for the current room session.
 
