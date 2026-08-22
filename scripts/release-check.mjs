@@ -74,15 +74,18 @@ const appExe = exists('release/win-unpacked/Haptic Relay.exe');
 const appAsar = exists('release/win-unpacked/resources/app.asar');
 const unpackedDir = exists('release/win-unpacked/resources/app.asar.unpacked');
 const unpackedSerialportFiles = listFiles('release/win-unpacked/resources/app.asar.unpacked', (filePath) => filePath.endsWith('.node'));
-const installerFiles = listFiles('release', (filePath) => filePath.endsWith('.exe') && !filePath.includes(`${path.sep}win-unpacked${path.sep}`));
+const expectedInstallerName = packageJson
+  ? `${packageJson.build?.productName ?? packageJson.name}-${packageJson.version}-win-${process.arch}.exe`
+  : undefined;
+const expectedInstallerPath = expectedInstallerName ? path.join('release', expectedInstallerName) : undefined;
 
 check('unpacked app executable exists', appExe, 'Run npm.cmd run electron:pack.');
 check('app.asar exists', appAsar, 'Run npm.cmd run electron:pack.');
 check('app.asar.unpacked exists', unpackedDir, 'SerialPort native files must stay outside app.asar.');
 check('unpacked SerialPort native binding exists', unpackedSerialportFiles.length > 0,
   unpackedSerialportFiles.length > 0 ? unpackedSerialportFiles.slice(0, 3).join(', ') : 'Check asarUnpack after packaging.');
-check('Windows installer exists', installerFiles.length > 0,
-  installerFiles.length > 0 ? installerFiles.join(', ') : 'Run npm.cmd run electron:build.');
+check('current-version Windows installer exists', Boolean(expectedInstallerPath && exists(expectedInstallerPath)),
+  expectedInstallerPath ?? 'package metadata unavailable');
 
 const failed = checks.filter((item) => !item.passed);
 
