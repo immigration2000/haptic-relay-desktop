@@ -62,6 +62,14 @@ assert.match(preloadSource, /getHardwareStatus:\s*\(\)\s*=>[^\n]*?ipcRenderer\.i
 assert.match(preloadSource, /onHardwareConnectionStatus:\s*\(listener\)/);
 assert.match(preloadSource, /ipcRenderer\.on\(['"]hardware:connection-status['"],\s*handler\)/);
 assert.match(preloadSource, /removeListener\(['"]hardware:connection-status['"],\s*handler\)/);
+assert.match(appSource, /async function disconnectHardware\(\)/);
+assert.match(appSource, /async function disconnectHardware\(\)[\s\S]*?window\.hapticRelay\.disconnectHardware\(\)[\s\S]*?setHardwareConnected\(result\.connected\)[\s\S]*?장비 전원을 직접 차단하세요[\s\S]*?async function testHardware\(\)/);
+assert.match(appSource, /window\.hapticRelay\.getHardwareStatus\(\)/);
+assert.match(appSource, /window\.hapticRelay\.onHardwareConnectionStatus\(nextStatus\s*=>/);
+assert.match(appSource, /removeHardwareConnectionStatus\(\)/);
+assert.match(hardwarePanelSource, /disabled=\{isBusy \|\| hardwareConnected \|\| !selectedPort\}[\s\S]*?>연결<\/button>/);
+assert.match(hardwarePanelSource, /disabled=\{isBusy \|\| !hardwareConnected\}[\s\S]*?onClick=\{disconnectHardware\}>연결 해제<\/button>/);
+assert.match(hardwarePanelSource, /disabled=\{isBusy \|\| !hardwareConnected\}[\s\S]*?onClick=\{testHardware\}>테스트<\/button>/);
 assert.match(mainSource, /async function readSettingsInTransaction\(writeAtomically\)/);
 assert.match(mainSource, /viewer:set-motion-delay[\s\S]*?getSettingsStore\(\)\.exclusive\(async \(?writeAtomically\)? => \{[\s\S]*?readSettingsInTransaction\(writeAtomically\)[\s\S]*?await writeAtomically\(settings\)/);
 assert.match(loadSettingsSource, /const requestId = \+\+settingsLoadRequestId\.current/);

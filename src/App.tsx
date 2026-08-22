@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { OctagonX } from 'lucide-react';
-import type { AppLogEntry, AppSettings, ApprovalRequest, EntryMode, HardwareProfile, HardwareProtection, MotionDemoMode, MotionMonitorSnapshot, MotionPatternConfig, PortInfo, RoomDirectoryEntry, ViewerSession } from './shared/protocol';
+import type { AppLogEntry, AppSettings, ApprovalRequest, EntryMode, HardwareConnectionStatus, HardwareProfile, HardwareProtection, MotionDemoMode, MotionMonitorSnapshot, MotionPatternConfig, PortInfo, RoomDirectoryEntry, ViewerSession } from './shared/protocol';
 import { createQrMatrix } from './qr-code';
 import { AppShell } from './ui/components/AppShell';
 import { HardwareOutputMonitor } from './ui/components/HardwareOutputMonitor';
@@ -201,17 +201,41 @@ export default function App() {
       }
       setStatusMessage('error', `릴레이 오류: ${formatReason(nextStatus.reason ?? 'connect_error')}`);
     });
+    let hardwareStatusActive = true;
+    let hardwareStatusEventSeen = false;
+    const applyHardwareStatus = (nextStatus: HardwareConnectionStatus) => {
+      setHardwareConnected(nextStatus.connected);
+      if (!nextStatus.connected && nextStatus.unexpected) {
+        setStatusMessage(
+          'error',
+          `하드웨어 연결이 끊겼습니다: ${formatReason(nextStatus.reason ?? 'hardware-not-connected')}. 다시 연결하세요.`
+        );
+      }
+    };
+    const removeHardwareConnectionStatus = window.hapticRelay.onHardwareConnectionStatus(nextStatus => {
+      hardwareStatusEventSeen = true;
+      applyHardwareStatus(nextStatus);
+    });
+    void window.hapticRelay.getHardwareStatus()
+      .then(nextStatus => {
+        if (hardwareStatusActive && !hardwareStatusEventSeen) applyHardwareStatus(nextStatus);
+      })
+      .catch(error => {
+        if (hardwareStatusActive) setStatusMessage('error', formatError(error));
+      });
     const removeMotionReceived = window.hapticRelay.onMotionReceived(snapshot => {
       setMotionMonitorEntries(current => [snapshot, ...current].slice(0, 10));
     });
 
     return () => {
+      hardwareStatusActive = false;
       removeLog();
       removeApprovalRequest();
       removeViewerStatus();
       removeViewerList();
       removeEmergencyStop();
       removeConnectionStatus();
+      removeHardwareConnectionStatus();
       removeMotionReceived();
     };
   }, []);
@@ -450,6 +474,18 @@ export default function App() {
     });
   }
 
+  async function disconnectHardware() {
+    await runAction('hardware', '정지 명령 전송 후 하드웨어 연결 해제 중', async () => {
+      const result = await window.hapticRelay.disconnectHardware();
+      setHardwareConnected(result.connected);
+      if (!result.stop.stopped && result.stop.reason !== 'hardware-not-connected') {
+        setStatusMessage('error', '정지 명령을 확인하지 못했습니다. 장비 전원을 직접 차단하세요.');
+        return;
+      }
+      setStatusMessage('ok', '하드웨어 연결 해제됨');
+    });
+  }
+
   async function testHardware() {
     await runAction('hardware', '하드웨어 테스트 중', async () => {
       const result = await window.hapticRelay.testHardware();
@@ -653,8 +689,9 @@ export default function App() {
           ))}
         </select>
         <button disabled={isBusy} onClick={() => refreshPorts()}>새로고침</button>
-        <button disabled={isBusy || !selectedPort} onClick={connectHardware}>연결</button>
-        <button disabled={isBusy} onClick={testHardware}>테스트</button>
+        <button disabled={isBusy || hardwareConnected || !selectedPort} onClick={connectHardware}>연결</button>
+        <button disabled={isBusy || !hardwareConnected} onClick={disconnectHardware}>연결 해제</button>
+        <button disabled={isBusy || !hardwareConnected} onClick={testHardware}>테스트</button>
       </div>
       <HardwareOutputMonitor connected={hardwareConnected} />
       <div className="profile-grid">
