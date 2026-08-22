@@ -182,6 +182,11 @@ await controller.connect('COM9', {
 await controller.emergencyStop();
 assert.equal(outputs.at(-1).kind, 'stop');
 assert.match(outputs.at(-1).command, /^DSTOP\nL00000I1$/);
+assert.deepEqual(
+  controller.getConnectionStatus(),
+  { connected: true, path: 'COM9' },
+  'a successful normal emergency stop keeps the healthy port connected'
+);
 
 await controller.disconnect();
 
@@ -251,6 +256,104 @@ assert.equal(
 );
 await delay(50);
 await closeFailureController.disconnect();
+
+const safeStatuses = [];
+const safePort = new FakePort('COM13');
+const safeController = new HardwareController({
+  createPort: () => safePort,
+  onConnectionStatus: status => safeStatuses.push(status),
+  probeTimeoutMs: 0,
+  writeTimeoutMs: 20
+});
+await safeController.connect('COM13', {
+  baudRate: 115200,
+  linearAxis: 'L0',
+  strokeMin: 0,
+  strokeMax: 1,
+  invertPosition: false
+});
+assert.deepEqual(safeController.getConnectionStatus(), { connected: true, path: 'COM13' });
+
+const safeResult = await safeController.disconnectSafely();
+assert.deepEqual(safeResult, { connected: false, stop: { stopped: true } });
+assert.match(safePort.writes.at(-1).trim(), /^DSTOP\nL00000I1$/);
+assert.deepEqual(safeStatuses, [
+  { connected: true, path: 'COM13' },
+  { connected: false, reason: 'hardware-disconnected', unexpected: false }
+]);
+
+const stalledStatuses = [];
+const stalledPort = new FakePort('COM14');
+const stalledController = new HardwareController({
+  createPort: () => stalledPort,
+  onConnectionStatus: status => stalledStatuses.push(status),
+  probeTimeoutMs: 0,
+  writeTimeoutMs: 20
+});
+await stalledController.connect('COM14', {
+  baudRate: 115200,
+  linearAxis: 'L0',
+  strokeMin: 0,
+  strokeMax: 1,
+  invertPosition: false
+});
+stalledPort.stallNextWrite = true;
+const stalledDisconnect = await Promise.race([
+  stalledController.disconnectSafely(),
+  delay(100).then(() => ({ timedOut: true }))
+]);
+assert.deepEqual(stalledDisconnect, {
+  connected: false,
+  stop: { stopped: false, reason: 'hardware-stop-write-failed' }
+});
+assert.deepEqual(stalledStatuses.at(-1), {
+  connected: false,
+  reason: 'hardware-disconnected-stop-failed',
+  unexpected: false
+});
+
+const unexpectedStatuses = [];
+const unexpectedPort = new FakePort('COM15');
+const unexpectedController = new HardwareController({
+  createPort: () => unexpectedPort,
+  onConnectionStatus: status => unexpectedStatuses.push(status),
+  probeTimeoutMs: 0,
+  writeTimeoutMs: 20
+});
+await unexpectedController.connect('COM15', {
+  baudRate: 115200,
+  linearAxis: 'L0',
+  strokeMin: 0,
+  strokeMax: 1,
+  invertPosition: false
+});
+unexpectedPort.emit('error', new Error('serial-port-fault'));
+assert.deepEqual(unexpectedStatuses.at(-1), {
+  connected: false,
+  reason: 'hardware-port-error',
+  unexpected: true
+});
+
+const safeCloseFailureStatuses = [];
+const safeCloseFailurePort = new FakePort('COM16');
+const safeCloseFailureController = new HardwareController({
+  createPort: () => safeCloseFailurePort,
+  onConnectionStatus: status => safeCloseFailureStatuses.push(status),
+  probeTimeoutMs: 0,
+  writeTimeoutMs: 20
+});
+await safeCloseFailureController.connect('COM16', {
+  baudRate: 115200,
+  linearAxis: 'L0',
+  strokeMin: 0,
+  strokeMax: 1,
+  invertPosition: false
+});
+safeCloseFailurePort.failNextClose = true;
+await assert.rejects(safeCloseFailureController.disconnectSafely(), /serial-close-failed/);
+assert.deepEqual(safeCloseFailureController.getConnectionStatus(), { connected: true, path: 'COM16' });
+assert.deepEqual(safeCloseFailureStatuses, [{ connected: true, path: 'COM16' }]);
+await safeCloseFailureController.disconnect();
 
 console.log('hardware output tests passed');
 

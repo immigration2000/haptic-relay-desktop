@@ -1,5 +1,12 @@
 import { SerialPort } from 'serialport';
-import type { HardwareOutputSnapshot, HardwareProfile, HardwareProtection, MotionFrame } from '../protocol.js';
+import type {
+  HardwareConnectionStatus,
+  HardwareDisconnectResult,
+  HardwareOutputSnapshot,
+  HardwareProfile,
+  HardwareProtection,
+  MotionFrame
+} from '../protocol.js';
 import {
   clamp01,
   HARDWARE_MAX_HZ,
@@ -43,6 +50,7 @@ type HardwarePort = Pick<SerialPort, 'path' | 'isOpen' | 'open' | 'close' | 'wri
 type HardwareControllerOptions = {
   onLog?: (entry: HardwareLog) => void;
   onOutput?: (snapshot: HardwareOutputSnapshot) => void;
+  onConnectionStatus?: (status: HardwareConnectionStatus) => void;
   createPort?: (options: { path: string; baudRate: number; autoOpen: false }) => HardwarePort;
   probeTimeoutMs?: number;
   writeTimeoutMs?: number;
@@ -67,6 +75,8 @@ export class HardwareController {
   private readonly minIntervalMs = maxHzToInterval(HARDWARE_MAX_HZ);
   private readonly safetyTimeoutMs = normalizeOptionalTimeoutMs(HARDWARE_SAFETY_TIMEOUT_MS);
   private readonly writeTimeoutMs: number;
+  private connectionStatus: HardwareConnectionStatus = { connected: false };
+  private safeDisconnectInProgress = false;
 
   constructor(options: HardwareControllerOptions | HardwareControllerOptions['onLog'] = {}) {
     this.options = typeof options === 'function' ? { onLog: options } : options;
@@ -95,13 +105,19 @@ export class HardwareController {
         port.open(error => (error ? reject(error) : resolve()));
       });
     } catch (error) {
-      this.failPort(port, error instanceof Error ? error : new Error('hardware-open-failed'));
-      throw error;
+      const normalizedError = error instanceof Error ? error : new Error('hardware-open-failed');
+      this.failPort(port, normalizedError, 'hardware-open-failed');
+      throw normalizedError;
     }
 
     const probe = await this.probeTCodeCapabilities();
+    this.reportConnectionStatus({ connected: true, path: pathName });
     this.options.onLog?.({ level: 'info', source: 'hardware', message: 'hardware-connected', details: `${pathName} @ ${this.profile.baudRate}` });
     return { connected: true, path: pathName, baudRate: this.profile.baudRate, profile: this.profile, probe };
+  }
+
+  getConnectionStatus(): HardwareConnectionStatus {
+    return { ...this.connectionStatus };
   }
 
   async setProtection(protection: HardwareProtection) {
@@ -116,6 +132,25 @@ export class HardwareController {
     return { protection: this.protection };
   }
 
+  async disconnectSafely(): Promise<HardwareDisconnectResult> {
+    if (!this.port?.isOpen) {
+      await this.disconnect();
+      return {
+        connected: false,
+        stop: { stopped: false, reason: 'hardware-not-connected' }
+      };
+    }
+
+    this.safeDisconnectInProgress = true;
+    try {
+      const stop = await this.emergencyStop();
+      await this.disconnect();
+      return { connected: false, stop };
+    } finally {
+      this.safeDisconnectInProgress = false;
+    }
+  }
+
   async disconnect() {
     if (this.flushTimer) {
       clearTimeout(this.flushTimer);
@@ -128,6 +163,7 @@ export class HardwareController {
     if (!port?.isOpen) {
       if (port) this.detachPortErrorHandler(port);
       this.port = undefined;
+      this.reportConnectionStatus({ connected: false, reason: 'hardware-disconnected', unexpected: false });
       return { connected: false };
     }
 
@@ -144,6 +180,7 @@ export class HardwareController {
     } finally {
       this.schedulePortErrorHandlerDetach(port, errorHandler);
     }
+    this.reportConnectionStatus({ connected: false, reason: 'hardware-disconnected', unexpected: false });
     this.options.onLog?.({ level: 'info', source: 'hardware', message: 'hardware-disconnected' });
     return { connected: false };
   }
@@ -356,7 +393,7 @@ export class HardwareController {
 
       activeWrite = { port, fail: finish };
       this.activeWrites.add(activeWrite);
-      timeout = setTimeout(() => this.failPort(port, new Error('hardware-write-timeout')), this.writeTimeoutMs);
+      timeout = setTimeout(() => this.failPort(port, new Error('hardware-write-timeout'), 'hardware-write-timeout'), this.writeTimeoutMs);
       try {
         port.write(payload, finish);
       } catch (error) {
@@ -368,10 +405,10 @@ export class HardwareController {
   private handlePortError(port: HardwarePort, error: Error) {
     if (this.port !== port) return;
     this.options.onLog?.({ level: 'error', source: 'hardware', message: 'hardware-port-error', details: formatError(error) });
-    this.failPort(port, error);
+    this.failPort(port, error, 'hardware-port-error');
   }
 
-  private failPort(port: HardwarePort, error: Error) {
+  private failPort(port: HardwarePort, error: Error, reason: string) {
     if (this.port !== port) return;
     this.port = undefined;
     if (this.flushTimer) {
@@ -381,6 +418,11 @@ export class HardwareController {
     this.clearSafetyTimer();
     this.latestFrame = undefined;
     this.failActiveWrites(port, error);
+    this.reportConnectionStatus({
+      connected: false,
+      reason: this.safeDisconnectInProgress ? 'hardware-disconnected-stop-failed' : reason,
+      unexpected: !this.safeDisconnectInProgress
+    });
 
     const errorHandler = this.portErrorHandlers.get(port);
     if (!port.isOpen) {
@@ -424,6 +466,16 @@ export class HardwareController {
     if (!errorHandler || (expectedHandler && errorHandler !== expectedHandler)) return;
     port.off('error', errorHandler);
     this.portErrorHandlers.delete(port);
+  }
+
+  private reportConnectionStatus(status: HardwareConnectionStatus) {
+    if (
+      this.connectionStatus.connected === status.connected
+      && this.connectionStatus.path === status.path
+    ) return;
+
+    this.connectionStatus = { ...status };
+    this.options.onConnectionStatus?.({ ...status });
   }
 
   private reportOutput(kind: HardwareOutputSnapshot['kind'], payload: string) {
