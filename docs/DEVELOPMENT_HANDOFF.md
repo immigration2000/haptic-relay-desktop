@@ -4,12 +4,12 @@
 
 ## 1. 현재 기준점
 
-- 작성 기준: 2026-08-21 KST
+- 작성 기준: 2026-08-22 KST
 - 앱 저장소: `https://github.com/immigration2000/haptic-relay-desktop.git`
 - 원격 정본 브랜치: `main`
 - 원격 `main`/Demo 8 커밋: `488e42ce78630106f2445f472b7d55c669c5ae3b`
 - 현재 노트북 최신 worktree: `C:\Users\user\Documents\Claude\Projects\haptic-relay-desktop\.worktrees\viewer-motion-delay-pr`
-- 위 worktree 브랜치: `feature/viewer-motion-delay-pr`, 현재 `origin/main`과 같은 커밋
+- 위 worktree 브랜치: `feature/viewer-motion-delay-pr`; 원격보다 앞선 로컬 커밋이 있으므로 작업 전 `git status -sb`로 확인
 - 공개 릴레이: `https://relay.syncra.uk`
 
 주의: `C:\Users\user\Documents\Claude\Projects\haptic-relay-desktop`의 로컬 `main`은 원격과 이력이 크게 갈라진 오래된 브랜치입니다. 사용자 확인 없이 reset, checkout 강제 덮어쓰기, force push를 하지 않습니다. 새 작업은 최신 worktree에서 하거나 `origin/main` 기준 새 worktree를 만듭니다.
@@ -41,11 +41,20 @@ PandaTV 같은 외부 방송 플랫폼에서도 플랫폼 영상 시스템과 �
 
 ### 외부 릴레이
 
-2026-08-21 확인 결과:
+2026-08-22 확인 결과:
 
 - `https://relay.syncra.uk/healthz`: `ok=true`, relay node 1개
 - `https://relay.syncra.uk/api/rooms`: 정상, 확인 시 열린 방 0개
 - 앱 기본 서버도 `https://relay.syncra.uk`
+
+AWS staging relay도 `https://aws-relay.syncra.uk`에 준비되어 있습니다.
+
+- Ubuntu EC2의 relay는 `haptic-relay.service`로 등록되어 부팅 시 자동 실행됩니다.
+- relay는 `127.0.0.1:4174`에만 바인딩되고 Cloudflare Tunnel `haptic-relay-aws`가 HTTPS/WebSocket을 전달합니다.
+- AWS 보안 그룹의 공개 TCP `4174` 인바운드는 제거했습니다. SSH `22`는 관리용으로 유지합니다.
+- 외부 TLS, `/healthz`, `/api/rooms`, Socket.IO WebSocket을 검증했고 Elastic IP의 `4174` 직접 접속은 차단됨을 확인했습니다.
+- 서버의 production 환경파일과 tunnel token은 서버 내부 비밀이며 출력·복사·커밋하지 않습니다.
+- 아직 앱 기본 주소와 `relay.syncra.uk`는 기존 휴대폰 relay를 가리킵니다. AWS로의 최종 전환은 별도 종단 테스트 후 결정합니다.
 
 휴대폰 Termux 서버의 마지막 배포 기록은 `~/haptic-relay-server-demo7`입니다. 재부팅 후에는 해당 디렉터리의 전용 `start.sh`와 `start-haptic-named-tunnel.sh`를 사용합니다. PID는 실행 때마다 달라지므로 이전 기록을 그대로 믿지 말고 스크립트와 `/healthz`로 확인합니다.
 

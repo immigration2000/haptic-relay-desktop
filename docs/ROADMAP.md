@@ -2,7 +2,8 @@
 
 ## Current Priority
 
-- [ ] Restore AWS relay server access and verify SSH, local `/healthz`, and external HTTPS in that order
+- [x] Restore AWS relay server access and verify SSH, local `/healthz`, and external HTTPS in that order
+- [x] Deploy the AWS staging relay behind Cloudflare Tunnel at `https://aws-relay.syncra.uk`
 - [ ] Decide whether to move `relay.syncra.uk` from the current phone tunnel to AWS after direct AWS verification
 
 ## Phase 1: Desktop MVP
