@@ -1,6 +1,6 @@
 # 트러블슈팅 및 로컬 테스트 기록
 
-이 문서는 로컬 테스트 환경을 처음 구성하면서 확인한 절차, 실제로 발견한 결함, 재발을 막기 위한 유의사항을 남깁니다.
+이 문서는 로컬 테스트 환경을 처음 구성하면서 확인한 절차, 실제로 발견한 결함, 재발을 막기 위한 유의사항을 남깁니다. 2026-08-03 조사 기록을 보존하되 설치와 감사 상태는 Demo 9 기준으로 갱신합니다.
 
 작업 기준: 2026-08-03, Node v24.12.0, npm 11.6.2, Windows 11.
 
@@ -12,11 +12,11 @@
 npm.cmd install
 ```
 
-- 452개 패키지가 설치됩니다.
+- 설치되는 패키지 수는 lockfile 변경에 따라 달라질 수 있습니다.
 - 설치 후 아래 두 가지가 실제로 존재하는지 확인해야 합니다. 둘 중 하나라도 없으면 앱이 뜨지 않거나 하드웨어 검색이 실패합니다.
-  - `node_modules/electron/dist/electron.exe` (Electron postinstall이 내려받는 런타임)
+  - `node_modules/electron/dist/electron.exe` (Electron 43은 첫 CLI 실행 때 내려받는 런타임)
   - `node_modules/@serialport/bindings-cpp/prebuilds/win32-x64` (SerialPort 네이티브 바인딩)
-- `npm install --ignore-scripts`로 설치하면 Electron postinstall이 돌지 않아 위 런타임이 없습니다. 샌드박스 환경에서 설치했던 흔적이 있다면 `node_modules`를 지우고 다시 설치합니다.
+- Electron 런타임이 없으면 `npm.cmd exec electron -- --version`을 실행해 내려받고 버전을 확인합니다.
 
 ### 1.2 환경변수 파일
 
@@ -72,7 +72,7 @@ npm.cmd run test:smoke
 npm.cmd run test:electron
 ```
 
-`test:smoke`는 릴레이 서버를 직접 띄워 방 생성, 입장, 승인, 강퇴, 긴급 정지, host 재접속, 만료 정리까지 13개 항목을 확인합니다. 별도로 서버를 실행해 둘 필요는 없습니다. `test:electron`은 빌드된 preload가 CommonJS인지 검사하는 회귀 테스트입니다.
+`test:smoke`는 릴레이 서버를 직접 띄워 방 생성, 입장, 승인, 강퇴, 긴급 정지, host 재접속, 만료 정리 등을 포함한 24개 항목을 확인합니다. 별도로 서버를 실행해 둘 필요는 없습니다. `test:electron`은 빌드된 preload가 CommonJS인지 검사하는 회귀 테스트입니다.
 
 `test:redis`는 실제 Redis 서버가 떠 있어야 합니다.
 
@@ -148,7 +148,7 @@ const ws = new WebSocket(page.webSocketDebuggerUrl);
 - **CSP를 손볼 때는 `index.html`의 meta와 `main.ts`의 헤더를 함께 봐야 합니다.** 완화는 dev 실행에만 적용되도록 유지하고, 패키징 경로의 정책은 낮추지 않습니다.
 - **`.env`는 서버가 읽지 않습니다.** 로컬 테스트는 `server:test`를 쓰고, 배포에서는 컨테이너/프로세스 환경변수로 주입합니다.
 - 앱 시작 직후 상태 문구가 `포트 확인 중`에 머무릅니다. `refreshPorts(true)`의 `silent` 분기가 완료 메시지를 의도적으로 갱신하지 않는 기존 동작이며, 포트 목록 자체는 정상적으로 채워집니다.
-- `npm audit`에 high 2건이 있습니다. `electron@37`(해소하려면 43으로 breaking 업그레이드)과 `brace-expansion` DoS(`npm audit fix`로 해소 가능). 임의로 올리지 않았습니다.
+- Demo 9은 Electron 43.4.1로 갱신했으며 릴리스 검증 시 `npm audit` 취약점 0건을 확인했습니다. 의존성 변경 뒤에는 다시 감사를 실행합니다.
 
 ## 5. 교차검증 결과
 
