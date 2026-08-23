@@ -1,14 +1,16 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-const [mainSource, preloadSource, appSource, motionDemoPanelSource, roomSessionSource, demoDataSource, stylesSource] = await Promise.all([
+const [mainSource, preloadSource, appSource, motionDemoPanelSource, roomSessionSource, demoDataSource, stylesSource, relayClientSource, relayServerSource] = await Promise.all([
   readFile(new URL('../dist-electron/main.js', import.meta.url), 'utf8'),
   readFile(new URL('../dist-electron/preload.cjs', import.meta.url), 'utf8'),
   readFile(new URL('../src/App.tsx', import.meta.url), 'utf8'),
   readFile(new URL('../src/ui/components/MotionDemoPanel.tsx', import.meta.url), 'utf8'),
   readFile(new URL('../src/ui/views/RoomSessionView.tsx', import.meta.url), 'utf8'),
   readFile(new URL('../src/ui/demo-data.ts', import.meta.url), 'utf8'),
-  readFile(new URL('../src/styles.css', import.meta.url), 'utf8')
+  readFile(new URL('../src/styles.css', import.meta.url), 'utf8'),
+  readFile(new URL('../electron/services/relay-client.ts', import.meta.url), 'utf8'),
+  readFile(new URL('../server/src/relay-server.ts', import.meta.url), 'utf8')
 ]);
 
 function sourceSection(source, start, end) {
@@ -82,7 +84,11 @@ assert.match(emergencyStopSource, /const actionGeneration = \+\+actionGeneration
 assert.match(emergencyStopSource, /if \(actionGeneration === actionGenerationRef\.current\) setBusyAction\(undefined\)/);
 assert.match(appSource, /async function localEmergencyStop\(\)[\s\S]*?window\.hapticRelay\.stopHardware\(\)[\s\S]*?async function emergencyStop\(\)/);
 assert.match(appSource, /screen === ['"]safety['"][\s\S]*?로컬 긴급 정지[\s\S]*?onClick=\{localEmergencyStop\}/);
-assert.match(mainSource, /ipcMain\.handle\(['"]hardware:emergency-stop['"][\s\S]*?assertTrustedSender\(event\)[\s\S]*?demoMotionStream\.stop\(\)[\s\S]*?hardware\.emergencyStop\(\)/);
+assert.match(mainSource, /ipcMain\.handle\(['"]hardware:emergency-stop['"][\s\S]*?assertTrustedSender\(event\)[\s\S]*?demoMotionStream\.stop\(\)[\s\S]*?relay\.clearBufferedMotion\(\)[\s\S]*?hardware\.pauseAndStop\(\)/);
+assert.match(mainSource, /room:emergency-stop[\s\S]*?hardware\.pauseAndStop\(\)[\s\S]*?hardwareResult/);
+assert.match(mainSource, /ipcMain\.handle\(['"]room:emergency-stop['"][\s\S]*?const relayStop = relay\.emergencyStop\(\)[\s\S]*?const hardwareStop = hardware\.pauseAndStop\(\)[\s\S]*?Promise\.all\(\[hardwareStop, relayStop\]\)/);
+assert.match(relayClientSource, /clearBufferedMotion\(\)[\s\S]*?clearDelayedMotion\(\)[\s\S]*?latestFrame = undefined/);
+assert.doesNotMatch(relayServerSource, /handleEmergencyStop[\s\S]*?\.volatile[\s\S]*?emit\(['"]room:stop/);
 assert.match(hardwarePanelSource, /disabled=\{isBusy \|\| hardwareConnected \|\| !selectedPort\}[\s\S]*?>연결<\/button>/);
 assert.match(hardwarePanelSource, /disabled=\{isBusy \|\| !hardwareConnected\}[\s\S]*?onClick=\{disconnectHardware\}>연결 해제<\/button>/);
 assert.match(hardwarePanelSource, /disabled=\{isBusy \|\| !hardwareConnected\}[\s\S]*?onClick=\{testHardware\}>테스트<\/button>/);

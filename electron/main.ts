@@ -96,9 +96,11 @@ const relay = new RelayClient(frame => {
   addLog({ level: 'info', source: 'room', message: 'viewer-list-updated', details: `${viewers.length}` });
   sendToRenderer(mainWindow, 'room:viewers', viewers);
 }, signal => {
-  void hardware.emergencyStop();
-  addLog({ level: 'warning', source: 'relay', message: 'room-stop-received', details: signal.roomName });
-  sendToRenderer(mainWindow, 'room:emergency-stop', signal);
+  void (async () => {
+    const hardwareResult = await hardware.pauseAndStop();
+    addLog({ level: 'warning', source: 'relay', message: 'room-stop-received', details: signal.roomName });
+    sendToRenderer(mainWindow, 'room:emergency-stop', { ...signal, hardware: hardwareResult });
+  })();
 }, status => {
   addLog({ level: status.status === 'error' ? 'error' : status.status === 'disconnected' || status.status === 'reconnecting' ? 'warning' : 'info', source: 'relay', message: `relay-${status.status}`, details: status.reason ?? status.roomName });
   sendToRenderer(mainWindow, 'room:connection-status', status);
@@ -216,7 +218,8 @@ ipcMain.handle('hardware:disconnect', event => {
 ipcMain.handle('hardware:emergency-stop', event => {
   assertTrustedSender(event);
   demoMotionStream.stop();
-  return hardware.emergencyStop();
+  relay.clearBufferedMotion();
+  return hardware.pauseAndStop();
 });
 ipcMain.handle('hardware:test', event => {
   assertTrustedSender(event);
@@ -310,8 +313,9 @@ ipcMain.handle('room:emergency-stop', async event => {
   assertTrustedSender(event);
   demoMotionStream.stop();
   addLog({ level: 'warning', source: 'room', message: 'emergency-stop-requested' });
-  const hardwareResult = await hardware.emergencyStop();
-  const relayResult = await relay.emergencyStop();
+  const relayStop = relay.emergencyStop();
+  const hardwareStop = hardware.pauseAndStop();
+  const [hardwareResult, relayResult] = await Promise.all([hardwareStop, relayStop]);
   return { hardware: hardwareResult, relay: relayResult };
 });
 ipcMain.handle('room:disconnect', event => {

@@ -204,8 +204,7 @@ export class RelayClient {
       this.onViewerList?.(viewers);
     });
     this.socket.on('room:stop', signal => {
-      this.clearDelayedMotion();
-      this.latestFrame = undefined;
+      this.clearBufferedMotion();
       this.incomingSequenceTracker.reset();
       this.outgoingSequence = 0;
       this.onEmergencyStop?.(signal);
@@ -313,12 +312,11 @@ export class RelayClient {
       return { sent: false, reason: 'relay-not-connected' };
     }
 
+    this.clearBufferedMotion();
     const response = await this.emitWithAck('room:stop', {});
     if (!response.ok) {
       return { sent: false, reason: response.reason ?? 'room-stop-failed' };
     }
-    this.clearDelayedMotion();
-    this.latestFrame = undefined;
     return { sent: true, roomName: response.roomName };
   }
 
@@ -347,12 +345,17 @@ export class RelayClient {
     return this.incomingMotionDelayBuffer.stats();
   }
 
-  disconnect() {
+  clearBufferedMotion() {
     if (this.flushTimer) {
       clearTimeout(this.flushTimer);
       this.flushTimer = undefined;
     }
     this.clearDelayedMotion();
+    this.latestFrame = undefined;
+  }
+
+  disconnect() {
+    this.clearBufferedMotion();
     this.socket?.disconnect();
     this.socket = undefined;
     this.roomName = '';
