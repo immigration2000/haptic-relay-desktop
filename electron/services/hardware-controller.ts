@@ -127,14 +127,21 @@ export class HardwareController {
 
   async setProtection(protection: HardwareProtection) {
     this.protection = normalizeProtection(protection);
+    let stop: Awaited<ReturnType<HardwareController['emergencyStop']>> | undefined;
     if (this.protection.paused) {
-      await this.emergencyStop();
+      stop = await this.emergencyStop();
       this.options.onLog?.({ level: 'warning', source: 'protection', message: 'receive-paused' });
     } else {
       this.options.onLog?.({ level: 'info', source: 'protection', message: 'protection-updated', details: `intensity<=${this.protection.intensityLimit.toFixed(2)}, position ${this.protection.positionMin.toFixed(2)}-${this.protection.positionMax.toFixed(2)}` });
     }
 
-    return { protection: this.protection };
+    return { protection: this.protection, stop };
+  }
+
+  async pauseAndStop() {
+    this.protection = { ...this.protection, paused: true };
+    const stop = await this.emergencyStop();
+    return { ...stop, protection: this.protection };
   }
 
   async disconnectSafely(): Promise<HardwareDisconnectResult> {
@@ -197,6 +204,10 @@ export class HardwareController {
   }
 
   queueMotion(frame: MotionFrame) {
+    if (this.safeDisconnectInProgress) {
+      return { queued: false, reason: 'hardware-disconnecting' };
+    }
+
     if (!this.port?.isOpen) {
       return { queued: false, reason: 'hardware-not-connected' };
     }

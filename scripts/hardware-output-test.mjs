@@ -207,6 +207,29 @@ assert.deepEqual(
   'a successful normal emergency stop keeps the healthy port connected'
 );
 
+const latchedStop = await controller.pauseAndStop();
+assert.equal(latchedStop.stopped, true);
+assert.equal(latchedStop.protection.paused, true);
+assert.deepEqual(
+  controller.queueMotion({ position: 0.8, intensity: 0.25, timestamp: Date.now() }),
+  { queued: false, reason: 'protection-paused' },
+  'an explicit local stop blocks later motion until the user resumes'
+);
+await controller.setProtection({
+  intensityLimit: 1,
+  positionMin: 0,
+  positionMax: 1,
+  paused: false
+});
+const pausedProtection = await controller.setProtection({
+  intensityLimit: 1,
+  positionMin: 0,
+  positionMax: 1,
+  paused: true
+});
+assert.deepEqual(pausedProtection.stop, { stopped: true });
+assert.equal(pausedProtection.protection.paused, true);
+
 await controller.disconnect();
 
 const cancelledPatternOutputs = [];
@@ -347,8 +370,14 @@ await stalledController.connect('COM14', {
   invertPosition: false
 });
 stalledPort.stallNextWrite = true;
+const stalledDisconnectPromise = stalledController.disconnectSafely();
+assert.deepEqual(
+  stalledController.queueMotion({ position: 0.8, intensity: 0.25, timestamp: Date.now() }),
+  { queued: false, reason: 'hardware-disconnecting' },
+  'safe disconnect rejects motion while the bounded stop write is pending'
+);
 const stalledDisconnect = await Promise.race([
-  stalledController.disconnectSafely(),
+  stalledDisconnectPromise,
   delay(100).then(() => ({ timedOut: true }))
 ]);
 assert.deepEqual(stalledDisconnect, {
