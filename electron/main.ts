@@ -50,6 +50,9 @@ let receivedMotionFrames = 0;
 const logEntries: AppLogEntry[] = [];
 const lastLogByKey = new Map<string, number>();
 let settingsStore: SettingsFileStore | undefined;
+let shutdownPromise: Promise<void> | undefined;
+let shutdownComplete = false;
+let quitAfterShutdown = false;
 
 function addLog(entry: Omit<AppLogEntry, 'id' | 'timestamp'>) {
   const now = Date.now();
@@ -184,10 +187,22 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => {
-  demoMotionStream.stop();
-  void hardware.disconnect();
-  relay.disconnect();
-  if (process.platform !== 'darwin') app.quit();
+  if (process.platform !== 'darwin') {
+    app.quit();
+    return;
+  }
+  void shutdownApplication();
+});
+
+app.on('before-quit', event => {
+  if (shutdownComplete) return;
+  event.preventDefault();
+  if (quitAfterShutdown) return;
+  quitAfterShutdown = true;
+  void shutdownApplication().finally(() => {
+    shutdownComplete = true;
+    app.quit();
+  });
 });
 
 app.on('activate', () => {
@@ -493,6 +508,25 @@ function formatError(error: unknown) {
   if (error instanceof Error) return error.message;
   if (typeof error === 'string') return error;
   return 'unknown-error';
+}
+
+function shutdownApplication() {
+  if (shutdownPromise) return shutdownPromise;
+  shutdownPromise = (async () => {
+    demoMotionStream.stop();
+    relay.disconnect();
+    try {
+      const result = await hardware.disconnectSafely();
+      if (!result.stop.stopped && result.stop.reason !== 'hardware-not-connected') {
+        addLog({ level: 'error', source: 'hardware', message: 'hardware-disconnected-stop-failed', details: result.stop.reason });
+      }
+    } catch (error) {
+      addLog({ level: 'error', source: 'hardware', message: 'hardware-disconnect-failed', details: formatError(error) });
+    }
+  })().finally(() => {
+    shutdownPromise = undefined;
+  });
+  return shutdownPromise;
 }
 
 function formatFileTimestamp(date: Date) {

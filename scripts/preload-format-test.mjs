@@ -89,6 +89,9 @@ assert.match(mainSource, /room:emergency-stop[\s\S]*?hardware\.pauseAndStop\(\)[
 assert.match(mainSource, /ipcMain\.handle\(['"]room:emergency-stop['"][\s\S]*?const relayStop = relay\.emergencyStop\(\)[\s\S]*?const hardwareStop = hardware\.pauseAndStop\(\)[\s\S]*?Promise\.all\(\[hardwareStop, relayStop\]\)/);
 assert.match(relayClientSource, /clearBufferedMotion\(\)[\s\S]*?clearDelayedMotion\(\)[\s\S]*?latestFrame = undefined/);
 assert.doesNotMatch(relayServerSource, /handleEmergencyStop[\s\S]*?\.volatile[\s\S]*?emit\(['"]room:stop/);
+assert.match(mainSource, /app\.on\(['"]before-quit['"][\s\S]*?event\.preventDefault\(\)[\s\S]*?shutdownApplication\(\)\.finally[\s\S]*?app\.quit\(\)/);
+assert.match(mainSource, /function shutdownApplication\(\)[\s\S]*?relay\.disconnect\(\)[\s\S]*?hardware\.disconnectSafely\(\)/);
+assert.doesNotMatch(mainSource, /app\.on\(['"]window-all-closed['"][\s\S]*?hardware\.disconnect\(\)/);
 assert.match(hardwarePanelSource, /disabled=\{isBusy \|\| hardwareConnected \|\| !selectedPort\}[\s\S]*?>연결<\/button>/);
 assert.match(hardwarePanelSource, /disabled=\{isBusy \|\| !hardwareConnected\}[\s\S]*?onClick=\{disconnectHardware\}>연결 해제<\/button>/);
 assert.match(hardwarePanelSource, /disabled=\{isBusy \|\| !hardwareConnected\}[\s\S]*?onClick=\{testHardware\}>테스트<\/button>/);
