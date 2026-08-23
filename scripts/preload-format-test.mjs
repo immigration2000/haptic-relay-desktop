@@ -91,6 +91,7 @@ assert.match(appSource, /screen === ['"]safety['"][\s\S]*?로컬 긴급 정지[\
 assert.match(mainSource, /ipcMain\.handle\(['"]hardware:emergency-stop['"][\s\S]*?assertTrustedSender\(event\)[\s\S]*?demoMotionStream\.stop\(\)[\s\S]*?relay\.clearBufferedMotion\(\)[\s\S]*?hardware\.pauseAndStop\(\)/);
 assert.match(mainSource, /room:emergency-stop[\s\S]*?hardware\.pauseAndStop\(\)[\s\S]*?hardwareResult/);
 assert.match(mainSource, /ipcMain\.handle\(['"]room:emergency-stop['"][\s\S]*?const relayStop = relay\.emergencyStop\(\)[\s\S]*?const hardwareStop = hardware\.pauseAndStop\(\)[\s\S]*?Promise\.all\(\[hardwareStop, relayStop\]\)/);
+assert.match(mainSource, /const relayStop = relay\.emergencyStop\(\)\.catch\([\s\S]*?sent: false[\s\S]*?reason: ['"]room-stop-failed['"]/);
 assert.match(relayClientSource, /clearBufferedMotion\(\)[\s\S]*?clearDelayedMotion\(\)[\s\S]*?latestFrame = undefined/);
 assert.doesNotMatch(relayServerSource, /handleEmergencyStop[\s\S]*?\.volatile[\s\S]*?emit\(['"]room:stop/);
 assert.match(mainSource, /app\.on\(['"]before-quit['"][\s\S]*?event\.preventDefault\(\)[\s\S]*?shutdownApplication\(\)\.finally[\s\S]*?app\.quit\(\)/);

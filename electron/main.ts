@@ -328,7 +328,10 @@ ipcMain.handle('room:emergency-stop', async event => {
   assertTrustedSender(event);
   demoMotionStream.stop();
   addLog({ level: 'warning', source: 'room', message: 'emergency-stop-requested' });
-  const relayStop = relay.emergencyStop();
+  const relayStop = relay.emergencyStop().catch(error => {
+    addLog({ level: 'error', source: 'relay', message: 'room-stop-failed', details: formatError(error) });
+    return { sent: false, reason: 'room-stop-failed' };
+  });
   const hardwareStop = hardware.pauseAndStop();
   const [hardwareResult, relayResult] = await Promise.all([hardwareStop, relayStop]);
   return { hardware: hardwareResult, relay: relayResult };
