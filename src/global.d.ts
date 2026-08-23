@@ -46,7 +46,7 @@ declare global {
       connectHardware: (pathName: string, profile: HardwareProfile) => Promise<HardwareConnectResult>;
       disconnectHardware: () => Promise<HardwareDisconnectResult>;
       getHardwareStatus: () => Promise<HardwareConnectionStatus>;
-      stopHardware: () => Promise<unknown>;
+      stopHardware: () => Promise<{ stopped: boolean; reason?: string }>;
       testHardware: () => Promise<{ tested: boolean; steps?: number; reason?: string }>;
       sendMotion: (intensity: number, position: number) => Promise<unknown>;
       startMotionDemo: (intensity: number, position: number) => Promise<{ streaming: boolean; intervalMs: number }>;

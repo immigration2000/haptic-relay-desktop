@@ -215,6 +215,7 @@ ipcMain.handle('hardware:disconnect', event => {
 });
 ipcMain.handle('hardware:emergency-stop', event => {
   assertTrustedSender(event);
+  demoMotionStream.stop();
   return hardware.emergencyStop();
 });
 ipcMain.handle('hardware:test', event => {

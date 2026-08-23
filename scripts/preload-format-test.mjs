@@ -80,6 +80,9 @@ assert.match(testHardwareSource, /setActionStatus\(['"]warning['"], formatReason
 assert.doesNotMatch(testHardwareSource, /setStatusMessage\(/);
 assert.match(emergencyStopSource, /const actionGeneration = \+\+actionGenerationRef\.current/);
 assert.match(emergencyStopSource, /if \(actionGeneration === actionGenerationRef\.current\) setBusyAction\(undefined\)/);
+assert.match(appSource, /async function localEmergencyStop\(\)[\s\S]*?window\.hapticRelay\.stopHardware\(\)[\s\S]*?async function emergencyStop\(\)/);
+assert.match(appSource, /screen === ['"]safety['"][\s\S]*?로컬 긴급 정지[\s\S]*?onClick=\{localEmergencyStop\}/);
+assert.match(mainSource, /ipcMain\.handle\(['"]hardware:emergency-stop['"][\s\S]*?assertTrustedSender\(event\)[\s\S]*?demoMotionStream\.stop\(\)[\s\S]*?hardware\.emergencyStop\(\)/);
 assert.match(hardwarePanelSource, /disabled=\{isBusy \|\| hardwareConnected \|\| !selectedPort\}[\s\S]*?>연결<\/button>/);
 assert.match(hardwarePanelSource, /disabled=\{isBusy \|\| !hardwareConnected\}[\s\S]*?onClick=\{disconnectHardware\}>연결 해제<\/button>/);
 assert.match(hardwarePanelSource, /disabled=\{isBusy \|\| !hardwareConnected\}[\s\S]*?onClick=\{testHardware\}>테스트<\/button>/);

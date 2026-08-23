@@ -209,6 +209,13 @@ try {
   await clickButton(cdp, '보호 설정');
   await waitForExpression(cdp, `document.body.innerText.includes('MOTION PROTECTION')`);
   await captureScreenshot(cdp, path.join(outputDirectory, '09-safety.png'));
+  await clickButton(cdp, '긴급 정지');
+  await waitForExpression(cdp, `document.body.innerText.includes('로컬 긴급 정지 실패: 하드웨어가 연결되어 있지 않습니다')`);
+  assert.equal(
+    await cdp.evaluate(`document.body.innerText.includes('릴레이 서버에 연결되어 있지 않습니다')`),
+    false,
+    'local emergency stop does not depend on relay connectivity'
+  );
   await clickButton(cdp, '로그');
   await waitForExpression(cdp, `document.body.innerText.includes('EVENT INSPECTOR')`);
   await captureScreenshot(cdp, path.join(outputDirectory, '10-logs.png'));

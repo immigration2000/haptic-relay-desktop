@@ -652,6 +652,29 @@ export default function App() {
     });
   }
 
+  async function localEmergencyStop() {
+    const actionGeneration = ++actionGenerationRef.current;
+    setBusyAction('stop');
+    setStatusMessage('busy', '로컬 긴급 정지 처리 중');
+    try {
+      const result = await window.hapticRelay.stopHardware() as { stopped?: boolean; reason?: string };
+      setMotionDemoActive(false);
+      if (result.stopped === false) {
+        if (result.reason === 'hardware-stop-write-failed') {
+          setStatusMessage('error', '긴급 정지 명령을 하드웨어에 쓰지 못했습니다. 장비 전원을 직접 차단하세요.');
+          return;
+        }
+        setStatusMessage('warning', `로컬 긴급 정지 실패: ${formatReason(result.reason ?? 'hardware-not-connected')}`);
+        return;
+      }
+      setStatusMessage('warning', '로컬 긴급 정지됨');
+    } catch (error) {
+      setStatusMessage('error', formatError(error));
+    } finally {
+      if (actionGeneration === actionGenerationRef.current) setBusyAction(undefined);
+    }
+  }
+
   async function emergencyStop() {
     const actionGeneration = ++actionGenerationRef.current;
     setBusyAction('stop');
@@ -1000,7 +1023,7 @@ export default function App() {
   } else if (screen === 'hardware') {
     workspace = <HardwareView>{hardwarePanel}</HardwareView>;
   } else if (screen === 'safety') {
-    workspace = <SafetyView><div className="settings-stack">{protectionPanel}<section className="panel danger-panel"><div><h2>로컬 긴급 정지</h2><p className="muted">모션 출력과 현재 전송을 즉시 정지합니다.</p></div><button className="danger-action" disabled={busyAction === 'stop'} onClick={emergencyStop}><OctagonX size={17} /> 긴급 정지</button></section></div></SafetyView>;
+    workspace = <SafetyView><div className="settings-stack">{protectionPanel}<section className="panel danger-panel"><div><h2>로컬 긴급 정지</h2><p className="muted">모션 출력과 현재 전송을 즉시 정지합니다.</p></div><button className="danger-action" disabled={busyAction === 'stop'} onClick={localEmergencyStop}><OctagonX size={17} /> 긴급 정지</button></section></div></SafetyView>;
   } else {
     workspace = <LogsView>{logPanel}</LogsView>;
   }
