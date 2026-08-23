@@ -180,6 +180,15 @@ export default function App() {
       setViewerSessions(viewers);
     });
     const removeEmergencyStop = window.hapticRelay.onEmergencyStop(signal => {
+      setHardwareProtection(signal.hardware.protection);
+      if (signal.hardware.stopped === false) {
+        if (signal.hardware.reason === 'hardware-stop-write-failed') {
+          setStatusMessage('error', '긴급 정지 명령을 하드웨어에 쓰지 못했습니다. 장비 전원을 직접 차단하세요.');
+          return;
+        }
+        setStatusMessage('warning', `긴급 정지 수신, 로컬 정지 실패: ${formatReason(signal.hardware.reason ?? 'hardware-not-connected')}`);
+        return;
+      }
       setStatusMessage('warning', `긴급 정지 수신: ${signal.roomName}`);
     });
     const removeConnectionStatus = window.hapticRelay.onConnectionStatus(nextStatus => {
@@ -449,6 +458,10 @@ export default function App() {
     await runAction('hardware', '보호 옵션 적용 중', async setActionStatus => {
       const result = await window.hapticRelay.setHardwareProtection(hardwareProtection);
       setHardwareProtection(result.protection);
+      if (result.stop?.stopped === false && result.stop.reason === 'hardware-stop-write-failed') {
+        setActionStatus('error', '정지 명령을 하드웨어에 쓰지 못했습니다. 장비 전원을 직접 차단하세요.');
+        return;
+      }
       setActionStatus(result.protection.paused ? 'warning' : 'ok', result.protection.paused ? '수신 일시정지 적용됨' : '보호 옵션 적용됨');
     });
   }
@@ -657,8 +670,9 @@ export default function App() {
     setBusyAction('stop');
     setStatusMessage('busy', '로컬 긴급 정지 처리 중');
     try {
-      const result = await window.hapticRelay.stopHardware() as { stopped?: boolean; reason?: string };
+      const result = await window.hapticRelay.stopHardware();
       setMotionDemoActive(false);
+      setHardwareProtection(result.protection);
       if (result.stopped === false) {
         if (result.reason === 'hardware-stop-write-failed') {
           setStatusMessage('error', '긴급 정지 명령을 하드웨어에 쓰지 못했습니다. 장비 전원을 직접 차단하세요.');
@@ -680,11 +694,9 @@ export default function App() {
     setBusyAction('stop');
     setStatusMessage('busy', '긴급 정지 처리 중');
     try {
-      const result = await window.hapticRelay.emergencyStop() as {
-        hardware?: { stopped?: boolean; reason?: string };
-        relay?: { sent?: boolean; reason?: string };
-      };
+      const result = await window.hapticRelay.emergencyStop();
       setMotionDemoActive(false);
+      setHardwareProtection(result.hardware.protection);
       if (result.hardware?.stopped === false && result.hardware.reason === 'hardware-stop-write-failed') {
         setStatusMessage('error', '긴급 정지 명령을 하드웨어에 쓰지 못했습니다. 장비 전원을 직접 차단하세요.');
         return;

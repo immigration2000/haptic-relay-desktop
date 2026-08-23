@@ -76,6 +76,20 @@ export type HardwareProtection = {
   paused: boolean;
 };
 
+export type HardwareStopResult = {
+  stopped: boolean;
+  reason?: string;
+};
+
+export type HardwareLatchedStopResult = HardwareStopResult & {
+  protection: HardwareProtection;
+};
+
+export type HardwareProtectionResult = {
+  protection: HardwareProtection;
+  stop?: HardwareStopResult;
+};
+
 export type HardwareOutputSnapshot = {
   kind: 'motion' | 'test' | 'stop';
   command: string;

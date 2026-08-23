@@ -200,6 +200,13 @@ try {
   await clickButton(cdp, '하드웨어');
   await waitForExpression(cdp, `document.body.innerText.includes('DEVICE CONFIGURATION')`);
   await waitForExpression(cdp, `document.querySelector('[data-hardware-output]')?.textContent.includes('T-Code 출력이 완료되면 표시됩니다.')`);
+  await replaceInputByLabelTyping(cdp, '긴급 정지 위치', '0.35');
+  await cdp.evaluate(`document.activeElement?.blur()`);
+  assert.equal(
+    (await getInputStateByLabel(cdp, '긴급 정지 위치'))?.value,
+    '0.35',
+    'emergency stop position accepts a decimal typed one character at a time'
+  );
   await assertNoDocumentOverflow(cdp, '1180x780 hardware output monitor');
   await captureScreenshot(cdp, path.join(outputDirectory, '07-hardware.png'));
   await cdp.call('Emulation.setDeviceMetricsOverride', { width: 960, height: 640, deviceScaleFactor: 1, mobile: false });
@@ -293,6 +300,22 @@ async function typeInputByLabel(client, labelText, value) {
     const input = label?.querySelector('input');
     input?.focus();
     return input instanceof HTMLInputElement;
+  })()`);
+  assert.equal(focused, true, `${labelText} input can receive focus`);
+  for (const character of value) {
+    await client.call('Input.insertText', { text: character });
+    await delay(20);
+  }
+}
+
+async function replaceInputByLabelTyping(client, labelText, value) {
+  const focused = await client.evaluate(`(() => {
+    const label = [...document.querySelectorAll('label')].find(item => item.textContent.includes(${JSON.stringify(labelText)}));
+    const input = label?.querySelector('input');
+    if (!(input instanceof HTMLInputElement)) return false;
+    input.focus();
+    input.select();
+    return true;
   })()`);
   assert.equal(focused, true, `${labelText} input can receive focus`);
   for (const character of value) {
