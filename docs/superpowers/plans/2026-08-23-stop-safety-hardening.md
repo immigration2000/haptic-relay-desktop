@@ -219,4 +219,3 @@ Expected: no whitespace errors and a clean worktree.
 - [ ] **Step 3: Review release scope**
 
 Confirm the final diff contains only stop-safety implementation, tests, and the approved design/plan documents. Do not publish a release until verification is green.
-
