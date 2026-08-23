@@ -1,5 +1,9 @@
 # Hardware Disconnect Design
 
+> **Historical record — superseded:** The approved
+> `2026-08-23-room-motion-emergency-latch-design.md` replaces the stop-before-close
+> behavior. The current product rule is port close without a stop-position write.
+
 ## Objective
 
 Add an explicit hardware disconnect control that safely releases the selected serial port and keeps the renderer's connection indicator synchronized with the real `HardwareController` state. This makes a failed or emergency-stopped device reconnectable without restarting the desktop app.

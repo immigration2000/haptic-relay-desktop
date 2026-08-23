@@ -1,5 +1,10 @@
 # Stop Safety Hardening Design
 
+> **Historical record — superseded:** The approved
+> `2026-08-23-room-motion-emergency-latch-design.md` replaces this design's
+> receive-pause latch, inactivity fallback, disconnect stop, and shutdown rules.
+> Do not use this document as the current implementation authority.
+
 ## Goal
 
 Make every stop path fail safe: a local or received emergency stop must block later motion until the user explicitly resumes, safe disconnect and app shutdown must prevent motion from overtaking the stop payload, and room-wide stop must be delivered independently of local serial latency.

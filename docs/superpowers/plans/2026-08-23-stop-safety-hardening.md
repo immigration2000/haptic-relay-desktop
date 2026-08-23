@@ -1,5 +1,9 @@
 # Stop Safety Hardening Implementation Plan
 
+> **Historical record — do not execute:** This completed plan is superseded by
+> `../specs/2026-08-23-room-motion-emergency-latch-design.md`. Its pause-latch,
+> safe-disconnect, inactivity, and shutdown instructions are no longer current.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make local, remote, disconnect, and application-shutdown stops block unsafe follow-up motion and accurately report stop confirmation.

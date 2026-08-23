@@ -1,5 +1,9 @@
 # Safe Hardware Disconnect Implementation Plan
 
+> **Historical record — do not execute:** This completed plan's stop-before-close
+> behavior is superseded by
+> `../specs/2026-08-23-room-motion-emergency-latch-design.md`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add a bounded stop-before-close hardware disconnect button whose UI state always matches the actual serial controller state.
