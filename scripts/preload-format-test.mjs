@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-const [mainSource, preloadSource, appSource, motionDemoPanelSource, roomSessionSource, demoDataSource, stylesSource, relayClientSource, relayServerSource] = await Promise.all([
+const [mainSource, preloadSource, appSource, motionDemoPanelSource, roomSessionSource, demoDataSource, stylesSource, relayClientSource, relayServerSource, hardwareOutputMonitorSource] = await Promise.all([
   readFile(new URL('../dist-electron/main.js', import.meta.url), 'utf8'),
   readFile(new URL('../dist-electron/preload.cjs', import.meta.url), 'utf8'),
   readFile(new URL('../src/App.tsx', import.meta.url), 'utf8'),
@@ -10,7 +10,8 @@ const [mainSource, preloadSource, appSource, motionDemoPanelSource, roomSessionS
   readFile(new URL('../src/ui/demo-data.ts', import.meta.url), 'utf8'),
   readFile(new URL('../src/styles.css', import.meta.url), 'utf8'),
   readFile(new URL('../electron/services/relay-client.ts', import.meta.url), 'utf8'),
-  readFile(new URL('../server/src/relay-server.ts', import.meta.url), 'utf8')
+  readFile(new URL('../server/src/relay-server.ts', import.meta.url), 'utf8'),
+  readFile(new URL('../src/ui/components/HardwareOutputMonitor.tsx', import.meta.url), 'utf8')
 ]);
 
 function sourceSection(source, start, end) {
@@ -94,6 +95,8 @@ assert.match(preloadSource, /onHardwareOutput:\s*\(listener/);
 assert.match(preloadSource, /ipcRenderer\.on\(['"]hardware:output['"],\s*handler\)/);
 assert.match(preloadSource, /removeListener\(['"]hardware:output['"],\s*handler\)/);
 assert.match(mainSource, /new HardwareController\(\{[\s\S]*?onOutput:[\s\S]*?hardware:output/);
+assert.match(hardwareOutputMonitorSource, /output \? ['"]직렬 전송 완료['"]/);
+assert.doesNotMatch(hardwareOutputMonitorSource, /출력 성공/);
 assert.match(mainSource, /new HardwareController\(\{[\s\S]*?onDiagnostic:\s*routeHardwareDiagnostic/);
 assert.match(mainSource, /onConnectionStatus:\s*status\s*=>\s*sendToRenderer\(mainWindow, ['"]hardware:connection-status['"], status\)/);
 assert.match(mainSource, /ipcMain\.handle\(['"]hardware:status['"][\s\S]*?assertTrustedSender\(event\)[\s\S]*?hardware\.getConnectionStatus\(\)/);

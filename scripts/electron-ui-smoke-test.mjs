@@ -198,6 +198,7 @@ try {
   await waitForExpression(cdp, `document.querySelector('.stream-state')?.textContent.includes('전송 대기')`);
   await cdp.call('Emulation.setDeviceMetricsOverride', { width: 1180, height: 780, deviceScaleFactor: 1, mobile: false });
   await clickButton(cdp, '하드웨어');
+  await waitForExpression(cdp, `document.body.innerText.includes('출력 성공') === false`);
   await waitForExpression(cdp, `document.body.innerText.includes('DEVICE CONFIGURATION')`);
   await waitForExpression(cdp, `document.querySelector('[data-hardware-output]')?.textContent.includes('T-Code 출력이 완료되면 표시됩니다.')`);
   await replaceInputByLabelTyping(cdp, '긴급 정지 위치', '0.35');

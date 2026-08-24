@@ -115,6 +115,15 @@ await window.hapticRelay.sendMotion(0.10, 0.45);
 - 반대 방향으로 움직임: `방향 반전`을 적용합니다.
 - 범위가 너무 큼: Stroke 최소·최대와 시청자 보호 범위를 더 좁힙니다.
 
+## 테스트 후 진단 자료 보관
+
+1. 각 앱의 Electron `userData/logs/haptic-relay.jsonl` 경로를 기록합니다. 같은 폴더의 `.1.jsonl`부터 `.4.jsonl`까지 포함해 파일당 2 MiB, 전체 약 10 MiB가 자동 보관됩니다.
+2. 앱의 **로그** 화면에서 **저장**을 눌러 현재 메모리 이벤트와 세션·진단 파일 메타데이터가 포함된 JSON도 내보냅니다.
+3. JSONL에서 연결 프로필, probe 응답 또는 명시적 no-response, test/stop write duration, port error를 확인합니다. 30Hz motion은 1초 단위 summary여야 합니다.
+4. `직렬 전송 완료`는 OS write callback 완료일 뿐 device acknowledgement나 장비의 실제 동작 증거가 아닙니다. 실제 위치 판정과 진단 파일 판정을 별도로 기록합니다.
+
+자동 및 수동 로그는 로컬에만 저장되고 자격 증명은 제외됩니다. 공유 전에도 파일 내용을 검토합니다.
+
 ## 기록할 값
 
 장비 모델, 펌웨어, COM 포트, baudrate, 선형 축, 진동 축, 방향 반전, 안전 Stroke 범위, 절대 정지 위치, 성공한 T-Code 예시를 기록합니다.

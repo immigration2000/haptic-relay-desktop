@@ -243,6 +243,14 @@ The relay protocol and hardware protocol are intentionally different.
 - Optional output axis: `V0` can map normalized intensity to vibration when a connected device supports it.
 - Example: position `0.42` with a 16ms interval becomes `L04200I16\n`.
 
+## Local Diagnostic Storage
+
+The main process automatically writes sanitized JSONL diagnostics beneath Electron `userData/logs`. The active `haptic-relay.jsonl` file and four rotations are limited to 2 MiB each, retaining approximately 10 MiB total. Production 30 Hz motion is aggregated into at most one summary per second; profile, probe, test, stop, disconnect, and serial-error boundaries remain individual records.
+
+The renderer's `직렬 전송 완료` state means only that the operating system completed the serial write callback. It is not device acknowledgement and does not prove controller parsing or physical hardware motion. Diagnosis starts with the profile, probe response/no-response, write duration, and port error records, then compares them with the separately observed device position, power, cable, and firmware.
+
+The existing **저장** action exports the bounded in-memory `entries` plus current session and diagnostic-file metadata. Persistent files and exports remain local-only. Event construction uses field allowlists and excludes credentials, tokens, authorization data, cookies, and URL query strings. Diagnostic file failure disables persistence for that session without blocking motion or safety sequencing.
+
 ## Access Modes
 
 - `open`: the Demo 9 desktop UI does not use a password and disables the password field. The server retains open-room password compatibility for older/API clients.

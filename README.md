@@ -448,6 +448,8 @@ DSTOP
 - 변경되지 않은 frame과 일시적인 packet inactivity는 마지막 하드웨어 위치를 유지하며 자동 stop payload를 만들지 않습니다.
 - 앱은 최근 300개 이벤트를 main process 메모리 로그로 보관하고 UI에는 최근 80개를 표시합니다.
 - 이벤트 로그는 UI의 `저장` 버튼으로 JSON 파일로 export할 수 있습니다.
+- 구조화된 하드웨어 진단은 Electron `userData/logs` 아래 `haptic-relay.jsonl`과 최대 4개의 회전 파일에 자동 저장됩니다. 파일당 2 MiB, 전체 약 10 MiB로 제한됩니다.
+- 30Hz motion은 프레임마다 기록하지 않고 1초 단위 성공·누락·실패 요약으로 저장합니다.
 
 ## 이벤트 로그
 
@@ -463,14 +465,24 @@ DSTOP
 - 클립보드 복사
 - 로그 저장
 
-로그 저장 파일은 사용자가 선택한 경로에 JSON으로 저장합니다.
+로그 저장 파일은 사용자가 선택한 경로에 JSON으로 저장합니다. 기존 메모리 `entries`와 함께 현재 세션 ID 및 자동 JSONL 파일 메타데이터가 들어갑니다. 자동 진단과 수동 저장 파일은 로컬에만 남고 비밀번호, 토큰, 인증 헤더 및 URL query는 기록하지 않습니다.
+
+UI의 `직렬 전송 완료`는 운영체제가 SerialPort write callback을 완료했다는 뜻입니다. 컨트롤러의 명령 해석, device acknowledgement 또는 장비의 실제 동작을 증명하지 않습니다. 장비가 움직이지 않으면 먼저 자동 JSONL의 연결 프로필, `hardware-probe-completed` 응답 유무, write duration, port error를 실제 위치·전원·케이블 상태와 함께 확인합니다.
 
 ```json
 {
+  "schemaVersion": 1,
+  "sessionId": "session-id",
   "app": "Haptic Relay",
-  "version": "0.1.0",
+  "version": "0.1.1-demo.10",
   "exportedAt": "2026-07-31T00:00:00.000Z",
-  "entries": []
+  "entries": [],
+  "diagnosticLog": {
+    "format": "jsonl",
+    "activeFile": ".../logs/haptic-relay.jsonl",
+    "maxFileBytes": 2097152,
+    "maxFiles": 5
+  }
 }
 ```
 
@@ -478,6 +490,6 @@ DSTOP
 
 1. 시청자 로컬 모션 보간
 2. 앱용 공용 릴레이 서버 배포
-3. 영구 차단/세션 로그 저장소
+3. 영구 차단 저장소
 4. 하드웨어별 어댑터 분리
 5. 속도 제한, 연령/동의 확인
