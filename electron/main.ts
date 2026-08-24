@@ -94,13 +94,22 @@ const relay = new RelayClient(frame => {
   sendToRenderer(mainWindow, 'room:approval-requested', request);
 }, status => {
   addLog({ level: status.status === 'rejected' || status.status === 'removed' ? 'warning' : 'info', source: 'room', message: `viewer-${status.status}`, details: status.reason ?? status.roomName });
+  if (status.status === 'removed') {
+    void hardware.stopForRoomExit().then(stop => {
+      if (!stop.stopped && stop.reason !== 'hardware-not-connected') {
+        addLog({ level: 'error', source: 'hardware', message: 'hardware-room-exit-stop-failed', details: stop.reason });
+      }
+    }).catch(error => {
+      addLog({ level: 'error', source: 'hardware', message: 'hardware-room-exit-stop-failed', details: formatError(error) });
+    });
+  }
   sendToRenderer(mainWindow, 'room:viewer-status', status);
 }, viewers => {
   addLog({ level: 'info', source: 'room', message: 'viewer-list-updated', details: `${viewers.length}` });
   sendToRenderer(mainWindow, 'room:viewers', viewers);
 }, signal => {
   void (async () => {
-    const hardwareResult = await hardware.pauseAndStop();
+    const hardwareResult = await hardware.latchEmergencyStop();
     addLog({ level: 'warning', source: 'relay', message: 'room-stop-received', details: signal.roomName });
     sendToRenderer(mainWindow, 'room:emergency-stop', { ...signal, hardware: hardwareResult });
   })();
@@ -228,13 +237,21 @@ ipcMain.handle('hardware:connect', async (event, pathName: unknown, profile: unk
 });
 ipcMain.handle('hardware:disconnect', event => {
   assertTrustedSender(event);
-  return hardware.disconnectSafely();
+  return hardware.disconnect();
+});
+ipcMain.handle('hardware:emergency-state', event => {
+  assertTrustedSender(event);
+  return hardware.getEmergencyStopState();
 });
 ipcMain.handle('hardware:emergency-stop', event => {
   assertTrustedSender(event);
   demoMotionStream.stop();
   relay.clearBufferedMotion();
-  return hardware.pauseAndStop();
+  return hardware.latchEmergencyStop();
+});
+ipcMain.handle('hardware:emergency-release', event => {
+  assertTrustedSender(event);
+  return hardware.releaseEmergencyStop();
 });
 ipcMain.handle('hardware:test', event => {
   assertTrustedSender(event);
@@ -332,15 +349,18 @@ ipcMain.handle('room:emergency-stop', async event => {
     addLog({ level: 'error', source: 'relay', message: 'room-stop-failed', details: formatError(error) });
     return { sent: false, reason: 'room-stop-failed' };
   });
-  const hardwareStop = hardware.pauseAndStop();
+  const hardwareStop = hardware.latchEmergencyStop();
   const [hardwareResult, relayResult] = await Promise.all([hardwareStop, relayStop]);
   return { hardware: hardwareResult, relay: relayResult };
 });
-ipcMain.handle('room:disconnect', event => {
+ipcMain.handle('room:disconnect', async event => {
   assertTrustedSender(event);
   demoMotionStream.stop();
   addLog({ level: 'info', source: 'relay', message: 'relay-disconnect-requested' });
-  return relay.disconnect();
+  const stopPromise = hardware.stopForRoomExit();
+  const relayResult = relay.disconnect();
+  const stop = await stopPromise;
+  return { ...relayResult, stop };
 });
 ipcMain.handle('app:logs', event => {
   assertTrustedSender(event);
@@ -516,13 +536,22 @@ function formatError(error: unknown) {
 function shutdownApplication() {
   if (shutdownPromise) return shutdownPromise;
   shutdownPromise = (async () => {
+    const wasInRoom = relay.hasActiveRoom();
     demoMotionStream.stop();
+    const stopPromise = wasInRoom
+      ? hardware.stopForRoomExit()
+      : Promise.resolve(undefined);
     relay.disconnect();
     try {
-      const result = await hardware.disconnectSafely();
-      if (!result.stop.stopped && result.stop.reason !== 'hardware-not-connected') {
-        addLog({ level: 'error', source: 'hardware', message: 'hardware-disconnected-stop-failed', details: result.stop.reason });
+      const stop = await stopPromise;
+      if (stop && !stop.stopped && stop.reason !== 'hardware-not-connected') {
+        addLog({ level: 'error', source: 'hardware', message: 'hardware-room-exit-stop-failed', details: stop.reason });
       }
+    } catch (error) {
+      addLog({ level: 'error', source: 'hardware', message: 'hardware-room-exit-stop-failed', details: formatError(error) });
+    }
+    try {
+      await hardware.disconnect();
     } catch (error) {
       addLog({ level: 'error', source: 'hardware', message: 'hardware-disconnect-failed', details: formatError(error) });
     }

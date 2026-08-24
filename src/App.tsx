@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { OctagonX } from 'lucide-react';
-import type { AppLogEntry, AppSettings, ApprovalRequest, EntryMode, HardwareConnectionStatus, HardwareProfile, HardwareProtection, MotionDemoMode, MotionMonitorSnapshot, MotionPatternConfig, PortInfo, RoomDirectoryEntry, ViewerSession } from './shared/protocol';
+import type { AppLogEntry, AppSettings, ApprovalRequest, EntryMode, HardwareConnectionStatus, HardwareEmergencyState, HardwareProfile, HardwareProtection, MotionDemoMode, MotionMonitorSnapshot, MotionPatternConfig, PortInfo, RoomDirectoryEntry, ViewerSession } from './shared/protocol';
 import { createQrMatrix } from './qr-code';
 import { AppShell } from './ui/components/AppShell';
 import { HardwareOutputMonitor } from './ui/components/HardwareOutputMonitor';
@@ -95,6 +95,7 @@ export default function App() {
   const [selectedPort, setSelectedPort] = useState('');
   const [hardwareProfile, setHardwareProfile] = useState<HardwareProfile>(DEFAULT_HARDWARE_PROFILE);
   const [hardwareProtection, setHardwareProtection] = useState<HardwareProtection>(DEFAULT_HARDWARE_PROTECTION);
+  const [emergencyStopped, setEmergencyStopped] = useState(false);
   const [status, setStatus] = useState<AppStatus>({ tone: 'idle', message: '대기 중' });
   const [busyAction, setBusyAction] = useState<BusyAction>();
   const [intensity, setIntensity] = useState(0.5);
@@ -122,6 +123,8 @@ export default function App() {
   const serverHealthRequestId = useRef(0);
   const roomDirectoryRequestId = useRef(0);
   const actionGenerationRef = useRef(0);
+  const emergencyStateRevisionRef = useRef(createEmergencyStateRevision());
+  const roleRef = useRef<Role>('host');
 
   const canHost = useMemo(() => roomName.trim().length >= 3, [roomName]);
   const canJoin = useMemo(() => roomName.trim().length >= 3 && displayName.trim().length > 0, [displayName, roomName]);
@@ -130,6 +133,11 @@ export default function App() {
   const latestMotion = motionMonitorEntries[0];
   const visibleLogEntries = useMemo(() => logFilter === 'all' ? logEntries : logEntries.filter(entry => entry.source.toLowerCase() === logFilter), [logEntries, logFilter]);
   const inviteQrMatrix = useMemo(() => hostRoomInvite ? createQrMatrix(encodeInviteCode(hostRoomInvite)) : undefined, [hostRoomInvite]);
+
+  function applyEmergencyState(state: HardwareEmergencyState) {
+    emergencyStateRevisionRef.current.invalidate();
+    setEmergencyStopped(state.emergencyStopped);
+  }
 
   useEffect(() => {
     void loadSettings();
@@ -167,9 +175,23 @@ export default function App() {
         return;
       }
       if (nextStatus.status === 'removed') {
-        setViewerPage('join');
+        void window.hapticRelay.stopMotionDemo().catch(() => undefined);
+        setMotionDemoActive(false);
+        setApprovalRequests([]);
+        setViewerSessions([]);
+        setHostRoomInvite(undefined);
+        if (roleRef.current === 'host') {
+          setHostPage('setup');
+          setHostTab('overview');
+        } else {
+          setViewerPage('join');
+          setViewerTab('receive');
+        }
         setScreen('browser');
-        setStatusMessage('warning', `${nextStatus.reason === 'block' ? '차단' : '강퇴'}됨: ${nextStatus.roomName}`);
+        setStatusMessage(
+          'warning',
+          `${roleRef.current === 'host' ? '방 세션 종료' : '방 연결 종료'}: ${formatReason(nextStatus.reason ?? 'room-rejoin-failed')}`
+        );
         return;
       }
       setViewerPage('join');
@@ -180,17 +202,27 @@ export default function App() {
       setViewerSessions(viewers);
     });
     const removeEmergencyStop = window.hapticRelay.onEmergencyStop(signal => {
-      setHardwareProtection(signal.hardware.protection);
+      if (!shouldApplyReceivedEmergencyState(signal.hardware)) return;
+      applyEmergencyState(signal.hardware);
       if (signal.hardware.stopped === false) {
         if (signal.hardware.reason === 'hardware-stop-write-failed') {
-          setStatusMessage('error', '긴급 정지 명령을 하드웨어에 쓰지 못했습니다. 장비 전원을 직접 차단하세요.');
+          setStatusMessage('error', '긴급 정지는 활성화됐지만 하드웨어 정지 명령을 쓰지 못했습니다. 장비 전원을 직접 차단하세요.');
           return;
         }
-        setStatusMessage('warning', `긴급 정지 수신, 로컬 정지 실패: ${formatReason(signal.hardware.reason ?? 'hardware-not-connected')}`);
+        setStatusMessage('warning', `긴급 정지 수신, 로컬 잠금 활성화됨: ${formatReason(signal.hardware.reason ?? 'hardware-not-connected')}`);
         return;
       }
       setStatusMessage('warning', `긴급 정지 수신: ${signal.roomName}`);
     });
+    let emergencyStateActive = true;
+    const requestedRevision = emergencyStateRevisionRef.current.capture();
+    void window.hapticRelay.getHardwareEmergencyState()
+      .then(result => {
+        if (emergencyStateActive && emergencyStateRevisionRef.current.isCurrent(requestedRevision)) applyEmergencyState(result);
+      })
+      .catch(error => {
+        if (emergencyStateActive && emergencyStateRevisionRef.current.isCurrent(requestedRevision)) setStatusMessage('error', formatError(error));
+      });
     const removeConnectionStatus = window.hapticRelay.onConnectionStatus(nextStatus => {
       if (nextStatus.status === 'connected') {
         if (!nextStatus.roomName) return;
@@ -239,6 +271,7 @@ export default function App() {
     });
 
     return () => {
+      emergencyStateActive = false;
       hardwareStatusActive = false;
       removeLog();
       removeApprovalRequest();
@@ -458,11 +491,10 @@ export default function App() {
     await runAction('hardware', '보호 옵션 적용 중', async setActionStatus => {
       const result = await window.hapticRelay.setHardwareProtection(hardwareProtection);
       setHardwareProtection(result.protection);
-      if (result.stop?.stopped === false && result.stop.reason === 'hardware-stop-write-failed') {
-        setActionStatus('error', '정지 명령을 하드웨어에 쓰지 못했습니다. 장비 전원을 직접 차단하세요.');
-        return;
-      }
-      setActionStatus(result.protection.paused ? 'warning' : 'ok', result.protection.paused ? '수신 일시정지 적용됨' : '보호 옵션 적용됨');
+      setActionStatus(
+        result.protection.paused ? 'warning' : 'ok',
+        result.protection.paused ? '수신 일시정지 적용됨' : '보호 옵션 적용됨'
+      );
     });
   }
 
@@ -498,13 +530,9 @@ export default function App() {
   }
 
   async function disconnectHardware() {
-    await runAction('hardware', '정지 명령 전송 후 하드웨어 연결 해제 중', async setActionStatus => {
+    await runAction('hardware', '하드웨어 연결 해제 중', async setActionStatus => {
       const result = await window.hapticRelay.disconnectHardware();
       setHardwareConnected(result.connected);
-      if (!result.stop.stopped && result.stop.reason !== 'hardware-not-connected') {
-        setActionStatus('error', '정지 명령을 확인하지 못했습니다. 장비 전원을 직접 차단하세요.');
-        return;
-      }
       setActionStatus('ok', '하드웨어 연결 해제됨');
     });
   }
@@ -544,6 +572,7 @@ export default function App() {
       setViewerSessions(await window.hapticRelay.listViewers());
       setHostPage('room');
       setHostTab('overview');
+      roleRef.current = 'host';
       setRole('host');
       setScreen('host-room');
       setDialog(undefined);
@@ -596,6 +625,7 @@ export default function App() {
       });
       setViewerPage('room');
       setViewerTab('receive');
+      roleRef.current = 'viewer';
       setRole('viewer');
       setScreen('participant-room');
       setDialog(undefined);
@@ -648,7 +678,8 @@ export default function App() {
   async function leaveRoom() {
     await runAction('room', role === 'host' ? '방 종료 중' : '방 나가는 중', async setActionStatus => {
       if (motionDemoActive) await window.hapticRelay.stopMotionDemo();
-      await window.hapticRelay.disconnectRoom();
+      const result = await window.hapticRelay.disconnectRoom();
+      const stopFailed = !result.stop.stopped && result.stop.reason !== 'hardware-not-connected';
       setMotionDemoActive(false);
       setApprovalRequests([]);
       setViewerSessions([]);
@@ -661,27 +692,33 @@ export default function App() {
         setViewerTab('receive');
       }
       setScreen('browser');
-      setActionStatus('ok', role === 'host' ? '방이 종료됨' : '방에서 나왔습니다');
+      setActionStatus(
+        stopFailed ? 'warning' : 'ok',
+        stopFailed
+          ? '방에서는 나왔지만 안전 위치 명령을 확인하지 못했습니다. 장비 전원을 직접 차단하세요.'
+          : role === 'host' ? '방이 종료됨' : '방에서 나왔습니다'
+      );
     });
   }
 
   async function localEmergencyStop() {
+    emergencyStateRevisionRef.current.invalidate();
     const actionGeneration = ++actionGenerationRef.current;
     setBusyAction('stop');
     setStatusMessage('busy', '로컬 긴급 정지 처리 중');
     try {
       const result = await window.hapticRelay.stopHardware();
       setMotionDemoActive(false);
-      setHardwareProtection(result.protection);
-      if (result.stopped === false) {
+      applyEmergencyState(result);
+      if (!result.stopped) {
         if (result.reason === 'hardware-stop-write-failed') {
-          setStatusMessage('error', '긴급 정지 명령을 하드웨어에 쓰지 못했습니다. 장비 전원을 직접 차단하세요.');
+          setStatusMessage('error', '긴급 정지는 활성화됐지만 하드웨어 정지 명령을 쓰지 못했습니다. 장비 전원을 직접 차단하세요.');
           return;
         }
-        setStatusMessage('warning', `로컬 긴급 정지 실패: ${formatReason(result.reason ?? 'hardware-not-connected')}`);
+        setStatusMessage('warning', `긴급정지 활성화됨: ${formatReason(result.reason ?? 'hardware-not-connected')}`);
         return;
       }
-      setStatusMessage('warning', '로컬 긴급 정지됨');
+      setStatusMessage('warning', '로컬 긴급정지 활성화됨');
     } catch (error) {
       setStatusMessage('error', formatError(error));
     } finally {
@@ -690,22 +727,43 @@ export default function App() {
   }
 
   async function emergencyStop() {
+    emergencyStateRevisionRef.current.invalidate();
     const actionGeneration = ++actionGenerationRef.current;
     setBusyAction('stop');
     setStatusMessage('busy', '긴급 정지 처리 중');
     try {
       const result = await window.hapticRelay.emergencyStop();
       setMotionDemoActive(false);
-      setHardwareProtection(result.hardware.protection);
-      if (result.hardware?.stopped === false && result.hardware.reason === 'hardware-stop-write-failed') {
-        setStatusMessage('error', '긴급 정지 명령을 하드웨어에 쓰지 못했습니다. 장비 전원을 직접 차단하세요.');
+      applyEmergencyState(result.hardware);
+      if (!result.hardware.stopped && result.hardware.reason === 'hardware-stop-write-failed') {
+        setStatusMessage('error', '긴급 정지는 활성화됐지만 하드웨어 정지 명령을 쓰지 못했습니다. 장비 전원을 직접 차단하세요.');
         return;
       }
       if (result.relay?.sent === false && result.relay.reason !== 'invalid-host-room') {
-        setStatusMessage('warning', `긴급 정지: 로컬 정지, relay ${formatReason(result.relay.reason ?? 'room-stop-failed')}`);
+        setStatusMessage('warning', `로컬 긴급정지는 활성화됐지만 relay ${formatReason(result.relay.reason ?? 'room-stop-failed')}`);
+        return;
+      }
+      if (!result.hardware.stopped) {
+        setStatusMessage('warning', `긴급 정지 전송됨, 로컬 잠금 활성화됨: ${formatReason(result.hardware.reason ?? 'hardware-not-connected')}`);
         return;
       }
       setStatusMessage('warning', role === 'host' ? '긴급 정지 전송됨' : '로컬 긴급 정지됨');
+    } catch (error) {
+      setStatusMessage('error', formatError(error));
+    } finally {
+      if (actionGeneration === actionGenerationRef.current) setBusyAction(undefined);
+    }
+  }
+
+  async function releaseEmergencyStop() {
+    emergencyStateRevisionRef.current.invalidate();
+    const actionGeneration = ++actionGenerationRef.current;
+    setBusyAction('stop');
+    setStatusMessage('busy', '긴급정지 해제 중');
+    try {
+      const result = await window.hapticRelay.releaseHardwareStop();
+      applyEmergencyState(result);
+      setStatusMessage('ok', '긴급정지 해제됨');
     } catch (error) {
       setStatusMessage('error', formatError(error));
     } finally {
@@ -814,6 +872,29 @@ export default function App() {
         </label>
       </div>
       <button disabled={isBusy} onClick={applyHardwareProtection}>보호 옵션 적용</button>
+    </section>
+  );
+
+  const roomWideStop = screen === 'host-room';
+  const emergencyStopPanel = (
+    <section className="panel danger-panel" data-emergency-stopped={emergencyStopped}>
+      <div>
+        <h2>{emergencyStopped ? '긴급정지 활성' : roomWideStop ? '전체 긴급 정지' : '로컬 긴급 정지'}</h2>
+        <p className="muted">
+          {emergencyStopped
+            ? '내 장비는 직접 해제하기 전까지 움직이지 않습니다. 해제는 다른 참여자에게 적용되지 않습니다.'
+            : roomWideStop
+              ? '자신과 현재 참여자에게 긴급 정지를 전송합니다.'
+              : '이 장비의 모션 출력을 잠그고 안전 위치로 이동합니다.'}
+        </p>
+      </div>
+      <button
+        className={emergencyStopped ? undefined : 'danger-action'}
+        disabled={busyAction === 'stop'}
+        onClick={emergencyStopped ? releaseEmergencyStop : roomWideStop ? emergencyStop : localEmergencyStop}
+      >
+        <OctagonX size={17} /> {emergencyStopped ? '긴급정지 해제' : '긴급 정지'}
+      </button>
     </section>
   );
 
@@ -1023,19 +1104,19 @@ export default function App() {
     const content = hostTab === 'overview' ? <div className="management-grid">{viewerManagementPanel}{approvalPanel}{invitePanel}</div>
       : hostTab === 'demo' ? motionDemoPanel
         : hostTab === 'hardware' ? hardwarePanel
-          : hostTab === 'safety' ? <div className="settings-stack">{protectionPanel}<section className="panel danger-panel"><h2>전체 긴급 정지</h2><p className="muted">현재 세션의 전송을 멈추고 모든 참여자에게 정지 신호를 보냅니다.</p><button className="danger-action" disabled={busyAction === 'stop'} onClick={emergencyStop}><OctagonX size={17} /> 긴급 정지</button></section></div>
+          : hostTab === 'safety' ? <div className="settings-stack">{protectionPanel}{emergencyStopPanel}</div>
             : logPanel;
     workspace = <RoomSessionView role="host" roomTitle={hostRoomInvite?.roomName ?? roomName} roomMeta={`${selectedServer.name} · ${entryMode === 'request' ? '승인 입장' : '자유 입장'} · 30Hz`} activeTab={hostTab} tabs={tabs} viewerCount={viewerSessions.length} onTabChange={setHostTab} onLeave={leaveRoom}>{content}</RoomSessionView>;
   } else if (screen === 'participant-room') {
     const tabs: Array<{ id: SessionTab; label: string }> = [
       { id: 'receive', label: '수신 모니터' }, { id: 'delay', label: '지연 설정' }, { id: 'hardware', label: '하드웨어' }, { id: 'safety', label: '보호 설정' }, { id: 'logs', label: '로그' }
     ];
-    const content = viewerTab === 'receive' ? motionMonitorPanel : viewerTab === 'delay' ? motionDelayPanel : viewerTab === 'hardware' ? hardwarePanel : viewerTab === 'safety' ? protectionPanel : logPanel;
+    const content = viewerTab === 'receive' ? motionMonitorPanel : viewerTab === 'delay' ? motionDelayPanel : viewerTab === 'hardware' ? hardwarePanel : viewerTab === 'safety' ? <div className="settings-stack">{protectionPanel}{emergencyStopPanel}</div> : logPanel;
     workspace = <RoomSessionView role="participant" roomTitle={roomName} roomMeta={`${selectedServer.name} · ${displayName} · 실시간 수신`} activeTab={viewerTab} tabs={tabs} onTabChange={setViewerTab} onLeave={leaveRoom}>{content}</RoomSessionView>;
   } else if (screen === 'hardware') {
     workspace = <HardwareView>{hardwarePanel}</HardwareView>;
   } else if (screen === 'safety') {
-    workspace = <SafetyView><div className="settings-stack">{protectionPanel}<section className="panel danger-panel"><div><h2>로컬 긴급 정지</h2><p className="muted">모션 출력과 현재 전송을 즉시 정지합니다.</p></div><button className="danger-action" disabled={busyAction === 'stop'} onClick={localEmergencyStop}><OctagonX size={17} /> 긴급 정지</button></section></div></SafetyView>;
+    workspace = <SafetyView><div className="settings-stack">{protectionPanel}{emergencyStopPanel}</div></SafetyView>;
   } else {
     workspace = <LogsView>{logPanel}</LogsView>;
   }
@@ -1048,6 +1129,21 @@ export default function App() {
       {dialog === 'custom' ? <Modal title="사용자 서버 추가" onClose={() => setDialog(undefined)} footer={<><button className="btn btn-secondary" onClick={() => setDialog(undefined)}>취소</button><button className="btn btn-primary" onClick={saveCustomServer}>서버 사용</button></>}><div className="modal-form-grid"><label className="wide">서버 이름<input value={customServerName} onChange={event => setCustomServerName(event.target.value)} /></label><label className="wide">서버 URL<input value={customServerUrl} onChange={event => setCustomServerUrl(event.target.value)} placeholder="https://relay.example.com" /></label></div></Modal> : null}
     </>
   );
+}
+
+function createEmergencyStateRevision() {
+  let revision = 0;
+  return {
+    capture: () => revision,
+    invalidate: () => {
+      revision += 1;
+    },
+    isCurrent: (requestedRevision: number) => requestedRevision === revision
+  };
+}
+
+function shouldApplyReceivedEmergencyState(state: HardwareEmergencyState) {
+  return state.emergencyStopped;
 }
 
 function mapDirectoryRoom(room: RoomDirectoryEntry, serverName: string): BrowserRoom {
@@ -1206,9 +1302,12 @@ function formatLogMessage(message: string) {
     'hardware-disconnected': '하드웨어 연결 해제',
     'hardware-connect-failed': '하드웨어 연결 실패',
     'hardware-stopped': '하드웨어 정지',
+    'hardware-emergency-stopped': '하드웨어 긴급정지 활성',
+    'hardware-emergency-released': '하드웨어 긴급정지 해제',
+    'hardware-room-exit-stopping': '방 종료 안전 위치 이동',
+    'hardware-room-exit-stop-failed': '방 종료 안전 위치 이동 실패',
     'hardware-stop-write-failed': '정지 명령 실패',
     'hardware-motion-write-failed': '모션 출력 실패',
-    'hardware-safety-timeout': '하드웨어 safety timeout',
     'hardware-probe-failed': 'T-Code probe 실패',
     'hardware-test-started': '하드웨어 테스트 시작',
     'hardware-test-failed': '하드웨어 테스트 실패',
@@ -1255,6 +1354,8 @@ function formatReason(reason: string) {
     'approval-required': '스트리머 승인 대기 중입니다',
     'invalid-host-token': '스트리머 방 토큰이 유효하지 않습니다',
     'invalid-viewer-token': '시청자 입장 토큰이 유효하지 않습니다',
+    'kick': '운영자에 의해 퇴장 처리되었습니다',
+    'block': '운영자에 의해 차단되었습니다',
     'approval-not-found': '입장 신청을 찾을 수 없습니다',
     'viewer-disconnected': '시청자가 이미 연결을 끊었습니다',
     'viewer-not-found': '접속자를 찾을 수 없습니다',
@@ -1265,6 +1366,9 @@ function formatReason(reason: string) {
     'room-rejoin-failed': '방 재입장에 실패했습니다',
     'room-stop-failed': '긴급 정지 전송에 실패했습니다',
     'host-disconnected': '스트리머 연결이 종료되었습니다',
+    'hardware-emergency-stopped': '하드웨어 긴급정지가 활성화되어 있습니다',
+    'hardware-room-exit-stopping': '방 종료 안전 위치로 이동 중입니다',
+    'hardware-room-exit-stop-failed': '방 종료 안전 위치 이동에 실패했습니다',
     'hardware-stop-write-failed': '긴급 정지 명령을 하드웨어에 쓰지 못했습니다',
     'hardware-write-timeout': '하드웨어 쓰기 응답 시간이 초과되어 연결을 종료했습니다',
     'hardware-write-failed': '하드웨어 쓰기에 실패하여 연결을 종료했습니다',

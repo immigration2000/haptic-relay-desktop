@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 
 const { HardwareController } = await import('../dist-electron/services/hardware-controller.js');
+const selectedRegression = process.argv[2];
+const runRegression = name => selectedRegression === undefined || selectedRegression === name;
 
 class FakePort extends EventEmitter {
   constructor(path) {
@@ -12,21 +14,50 @@ class FakePort extends EventEmitter {
     this.failNextWrite = false;
     this.throwNextWrite = false;
     this.failNextClose = false;
+    this.closeErrorAfterPhysicalClose = false;
+    this.stallNextOpen = false;
     this.stallNextWrite = false;
+    this.stallNextClose = false;
     this.activeWrite = undefined;
     this.pendingWrites = [];
+    this.pendingOpen = undefined;
+    this.pendingClose = undefined;
     this.closeErrorHadListener = undefined;
   }
 
   open(callback) {
+    if (this.stallNextOpen) {
+      this.stallNextOpen = false;
+      this.pendingOpen = callback;
+      return;
+    }
     this.isOpen = true;
     callback(null);
   }
 
+  completeOpen(error = null) {
+    const callback = this.pendingOpen;
+    assert.ok(callback, 'no pending open');
+    this.pendingOpen = undefined;
+    if (!error) this.isOpen = true;
+    callback(error);
+  }
+
   close(callback) {
+    if (this.stallNextClose) {
+      this.stallNextClose = false;
+      this.pendingClose = callback;
+      return;
+    }
     if (this.failNextClose) {
       this.failNextClose = false;
       callback(new Error('serial-close-failed'));
+      return;
+    }
+    if (this.closeErrorAfterPhysicalClose) {
+      this.closeErrorAfterPhysicalClose = false;
+      this.isOpen = false;
+      callback(new Error('serial-close-failed-after-close'));
       return;
     }
     this.isOpen = false;
@@ -39,6 +70,21 @@ class FakePort extends EventEmitter {
     }
     for (const write of this.pendingWrites.splice(0)) write.callback(error);
     callback(null);
+  }
+
+  completeClose() {
+    const callback = this.pendingClose;
+    assert.ok(callback, 'no pending close');
+    this.pendingClose = undefined;
+    this.close(callback);
+  }
+
+  completeWrite(error = null) {
+    const write = this.activeWrite;
+    assert.ok(write, 'no active write');
+    this.activeWrite = undefined;
+    write.callback(error);
+    this.flushWrites();
   }
 
   write(payload, callback) {
@@ -71,6 +117,56 @@ class FakePort extends EventEmitter {
       write.callback(write.error);
       this.flushWrites();
     });
+  }
+}
+
+class SerialPortFaithfulFake extends FakePort {
+  constructor(path) {
+    super(path);
+    this.physicalOpen = false;
+    this.closing = false;
+  }
+
+  get isOpen() {
+    return this.physicalOpen && !this.closing;
+  }
+
+  set isOpen(value) {
+    this.physicalOpen = value;
+    if (!value) this.closing = false;
+  }
+
+  open(callback) {
+    this.physicalOpen = true;
+    this.closing = false;
+    callback(null);
+  }
+
+  close(callback) {
+    this.closing = true;
+    if (this.stallNextClose) {
+      this.stallNextClose = false;
+      this.pendingClose = callback;
+      return;
+    }
+    if (this.failNextClose) {
+      this.failNextClose = false;
+      this.closing = false;
+      callback(new Error('serial-close-failed'));
+      return;
+    }
+    this.physicalOpen = false;
+    this.closing = false;
+    callback(null);
+  }
+
+  completeClose(error = null) {
+    const callback = this.pendingClose;
+    assert.ok(callback, 'no pending close');
+    this.pendingClose = undefined;
+    this.closing = false;
+    if (!error) this.physicalOpen = false;
+    callback(error);
   }
 }
 
@@ -155,19 +251,27 @@ assert.equal(outputs.length, outputsBeforeStall + 1, 'motion output recovers aft
 assert.equal(outputs.at(-1).command, 'L08000I17');
 
 port.stallNextWrite = true;
+const stalledStopPromise = controller.latchEmergencyStop();
+assert.deepEqual(
+  controller.getEmergencyStopState(),
+  { emergencyStopped: true },
+  'the emergency latch is set before the stop write settles'
+);
 const stalledStopResult = await Promise.race([
-  controller.emergencyStop(),
+  stalledStopPromise,
   delay(100).then(() => ({ timedOut: true }))
 ]);
 assert.deepEqual(
   stalledStopResult,
-  { stopped: false, reason: 'hardware-stop-write-failed' },
+  { stopped: false, reason: 'hardware-stop-write-failed', emergencyStopped: true },
   'emergency stop fails within the bounded write timeout instead of hanging'
 );
+assert.deepEqual(controller.getEmergencyStopState(), { emergencyStopped: true });
 assert.ok(
   logs.some(entry => entry.message === 'hardware-stop-write-failed' && entry.details === 'hardware-write-timeout'),
   'a stalled emergency stop is logged'
 );
+controller.releaseEmergencyStop();
 
 await controller.connect('COM9', {
   baudRate: 115200,
@@ -198,7 +302,7 @@ await controller.connect('COM9', {
   stopPosition: 0.3,
   invertPosition: true
 });
-await controller.emergencyStop();
+assert.deepEqual(await controller.latchEmergencyStop(), { stopped: true, emergencyStopped: true });
 assert.equal(outputs.at(-1).kind, 'stop');
 assert.equal(outputs.at(-1).command, 'DSTOP\nL03000I1');
 assert.deepEqual(
@@ -206,29 +310,211 @@ assert.deepEqual(
   { connected: true, path: 'COM9' },
   'a successful normal emergency stop keeps the healthy port connected'
 );
+controller.releaseEmergencyStop();
 
-const latchedStop = await controller.pauseAndStop();
-assert.equal(latchedStop.stopped, true);
-assert.equal(latchedStop.protection.paused, true);
+const latchOutputs = [];
+let latchPort;
+const latchController = new HardwareController({
+  createPort: options => {
+    latchPort = new FakePort(options.path);
+    return latchPort;
+  },
+  onOutput: output => latchOutputs.push(output),
+  probeTimeoutMs: 0,
+  writeTimeoutMs: 20
+});
+assert.deepEqual(latchController.getEmergencyStopState(), { emergencyStopped: false });
+await latchController.connect('COM21', {
+  baudRate: 115200,
+  linearAxis: 'L0',
+  strokeMin: 0.2,
+  strokeMax: 0.8,
+  stopPosition: 0.35,
+  invertPosition: false
+});
 assert.deepEqual(
-  controller.queueMotion({ position: 0.8, intensity: 0.25, timestamp: Date.now() }),
-  { queued: false, reason: 'protection-paused' },
-  'an explicit local stop blocks later motion until the user resumes'
+  await latchController.latchEmergencyStop(),
+  { stopped: true, emergencyStopped: true }
 );
-await controller.setProtection({
+assert.equal(latchOutputs.at(-1).command, 'DSTOP\nL03500I1');
+assert.deepEqual(
+  latchController.queueMotion({ position: 0.8, intensity: 0.25, timestamp: Date.now() }),
+  { queued: false, reason: 'hardware-emergency-stopped' }
+);
+assert.deepEqual(
+  await latchController.runTestPattern(),
+  { tested: false, reason: 'hardware-emergency-stopped' }
+);
+const writesBeforeRelease = latchPort.writes.length;
+assert.deepEqual(latchController.releaseEmergencyStop(), { emergencyStopped: false });
+assert.equal(latchPort.writes.length, writesBeforeRelease, 'release emits no serial payload');
+assert.deepEqual(
+  latchController.queueMotion({ position: 0.8, intensity: 0.25, timestamp: Date.now() }),
+  { queued: true }
+);
+await waitFor(() => latchOutputs.at(-1)?.kind === 'motion');
+
+const releasedDuringSuccessfulStopPort = new FakePort('COM31');
+const releasedDuringSuccessfulStopController = new HardwareController({
+  createPort: () => releasedDuringSuccessfulStopPort,
+  probeTimeoutMs: 0,
+  writeTimeoutMs: 100
+});
+await releasedDuringSuccessfulStopController.connect('COM31', {
+  baudRate: 115200,
+  linearAxis: 'L0',
+  strokeMin: 0,
+  strokeMax: 1,
+  stopPosition: 0.35,
+  invertPosition: false
+});
+releasedDuringSuccessfulStopPort.stallNextWrite = true;
+const releasedSuccessfulStop = releasedDuringSuccessfulStopController.latchEmergencyStop();
+assert.deepEqual(releasedDuringSuccessfulStopController.getEmergencyStopState(), { emergencyStopped: true });
+assert.deepEqual(releasedDuringSuccessfulStopController.releaseEmergencyStop(), { emergencyStopped: false });
+assert.equal(
+  releasedDuringSuccessfulStopController.queueMotion({ position: 0.6, intensity: 0.25, timestamp: Date.now() }).queued,
+  true,
+  'explicit release admits motion while the earlier stop write is pending'
+);
+releasedDuringSuccessfulStopPort.completeWrite();
+assert.deepEqual(await releasedSuccessfulStop, { stopped: true, emergencyStopped: false });
+assert.deepEqual(releasedDuringSuccessfulStopController.getEmergencyStopState(), { emergencyStopped: false });
+await releasedDuringSuccessfulStopController.disconnect();
+
+const releasedDuringFailedStopPort = new FakePort('COM32');
+const releasedDuringFailedStopController = new HardwareController({
+  createPort: () => releasedDuringFailedStopPort,
+  probeTimeoutMs: 0,
+  writeTimeoutMs: 100
+});
+await releasedDuringFailedStopController.connect('COM32', {
+  baudRate: 115200,
+  linearAxis: 'L0',
+  strokeMin: 0,
+  strokeMax: 1,
+  stopPosition: 0.35,
+  invertPosition: false
+});
+releasedDuringFailedStopPort.stallNextWrite = true;
+const releasedFailedStop = releasedDuringFailedStopController.latchEmergencyStop();
+assert.deepEqual(releasedDuringFailedStopController.getEmergencyStopState(), { emergencyStopped: true });
+releasedDuringFailedStopController.releaseEmergencyStop();
+assert.equal(
+  releasedDuringFailedStopController.queueMotion({ position: 0.6, intensity: 0.25, timestamp: Date.now() }).queued,
+  true,
+  'explicit release wins before a failed stop write settles'
+);
+releasedDuringFailedStopPort.completeWrite(new Error('stop-write-failed-after-release'));
+assert.deepEqual(await releasedFailedStop, {
+  stopped: false,
+  reason: 'hardware-stop-write-failed',
+  emergencyStopped: false
+});
+assert.deepEqual(releasedDuringFailedStopController.getEmergencyStopState(), { emergencyStopped: false });
+
+assert.deepEqual(
+  await latchController.latchEmergencyStop(),
+  { stopped: true, emergencyStopped: true }
+);
+assert.deepEqual(await latchController.setProtection({
   intensityLimit: 1,
   positionMin: 0,
   positionMax: 1,
   paused: false
+}), {
+  protection: { intensityLimit: 1, positionMin: 0, positionMax: 1, paused: false }
 });
-const pausedProtection = await controller.setProtection({
+assert.deepEqual(latchController.getEmergencyStopState(), { emergencyStopped: true });
+
+await latchController.disconnect();
+await latchController.connect('COM22', {
+  baudRate: 115200,
+  linearAxis: 'L0',
+  strokeMin: 0.2,
+  strokeMax: 0.8,
+  stopPosition: 0.35,
+  invertPosition: false
+});
+assert.deepEqual(latchController.getEmergencyStopState(), { emergencyStopped: true });
+assert.deepEqual(latchController.releaseEmergencyStop(), { emergencyStopped: false });
+
+const writesBeforePause = latchPort.writes.length;
+const pausedProtection = await latchController.setProtection({
   intensityLimit: 1,
   positionMin: 0,
   positionMax: 1,
   paused: true
 });
-assert.deepEqual(pausedProtection.stop, { stopped: true });
-assert.equal(pausedProtection.protection.paused, true);
+assert.deepEqual(pausedProtection, {
+  protection: { intensityLimit: 1, positionMin: 0, positionMax: 1, paused: true }
+});
+assert.equal(latchPort.writes.length, writesBeforePause, 'pausing receive emits no stop payload');
+assert.deepEqual(latchController.releaseEmergencyStop(), { emergencyStopped: false });
+assert.deepEqual(
+  latchController.queueMotion({ position: 0.8, intensity: 0.25, timestamp: Date.now() }),
+  { queued: false, reason: 'protection-paused' },
+  'releasing an emergency stop does not unpause protection'
+);
+await latchController.setProtection({
+  intensityLimit: 1,
+  positionMin: 0,
+  positionMax: 1,
+  paused: false
+});
+const testOutputStart = latchOutputs.length;
+assert.deepEqual(await latchController.runTestPattern(), { tested: true, steps: 4 });
+assert.equal(
+  latchOutputs.slice(testOutputStart).some(output => output.kind === 'stop'),
+  false,
+  'normal hardware test completion emits no stop output'
+);
+await latchController.disconnect();
+
+const roomExitOutputs = [];
+const roomExitPort = new FakePort('COM24');
+const roomExitController = new HardwareController({
+  createPort: () => roomExitPort,
+  onOutput: output => roomExitOutputs.push(output),
+  probeTimeoutMs: 0,
+  writeTimeoutMs: 20
+});
+await roomExitController.connect('COM24', {
+  baudRate: 115200,
+  linearAxis: 'L0',
+  strokeMin: 0,
+  strokeMax: 1,
+  stopPosition: 0.35,
+  invertPosition: false
+});
+assert.deepEqual(await roomExitController.stopForRoomExit(), { stopped: true });
+assert.equal(roomExitOutputs.at(-1).command, 'DSTOP\nL03500I1');
+assert.deepEqual(
+  roomExitController.getEmergencyStopState(),
+  { emergencyStopped: false },
+  'a room-exit stop does not create an emergency latch'
+);
+const roomExitWritesAfterStop = roomExitPort.writes.length;
+assert.deepEqual(
+  roomExitController.queueMotion({ position: 0.8, intensity: 0.25, timestamp: Date.now() }),
+  { queued: true }
+);
+await waitFor(() => roomExitPort.writes.length === roomExitWritesAfterStop + 1);
+assert.equal(roomExitOutputs.at(-1).kind, 'motion', 'motion resumes after a room-exit stop');
+assert.deepEqual(
+  await roomExitController.latchEmergencyStop(),
+  { stopped: true, emergencyStopped: true }
+);
+assert.deepEqual(await roomExitController.stopForRoomExit(), { stopped: true });
+assert.deepEqual(
+  roomExitController.getEmergencyStopState(),
+  { emergencyStopped: true },
+  'a room-exit stop preserves an existing emergency latch'
+);
+await roomExitController.disconnect();
+
+const newController = new HardwareController({ probeTimeoutMs: 0, writeTimeoutMs: 20 });
+assert.deepEqual(newController.getEmergencyStopState(), { emergencyStopped: false });
 
 await controller.disconnect();
 
@@ -250,7 +536,10 @@ await cancelledPatternController.connect('COM19', {
 });
 const cancelledPattern = cancelledPatternController.runTestPattern();
 await delay(40);
-assert.deepEqual(await cancelledPatternController.emergencyStop(), { stopped: true });
+assert.deepEqual(
+  await cancelledPatternController.latchEmergencyStop(),
+  { stopped: true, emergencyStopped: true }
+);
 assert.deepEqual(await cancelledPattern, { tested: false, reason: 'hardware-test-cancelled' });
 const cancellationStopIndex = cancelledPatternOutputs.findIndex(output => output.kind === 'stop');
 assert.notEqual(cancellationStopIndex, -1, 'emergency stop output is recorded during the test pattern');
@@ -260,6 +549,83 @@ assert.equal(
   'no test motion is written after an emergency stop cancels the pattern'
 );
 await cancelledPatternController.disconnect();
+
+const finalDelayOutputs = [];
+const finalDelayPort = new FakePort('COM25');
+const finalDelayController = new HardwareController({
+  createPort: () => finalDelayPort,
+  onOutput: output => finalDelayOutputs.push(output),
+  probeTimeoutMs: 0,
+  writeTimeoutMs: 20
+});
+await finalDelayController.connect('COM25', {
+  baudRate: 115200,
+  linearAxis: 'L0',
+  strokeMin: 0.2,
+  strokeMax: 0.8,
+  stopPosition: 0.3,
+  invertPosition: false
+});
+const finalDelayPattern = finalDelayController.runTestPattern();
+await waitFor(() => finalDelayOutputs.filter(output => output.kind === 'test').length === 4, 1000);
+assert.deepEqual(
+  await finalDelayController.latchEmergencyStop(),
+  { stopped: true, emergencyStopped: true }
+);
+assert.deepEqual(
+  await finalDelayPattern,
+  { tested: false, reason: 'hardware-test-cancelled' },
+  'an emergency during the final test delay cancels the pattern before success'
+);
+const finalDelayStopIndex = finalDelayOutputs.findIndex(output => output.kind === 'stop');
+assert.notEqual(finalDelayStopIndex, -1, 'the final-delay emergency writes a stop payload');
+assert.equal(
+  finalDelayOutputs.slice(finalDelayStopIndex + 1).some(output => output.kind === 'test'),
+  false,
+  'no test output follows the final-delay emergency stop'
+);
+await finalDelayController.disconnect();
+
+const inactivityOutputs = [];
+const inactivityPort = new FakePort('COM23');
+const inactivityController = new HardwareController({
+  createPort: () => inactivityPort,
+  onOutput: output => inactivityOutputs.push(output),
+  probeTimeoutMs: 0,
+  writeTimeoutMs: 20
+});
+await inactivityController.connect('COM23', {
+  baudRate: 115200,
+  linearAxis: 'L0',
+  strokeMin: 0,
+  strokeMax: 1,
+  stopPosition: 0.3,
+  invertPosition: false
+});
+assert.deepEqual(
+  inactivityController.queueMotion({ position: 0.7, intensity: 0.25, timestamp: Date.now() }),
+  { queued: true }
+);
+await waitFor(() => inactivityOutputs.length === 1);
+assert.deepEqual(
+  inactivityController.queueMotion({ position: 0.7, intensity: 0.25, timestamp: Date.now() }),
+  { queued: true }
+);
+await waitFor(() => inactivityOutputs.length === 2);
+assert.deepEqual(inactivityOutputs.map(output => output.command), ['L07000I17', 'L07000I17']);
+await delay(1100);
+assert.equal(inactivityOutputs.length, 2, 'inactivity emits no additional hardware output');
+assert.equal(
+  inactivityOutputs.every(output => output.kind === 'motion'),
+  true,
+  'inactivity output remains motion-only'
+);
+assert.equal(
+  inactivityPort.writes.some(payload => payload.includes('DSTOP')),
+  false,
+  'inactivity emits no DSTOP serial payload'
+);
+await inactivityController.disconnect();
 
 const probePort = new FakePort();
 const probeController = new HardwareController({
@@ -328,15 +694,17 @@ closeFailureController.queueMotion({ position: 0.5, intensity: 0.25, timestamp: 
 await waitFor(() => closeFailurePort.writes.some(payload => payload.trim() === 'L05000I17'));
 await closeFailureController.disconnect();
 
-const safeStatuses = [];
-const safePort = new FakePort('COM13');
-const safeController = new HardwareController({
-  createPort: () => safePort,
-  onConnectionStatus: status => safeStatuses.push(status),
+const closeOnlyDisconnectOutputs = [];
+const closeOnlyDisconnectStatuses = [];
+const closeOnlyDisconnectPort = new FakePort('COM13');
+const closeOnlyDisconnectController = new HardwareController({
+  createPort: () => closeOnlyDisconnectPort,
+  onOutput: output => closeOnlyDisconnectOutputs.push(output),
+  onConnectionStatus: status => closeOnlyDisconnectStatuses.push(status),
   probeTimeoutMs: 0,
   writeTimeoutMs: 20
 });
-await safeController.connect('COM13', {
+await closeOnlyDisconnectController.connect('COM13', {
   baudRate: 115200,
   linearAxis: 'L0',
   strokeMin: 0,
@@ -344,51 +712,1031 @@ await safeController.connect('COM13', {
   stopPosition: 0.6,
   invertPosition: false
 });
-assert.deepEqual(safeController.getConnectionStatus(), { connected: true, path: 'COM13' });
-
-const safeResult = await safeController.disconnectSafely();
-assert.deepEqual(safeResult, { connected: false, stop: { stopped: true } });
-assert.match(safePort.writes.at(-1).trim(), /^DSTOP\nL06000I1$/);
-assert.deepEqual(safeStatuses, [
+assert.deepEqual(closeOnlyDisconnectController.getConnectionStatus(), { connected: true, path: 'COM13' });
+closeOnlyDisconnectPort.stallNextClose = true;
+const writesBeforeCloseOnlyDisconnect = closeOnlyDisconnectPort.writes.length;
+const outputsBeforeCloseOnlyDisconnect = closeOnlyDisconnectOutputs.length;
+const closeOnlyDisconnectPromise = closeOnlyDisconnectController.disconnect();
+assert.deepEqual(
+  closeOnlyDisconnectController.queueMotion({ position: 0.8, intensity: 0.25, timestamp: Date.now() }),
+  { queued: false, reason: 'hardware-disconnecting' },
+  'raw disconnect rejects motion while the serial close is pending'
+);
+assert.equal(closeOnlyDisconnectPort.writes.length, writesBeforeCloseOnlyDisconnect, 'disconnect emits no serial write');
+assert.equal(closeOnlyDisconnectOutputs.length, outputsBeforeCloseOnlyDisconnect, 'disconnect emits no stop output');
+await waitFor(() => closeOnlyDisconnectPort.pendingClose !== undefined);
+closeOnlyDisconnectPort.completeClose();
+assert.deepEqual(await closeOnlyDisconnectPromise, { connected: false });
+assert.equal(closeOnlyDisconnectPort.writes.length, writesBeforeCloseOnlyDisconnect, 'completed disconnect emits no serial write');
+assert.equal(closeOnlyDisconnectOutputs.length, outputsBeforeCloseOnlyDisconnect, 'completed disconnect emits no stop output');
+assert.deepEqual(closeOnlyDisconnectStatuses, [
   { connected: true, path: 'COM13' },
   { connected: false, reason: 'hardware-disconnected', unexpected: false }
 ]);
 
-const stalledStatuses = [];
-const stalledPort = new FakePort('COM14');
-const stalledController = new HardwareController({
-  createPort: () => stalledPort,
-  onConnectionStatus: status => stalledStatuses.push(status),
-  probeTimeoutMs: 0,
-  writeTimeoutMs: 20
-});
-await stalledController.connect('COM14', {
-  baudRate: 115200,
-  linearAxis: 'L0',
-  strokeMin: 0,
-  strokeMax: 1,
-  invertPosition: false
-});
-stalledPort.stallNextWrite = true;
-const stalledDisconnectPromise = stalledController.disconnectSafely();
-assert.deepEqual(
-  stalledController.queueMotion({ position: 0.8, intensity: 0.25, timestamp: Date.now() }),
-  { queued: false, reason: 'hardware-disconnecting' },
-  'safe disconnect rejects motion while the bounded stop write is pending'
-);
-const stalledDisconnect = await Promise.race([
-  stalledDisconnectPromise,
-  delay(100).then(() => ({ timedOut: true }))
-]);
-assert.deepEqual(stalledDisconnect, {
-  connected: false,
-  stop: { stopped: false, reason: 'hardware-stop-write-failed' }
-});
-assert.deepEqual(stalledStatuses.at(-1), {
-  connected: false,
-  reason: 'hardware-disconnected-stop-failed',
-  unexpected: false
-});
+if (runRegression('simultaneous-connect')) {
+  const simultaneousConnectPorts = [];
+  const simultaneousConnectStatuses = [];
+  const simultaneousConnectController = new HardwareController({
+    createPort: options => {
+      const createdPort = new FakePort(options.path);
+      simultaneousConnectPorts.push(createdPort);
+      return createdPort;
+    },
+    onConnectionStatus: status => simultaneousConnectStatuses.push(status),
+    probeTimeoutMs: 0,
+    writeTimeoutMs: 20
+  });
+  const simultaneousProfile = {
+    baudRate: 115200,
+    linearAxis: 'L0',
+    strokeMin: 0,
+    strokeMax: 1,
+    invertPosition: false
+  };
+  const firstConnect = simultaneousConnectController.connect('COM39', simultaneousProfile);
+  const secondConnect = simultaneousConnectController.connect('COM39', simultaneousProfile);
+  assert.strictEqual(secondConnect, firstConnect, 'identical simultaneous connect calls share one promise');
+  assert.equal((await firstConnect).path, 'COM39');
+  assert.equal(simultaneousConnectPorts.length, 1, 'simultaneous connect creates one physical port');
+  assert.equal(simultaneousConnectPorts[0].isOpen, true);
+  assert.equal(simultaneousConnectPorts[0].listenerCount('error'), 1);
+  assert.equal(simultaneousConnectPorts[0].listenerCount('close'), 1);
+  assert.deepEqual(simultaneousConnectStatuses, [{ connected: true, path: 'COM39' }]);
+  await simultaneousConnectController.disconnect();
+  await delay(0);
+  assert.equal(simultaneousConnectPorts[0].listenerCount('error'), 0);
+  assert.equal(simultaneousConnectPorts[0].listenerCount('close'), 0);
+}
+
+if (runRegression('disconnect-during-open')) {
+  const pendingOpenPorts = [];
+  const pendingOpenStatuses = [];
+  const pendingOpenController = new HardwareController({
+    createPort: options => {
+      const createdPort = new FakePort(options.path);
+      createdPort.stallNextOpen = true;
+      pendingOpenPorts.push(createdPort);
+      return createdPort;
+    },
+    onConnectionStatus: status => pendingOpenStatuses.push(status),
+    probeTimeoutMs: 0,
+    writeTimeoutMs: 20
+  });
+  const pendingConnect = pendingOpenController.connect('COM40', {
+    baudRate: 115200,
+    linearAxis: 'L0',
+    strokeMin: 0,
+    strokeMax: 1,
+    invertPosition: false
+  });
+  await waitFor(() => pendingOpenPorts.length === 1 && pendingOpenPorts[0].pendingOpen !== undefined);
+  const pendingPort = pendingOpenPorts[0];
+  let pendingDisconnectSettled = false;
+  const pendingDisconnect = pendingOpenController.disconnect();
+  pendingDisconnect.then(
+    () => { pendingDisconnectSettled = true; },
+    () => { pendingDisconnectSettled = true; }
+  );
+  await delay(0);
+  assert.equal(pendingDisconnectSettled, false, 'disconnect waits for the owned pending open');
+  pendingPort.completeOpen();
+  assert.equal((await pendingConnect).path, 'COM40');
+  assert.deepEqual(await pendingDisconnect, { connected: false });
+  await delay(0);
+  assert.equal(pendingOpenPorts.length, 1);
+  assert.equal(pendingPort.isOpen, false, 'the newly opened port is closed before disconnect settles');
+  assert.equal(pendingPort.listenerCount('error'), 0);
+  assert.equal(pendingPort.listenerCount('close'), 0);
+  assert.deepEqual(pendingOpenStatuses, [
+    { connected: true, path: 'COM40' },
+    { connected: false, reason: 'hardware-disconnected', unexpected: false }
+  ]);
+  assert.deepEqual(pendingOpenController.getConnectionStatus(), {
+    connected: false,
+    reason: 'hardware-disconnected',
+    unexpected: false
+  });
+  assert.deepEqual(
+    pendingOpenController.queueMotion({ position: 0.5, intensity: 0.25, timestamp: Date.now() }),
+    { queued: false, reason: 'hardware-not-connected' }
+  );
+}
+
+if (runRegression('connect-disconnect-room-exit')) {
+  let orderedLifecyclePort;
+  const orderedLifecycleController = new HardwareController({
+    createPort: options => {
+      orderedLifecyclePort = new FakePort(options.path);
+      orderedLifecyclePort.stallNextOpen = true;
+      return orderedLifecyclePort;
+    },
+    probeTimeoutMs: 0,
+    writeTimeoutMs: 20
+  });
+  const orderedConnect = orderedLifecycleController.connect('COM41', {
+    baudRate: 115200,
+    linearAxis: 'L0',
+    strokeMin: 0,
+    strokeMax: 1,
+    invertPosition: false
+  });
+  await waitFor(() => orderedLifecyclePort?.pendingOpen !== undefined);
+  const orderedDisconnect = orderedLifecycleController.disconnect();
+  const orderedRoomExit = orderedLifecycleController.stopForRoomExit();
+  orderedLifecyclePort.completeOpen();
+  const orderedResult = await Promise.race([
+    Promise.all([orderedConnect, orderedDisconnect, orderedRoomExit]),
+    delay(100).then(() => ({ timedOut: true }))
+  ]);
+  assert.deepEqual(orderedResult, [
+    {
+      connected: true,
+      path: 'COM41',
+      baudRate: 115200,
+      profile: {
+        baudRate: 115200,
+        linearAxis: 'L0',
+        vibrationAxis: undefined,
+        strokeMin: 0,
+        strokeMax: 1,
+        stopPosition: 0,
+        invertPosition: false
+      },
+      probe: { detected: false, raw: [], version: undefined, axes: [] }
+    },
+    { connected: false },
+    { stopped: false, reason: 'hardware-not-connected' }
+  ], 'connect, disconnect, and later room-exit settle without a dependency cycle');
+  assert.equal(orderedLifecyclePort.isOpen, false);
+}
+
+if (runRegression('queued-connect-then-disconnect')) {
+  const queuedConnectPorts = [];
+  const queuedConnectStatuses = [];
+  const queuedConnectController = new HardwareController({
+    createPort: options => {
+      const createdPort = new FakePort(options.path);
+      if (queuedConnectPorts.length === 0) createdPort.stallNextOpen = true;
+      queuedConnectPorts.push(createdPort);
+      return createdPort;
+    },
+    onConnectionStatus: status => queuedConnectStatuses.push(status),
+    probeTimeoutMs: 0,
+    writeTimeoutMs: 20
+  });
+  const queuedConnectA = queuedConnectController.connect('COM42', {
+    baudRate: 115200,
+    linearAxis: 'L0',
+    strokeMin: 0,
+    strokeMax: 1,
+    invertPosition: false
+  });
+  await waitFor(() => queuedConnectPorts[0]?.pendingOpen !== undefined);
+  const queuedConnectB = queuedConnectController.connect('COM43', {
+    baudRate: 115200,
+    linearAxis: 'L0',
+    strokeMin: 0,
+    strokeMax: 1,
+    invertPosition: false
+  });
+  const disconnectAfterQueuedConnects = queuedConnectController.disconnect();
+  queuedConnectPorts[0].completeOpen();
+  const queuedOrderingResult = await Promise.race([
+    Promise.all([queuedConnectA, queuedConnectB, disconnectAfterQueuedConnects]),
+    delay(250).then(() => ({ timedOut: true }))
+  ]);
+  assert.equal(Array.isArray(queuedOrderingResult), true, 'queued connect ordering settles without deadlock');
+  assert.equal(queuedOrderingResult[0].path, 'COM42');
+  assert.equal(queuedOrderingResult[1].path, 'COM43');
+  assert.deepEqual(queuedOrderingResult[2], { connected: false });
+  await delay(0);
+  assert.equal(queuedConnectPorts.length, 2);
+  assert.equal(queuedConnectPorts.every(candidate => !candidate.isOpen), true, 'last disconnect closes all prior connect ports');
+  assert.equal(queuedConnectPorts.every(candidate => candidate.listenerCount('error') === 0), true);
+  assert.equal(queuedConnectPorts.every(candidate => candidate.listenerCount('close') === 0), true);
+  assert.deepEqual(queuedConnectStatuses.at(-1), {
+    connected: false,
+    reason: 'hardware-disconnected',
+    unexpected: false
+  });
+  assert.deepEqual(queuedConnectController.getConnectionStatus(), {
+    connected: false,
+    reason: 'hardware-disconnected',
+    unexpected: false
+  });
+  assert.deepEqual(
+    queuedConnectController.queueMotion({ position: 0.5, intensity: 0.25, timestamp: Date.now() }),
+    { queued: false, reason: 'hardware-not-connected' }
+  );
+}
+
+if (runRegression('connect-disconnect-connect-room-exit')) {
+  const orderedStopPorts = [];
+  const orderedStopOutputs = [];
+  const orderedStopStatuses = [];
+  const orderedStopController = new HardwareController({
+    createPort: options => {
+      const createdPort = new FakePort(options.path);
+      if (orderedStopPorts.length === 0) createdPort.stallNextOpen = true;
+      orderedStopPorts.push(createdPort);
+      return createdPort;
+    },
+    onOutput: output => orderedStopOutputs.push(output),
+    onConnectionStatus: status => orderedStopStatuses.push(status),
+    probeTimeoutMs: 0,
+    writeTimeoutMs: 20
+  });
+  const orderedStopConnectA = orderedStopController.connect('COM44', {
+    baudRate: 115200,
+    linearAxis: 'L0',
+    strokeMin: 0,
+    strokeMax: 1,
+    stopPosition: 0.2,
+    invertPosition: false
+  });
+  await waitFor(() => orderedStopPorts[0]?.pendingOpen !== undefined);
+  const orderedStopDisconnect = orderedStopController.disconnect();
+  const orderedStopConnectB = orderedStopController.connect('COM45', {
+    baudRate: 115200,
+    linearAxis: 'L0',
+    strokeMin: 0,
+    strokeMax: 1,
+    stopPosition: 0.45,
+    invertPosition: false
+  });
+  const orderedRoomExit = orderedStopController.stopForRoomExit();
+  assert.deepEqual(
+    orderedStopController.queueMotion({ position: 0.5, intensity: 0.25, timestamp: Date.now() }),
+    { queued: false, reason: 'hardware-room-exit-stopping' },
+    'the last room-exit request gates motion synchronously while earlier lifecycle work is pending'
+  );
+  orderedStopPorts[0].completeOpen();
+  const orderedStopResult = await Promise.race([
+    Promise.all([orderedStopConnectA, orderedStopDisconnect, orderedStopConnectB, orderedRoomExit]),
+    delay(300).then(() => ({ timedOut: true }))
+  ]);
+  assert.equal(Array.isArray(orderedStopResult), true, 'ordered lifecycle requests settle without deadlock');
+  assert.equal(orderedStopResult[0].path, 'COM44');
+  assert.deepEqual(orderedStopResult[1], { connected: false });
+  assert.equal(orderedStopResult[2].path, 'COM45');
+  assert.deepEqual(orderedStopResult[3], { stopped: true });
+  assert.equal(orderedStopPorts.length, 2);
+  assert.equal(orderedStopPorts[0].isOpen, false);
+  assert.equal(orderedStopPorts[0].listenerCount('error'), 0);
+  assert.equal(orderedStopPorts[0].listenerCount('close'), 0);
+  assert.equal(orderedStopPorts[1].isOpen, true);
+  assert.equal(orderedStopPorts[1].listenerCount('error'), 1);
+  assert.equal(orderedStopPorts[1].listenerCount('close'), 1);
+  assert.equal(orderedStopPorts[1].writes.at(-1).trim(), 'DSTOP\nL04500I1');
+  assert.equal(orderedStopOutputs.at(-1).kind, 'stop');
+  assert.equal(orderedStopOutputs.at(-1).portPath, 'COM45');
+  assert.deepEqual(orderedStopController.getConnectionStatus(), { connected: true, path: 'COM45' });
+  assert.deepEqual(orderedStopController.getEmergencyStopState(), { emergencyStopped: false });
+  await orderedStopController.disconnect();
+}
+
+if (runRegression('queued-connect-after-open-failure')) {
+  const openFailureQueuePorts = [];
+  const openFailureQueueController = new HardwareController({
+    createPort: options => {
+      const createdPort = new FakePort(options.path);
+      if (openFailureQueuePorts.length === 0) createdPort.stallNextOpen = true;
+      openFailureQueuePorts.push(createdPort);
+      return createdPort;
+    },
+    probeTimeoutMs: 0,
+    writeTimeoutMs: 20
+  });
+  const failedConnectA = openFailureQueueController.connect('COM46', {
+    baudRate: 115200,
+    linearAxis: 'L0',
+    strokeMin: 0,
+    strokeMax: 1,
+    invertPosition: false
+  });
+  await waitFor(() => openFailureQueuePorts[0]?.pendingOpen !== undefined);
+  const queuedConnectAfterFailure = openFailureQueueController.connect('COM47', {
+    baudRate: 115200,
+    linearAxis: 'L0',
+    strokeMin: 0,
+    strokeMax: 1,
+    invertPosition: false
+  });
+  const queuedConnectAfterFailureResult = queuedConnectAfterFailure.then(
+    value => ({ value }),
+    error => ({ error })
+  );
+  const failedConnectAssertion = assert.rejects(failedConnectA, /serial-open-failed/);
+  openFailureQueuePorts[0].completeOpen(new Error('serial-open-failed'));
+  await failedConnectAssertion;
+  const observedQueuedConnect = await queuedConnectAfterFailureResult;
+  assert.equal(observedQueuedConnect.value?.path, 'COM47', 'later connect runs after predecessor rejection');
+  assert.equal(openFailureQueuePorts.length, 2);
+  assert.equal(openFailureQueuePorts[0].isOpen, false);
+  assert.equal(openFailureQueuePorts[0].listenerCount('error'), 0);
+  assert.equal(openFailureQueuePorts[0].listenerCount('close'), 0);
+  assert.equal(openFailureQueuePorts[1].isOpen, true);
+  assert.deepEqual(openFailureQueueController.getConnectionStatus(), { connected: true, path: 'COM47' });
+  await openFailureQueueController.disconnect();
+}
+
+if (runRegression('room-exit-cancels-pending-motion')) {
+  const pendingMotionPorts = [];
+  const pendingMotionOutputs = [];
+  const pendingMotionController = new HardwareController({
+    createPort: options => {
+      const createdPort = new FakePort(options.path);
+      createdPort.stallNextWrite = true;
+      pendingMotionPorts.push(createdPort);
+      return createdPort;
+    },
+    onOutput: output => pendingMotionOutputs.push(output),
+    probeTimeoutMs: 0,
+    writeTimeoutMs: 200
+  });
+  const pendingMotionConnect = pendingMotionController.connect('COM48', {
+    baudRate: 115200,
+    linearAxis: 'L0',
+    strokeMin: 0,
+    strokeMax: 1,
+    stopPosition: 0.48,
+    invertPosition: false
+  });
+  await waitFor(() => pendingMotionPorts[0]?.activeWrite !== undefined);
+  const pendingMotionPort = pendingMotionPorts[0];
+  assert.deepEqual(
+    pendingMotionController.queueMotion({ position: 0.6, intensity: 0.25, timestamp: Date.now() }),
+    { queued: true }
+  );
+  const pendingMotionRoomExit = pendingMotionController.stopForRoomExit();
+  await delay(60);
+  assert.equal(
+    pendingMotionPort.writes.length,
+    1,
+    'room-exit admission clears motion queued behind a stalled lifecycle operation'
+  );
+  assert.equal(
+    pendingMotionPort.writes.some(payload => payload.trim() === 'L06000I17'),
+    false,
+    'no queued motion reaches the serial port before the room-exit stop'
+  );
+  pendingMotionPort.completeWrite();
+  await pendingMotionConnect;
+  assert.deepEqual(await pendingMotionRoomExit, { stopped: true });
+  assert.equal(pendingMotionOutputs.some(output => output.kind === 'motion'), false);
+  assert.equal(pendingMotionOutputs.at(-1).kind, 'stop');
+  await pendingMotionController.disconnect();
+}
+
+if (runRegression('test-during-room-exit-gate')) {
+  const gatedPatternOutputs = [];
+  const gatedPatternPort = new FakePort('COM49');
+  const gatedPatternController = new HardwareController({
+    createPort: () => gatedPatternPort,
+    onOutput: output => gatedPatternOutputs.push(output),
+    probeTimeoutMs: 0,
+    writeTimeoutMs: 100
+  });
+  await gatedPatternController.connect('COM49', {
+    baudRate: 115200,
+    linearAxis: 'L0',
+    strokeMin: 0,
+    strokeMax: 1,
+    stopPosition: 0.49,
+    invertPosition: false
+  });
+  const gatedPatternRoomExit = gatedPatternController.stopForRoomExit();
+  assert.deepEqual(
+    await gatedPatternController.runTestPattern(),
+    { tested: false, reason: 'hardware-room-exit-stopping' },
+    'a room-exit gate rejects a newly requested test pattern'
+  );
+  assert.deepEqual(await gatedPatternRoomExit, { stopped: true });
+  assert.equal(
+    gatedPatternOutputs.some(output => output.kind === 'test'),
+    false,
+    'a test requested behind the room-exit gate emits no test output'
+  );
+  await gatedPatternController.disconnect();
+}
+
+if (runRegression('disconnect-cancels-test-pattern')) {
+  const gatedTestPorts = [];
+  const gatedTestOutputs = [];
+  const gatedTestController = new HardwareController({
+    createPort: options => {
+      const createdPort = new FakePort(options.path);
+      gatedTestPorts.push(createdPort);
+      return createdPort;
+    },
+    onOutput: output => gatedTestOutputs.push(output),
+    probeTimeoutMs: 500,
+    writeTimeoutMs: 100
+  });
+  const gatedTestConnect = gatedTestController.connect('COM50', {
+    baudRate: 115200,
+    linearAxis: 'L0',
+    strokeMin: 0,
+    strokeMax: 1,
+    invertPosition: false
+  });
+  await waitFor(() => gatedTestPorts[0]?.writes.length === 1 && gatedTestPorts[0].activeWrite === undefined);
+  const gatedTestPattern = gatedTestController.runTestPattern();
+  await waitFor(() => gatedTestOutputs.filter(output => output.kind === 'test').length === 1);
+  const gatedTestDisconnect = gatedTestController.disconnect();
+  assert.deepEqual(
+    await gatedTestPattern,
+    { tested: false, reason: 'hardware-disconnecting' },
+    'a disconnect gate installed mid-pattern owns the cancellation reason'
+  );
+  await delay(220);
+  assert.equal(
+    gatedTestOutputs.filter(output => output.kind === 'test').length,
+    1,
+    'a queued disconnect prevents every later test-pattern write'
+  );
+  await gatedTestConnect;
+  assert.deepEqual(await gatedTestDisconnect, { connected: false });
+}
+
+if (runRegression('open-timeout-late-success')) {
+  const openTimeoutPorts = [];
+  const openTimeoutController = new HardwareController({
+    createPort: options => {
+      const createdPort = new FakePort(options.path);
+      if (openTimeoutPorts.length === 0) createdPort.stallNextOpen = true;
+      openTimeoutPorts.push(createdPort);
+      return createdPort;
+    },
+    probeTimeoutMs: 0,
+    writeTimeoutMs: 100,
+    lifecycleTimeoutMs: 30
+  });
+  const timedOutConnect = openTimeoutController.connect('COM51', {
+    baudRate: 115200,
+    linearAxis: 'L0',
+    strokeMin: 0,
+    strokeMax: 1,
+    invertPosition: false
+  });
+  const timedOutConnectAssertion = assert.rejects(timedOutConnect, /hardware-open-timeout/);
+  await waitFor(() => openTimeoutPorts[0]?.pendingOpen !== undefined);
+  const roomExitAfterOpenTimeout = openTimeoutController.stopForRoomExit();
+  await Promise.race([
+    timedOutConnectAssertion,
+    delay(150).then(() => assert.fail('open timeout did not settle'))
+  ]);
+  assert.deepEqual(
+    await Promise.race([
+      roomExitAfterOpenTimeout,
+      delay(150).then(() => assert.fail('room exit remained blocked behind open timeout'))
+    ]),
+    { stopped: false, reason: 'hardware-not-connected' }
+  );
+  assert.deepEqual(
+    openTimeoutController.queueMotion({ position: 0.5, intensity: 0.25, timestamp: Date.now() }),
+    { queued: false, reason: 'hardware-not-connected' },
+    'the timed-out open and queued room-exit gates are cleaned'
+  );
+  assert.equal(openTimeoutPorts[0].listenerCount('error'), 0);
+  assert.equal(openTimeoutPorts[0].listenerCount('close'), 0);
+
+  const replacementConnect = await openTimeoutController.connect('COM52', {
+    baudRate: 115200,
+    linearAxis: 'L0',
+    strokeMin: 0,
+    strokeMax: 1,
+    invertPosition: false
+  });
+  assert.equal(replacementConnect.path, 'COM52');
+  openTimeoutPorts[0].completeOpen();
+  await waitFor(() => !openTimeoutPorts[0].isOpen);
+  await delay(0);
+  assert.equal(openTimeoutPorts[0].listenerCount('error'), 0, 'late-open cleanup leaves no error handler');
+  assert.equal(openTimeoutPorts[0].listenerCount('close'), 0, 'late-open cleanup leaves no close handler');
+  assert.equal(openTimeoutPorts[1].isOpen, true, 'late open completion does not close the replacement port');
+  assert.deepEqual(openTimeoutController.getConnectionStatus(), { connected: true, path: 'COM52' });
+  await openTimeoutController.disconnect();
+}
+
+if (runRegression('close-timeout-late-completion')) {
+  const closeTimeoutPorts = [];
+  const closeTimeoutController = new HardwareController({
+    createPort: options => {
+      const createdPort = new FakePort(options.path);
+      closeTimeoutPorts.push(createdPort);
+      return createdPort;
+    },
+    probeTimeoutMs: 0,
+    writeTimeoutMs: 100,
+    lifecycleTimeoutMs: 30
+  });
+  await closeTimeoutController.connect('COM53', {
+    baudRate: 115200,
+    linearAxis: 'L0',
+    strokeMin: 0,
+    strokeMax: 1,
+    stopPosition: 0.53,
+    invertPosition: false
+  });
+  const timedOutClosePort = closeTimeoutPorts[0];
+  timedOutClosePort.stallNextClose = true;
+  const timedOutDisconnect = closeTimeoutController.disconnect();
+  const timedOutDisconnectAssertion = assert.rejects(timedOutDisconnect, /hardware-close-timeout/);
+  const roomExitAfterCloseTimeout = closeTimeoutController.stopForRoomExit();
+  await Promise.race([
+    timedOutDisconnectAssertion,
+    delay(150).then(() => assert.fail('close timeout did not settle'))
+  ]);
+  assert.deepEqual(closeTimeoutController.getConnectionStatus(), { connected: true, path: 'COM53' });
+  assert.equal(timedOutClosePort.isOpen, true, 'a timed-out close restores the still-open port');
+  assert.deepEqual(
+    await Promise.race([
+      roomExitAfterCloseTimeout,
+      delay(150).then(() => assert.fail('room exit remained blocked behind close timeout'))
+    ]),
+    { stopped: true }
+  );
+  assert.deepEqual(
+    closeTimeoutController.queueMotion({ position: 0.5, intensity: 0.25, timestamp: Date.now() }),
+    { queued: true },
+    'close-timeout and room-exit gates clear after settlement'
+  );
+  assert.deepEqual(await closeTimeoutController.disconnect(), { connected: false });
+  await closeTimeoutController.connect('COM54', {
+    baudRate: 115200,
+    linearAxis: 'L0',
+    strokeMin: 0,
+    strokeMax: 1,
+    invertPosition: false
+  });
+  timedOutClosePort.completeClose();
+  await delay(0);
+  assert.equal(timedOutClosePort.isOpen, false);
+  assert.equal(timedOutClosePort.listenerCount('error'), 0);
+  assert.equal(timedOutClosePort.listenerCount('close'), 0);
+  assert.equal(closeTimeoutPorts[1].isOpen, true, 'late close completion does not affect the replacement port');
+  assert.deepEqual(closeTimeoutController.getConnectionStatus(), { connected: true, path: 'COM54' });
+  await closeTimeoutController.disconnect();
+}
+
+if (runRegression('disconnect-cancels-stalled-test-write')) {
+  const stalledPatternLogs = [];
+  const stalledPatternPort = new FakePort('COM55');
+  const stalledPatternController = new HardwareController({
+    createPort: () => stalledPatternPort,
+    onLog: entry => stalledPatternLogs.push(entry),
+    probeTimeoutMs: 0,
+    writeTimeoutMs: 100
+  });
+  await stalledPatternController.connect('COM55', {
+    baudRate: 115200,
+    linearAxis: 'L0',
+    strokeMin: 0,
+    strokeMax: 1,
+    invertPosition: false
+  });
+  stalledPatternPort.stallNextWrite = true;
+  const stalledPattern = stalledPatternController.runTestPattern();
+  await waitFor(() => stalledPatternPort.activeWrite !== undefined);
+  const disconnectStalledPattern = stalledPatternController.disconnect();
+  assert.deepEqual(
+    await stalledPattern,
+    { tested: false, reason: 'hardware-disconnecting' },
+    'disconnect cancellation wins over the stalled write rejection'
+  );
+  assert.equal(
+    stalledPatternLogs.some(entry => entry.message === 'hardware-test-failed'),
+    false,
+    'an expected lifecycle cancellation is not logged as a test failure'
+  );
+  assert.deepEqual(await disconnectStalledPattern, { connected: false });
+}
+
+if (runRegression('serialport-close-timeout-late-failure')) {
+  const faithfulCloseStatuses = [];
+  const faithfulClosePort = new SerialPortFaithfulFake('COM56');
+  const faithfulCloseController = new HardwareController({
+    createPort: () => faithfulClosePort,
+    onConnectionStatus: status => faithfulCloseStatuses.push(status),
+    probeTimeoutMs: 0,
+    writeTimeoutMs: 100,
+    lifecycleTimeoutMs: 30
+  });
+  await faithfulCloseController.connect('COM56', {
+    baudRate: 115200,
+    linearAxis: 'L0',
+    strokeMin: 0,
+    strokeMax: 1,
+    invertPosition: false
+  });
+  faithfulClosePort.stallNextClose = true;
+  const faithfulTimedOutClose = faithfulCloseController.disconnect();
+  await waitFor(() => faithfulClosePort.pendingClose !== undefined);
+  assert.equal(faithfulClosePort.physicalOpen, true);
+  assert.equal(faithfulClosePort.closing, true);
+  assert.equal(faithfulClosePort.isOpen, false, 'SerialPort reports false while a close is pending');
+  await assert.rejects(faithfulTimedOutClose, /hardware-close-timeout/);
+  assert.deepEqual(faithfulCloseController.getConnectionStatus(), { connected: true, path: 'COM56' });
+  assert.equal(faithfulClosePort.listenerCount('error'), 1, 'timed-out close retains its owned error handler');
+  assert.equal(faithfulClosePort.listenerCount('close'), 1, 'timed-out close retains its owned close handler');
+
+  faithfulClosePort.completeClose(new Error('serial-late-close-failed'));
+  assert.equal(faithfulClosePort.isOpen, true, 'late close failure exposes the still-open physical port');
+  assert.deepEqual(faithfulCloseController.getConnectionStatus(), { connected: true, path: 'COM56' });
+  assert.deepEqual(
+    faithfulCloseController.queueMotion({ position: 0.5, intensity: 0.25, timestamp: Date.now() }),
+    { queued: true },
+    'late close failure restores usable ownership when no replacement exists'
+  );
+  assert.deepEqual(await faithfulCloseController.disconnect(), { connected: false });
+  assert.equal(faithfulClosePort.physicalOpen, false);
+  await delay(0);
+  assert.equal(faithfulClosePort.listenerCount('error'), 0);
+  assert.equal(faithfulClosePort.listenerCount('close'), 0);
+  assert.deepEqual(faithfulCloseStatuses.at(-1), {
+    connected: false,
+    reason: 'hardware-disconnected',
+    unexpected: false
+  });
+}
+
+if (runRegression('close-timeout-error-before-late-failure')) {
+  const restoredHandlerStatuses = [];
+  const restoredHandlerPort = new SerialPortFaithfulFake('COM61');
+  const restoredHandlerController = new HardwareController({
+    createPort: () => restoredHandlerPort,
+    onConnectionStatus: status => restoredHandlerStatuses.push(status),
+    probeTimeoutMs: 0,
+    writeTimeoutMs: 100,
+    lifecycleTimeoutMs: 30
+  });
+  await restoredHandlerController.connect('COM61', {
+    baudRate: 115200,
+    linearAxis: 'L0',
+    strokeMin: 0,
+    strokeMax: 1,
+    invertPosition: false
+  });
+  restoredHandlerPort.stallNextClose = true;
+  const restoredHandlerDisconnect = restoredHandlerController.disconnect();
+  await waitFor(() => restoredHandlerPort.pendingClose !== undefined);
+  await assert.rejects(restoredHandlerDisconnect, /hardware-close-timeout/);
+  assert.equal(restoredHandlerPort.isOpen, false);
+  assert.equal(restoredHandlerPort.closing, true);
+
+  restoredHandlerPort.emit('error', new Error('serial-error-during-close'));
+  restoredHandlerPort.completeClose(new Error('serial-late-close-failed'));
+  assert.equal(restoredHandlerPort.physicalOpen, true);
+  assert.equal(restoredHandlerPort.isOpen, true);
+  assert.deepEqual(restoredHandlerController.getConnectionStatus(), { connected: true, path: 'COM61' });
+  assert.equal(restoredHandlerPort.listenerCount('error'), 1, 'restored ownership has exactly one error handler');
+  assert.equal(restoredHandlerPort.listenerCount('close'), 1, 'restored ownership has exactly one close handler');
+  assert.deepEqual(
+    restoredHandlerController.queueMotion({ position: 0.5, intensity: 0.25, timestamp: Date.now() }),
+    { queued: true },
+    'motion is admitted only after the physical port reopens with owned handlers'
+  );
+
+  restoredHandlerPort.failNextClose = true;
+  restoredHandlerPort.emit('error', new Error('serial-error-after-restore'));
+  await waitFor(() => !restoredHandlerPort.failNextClose && !restoredHandlerController.getConnectionStatus().connected);
+  assert.equal(restoredHandlerPort.physicalOpen, true, 'failed error cleanup retains the handle for retry');
+  assert.deepEqual(await restoredHandlerController.disconnect(), { connected: false });
+  assert.equal(restoredHandlerPort.physicalOpen, false);
+  await delay(0);
+  assert.equal(restoredHandlerPort.listenerCount('error'), 0);
+  assert.equal(restoredHandlerPort.listenerCount('close'), 0);
+  assert.equal(restoredHandlerStatuses.at(-1).connected, false);
+}
+
+if (runRegression('late-open-cleanup-error-retry')) {
+  const lateOpenErrorPorts = [];
+  const lateOpenErrorController = new HardwareController({
+    createPort: options => {
+      const createdPort = new FakePort(options.path);
+      if (lateOpenErrorPorts.length === 0) createdPort.stallNextOpen = true;
+      lateOpenErrorPorts.push(createdPort);
+      return createdPort;
+    },
+    probeTimeoutMs: 0,
+    writeTimeoutMs: 100,
+    lifecycleTimeoutMs: 30
+  });
+  const staleErrorConnect = lateOpenErrorController.connect('COM57', {
+    baudRate: 115200,
+    linearAxis: 'L0',
+    strokeMin: 0,
+    strokeMax: 1,
+    invertPosition: false
+  });
+  await assert.rejects(staleErrorConnect, /hardware-open-timeout/);
+  await lateOpenErrorController.connect('COM58', {
+    baudRate: 115200,
+    linearAxis: 'L0',
+    strokeMin: 0,
+    strokeMax: 1,
+    invertPosition: false
+  });
+  lateOpenErrorPorts[0].failNextClose = true;
+  lateOpenErrorPorts[0].completeOpen();
+  await delay(0);
+  assert.equal(lateOpenErrorPorts[0].isOpen, true, 'failed late-open cleanup remains physically open');
+  assert.equal(lateOpenErrorPorts[0].listenerCount('error'), 1, 'failed stale cleanup retains an error sink');
+  assert.equal(lateOpenErrorPorts[1].isOpen, true);
+  assert.deepEqual(lateOpenErrorController.getConnectionStatus(), { connected: true, path: 'COM58' });
+  assert.deepEqual(await lateOpenErrorController.disconnect(), { connected: false });
+  assert.equal(lateOpenErrorPorts[0].isOpen, false, 'later lifecycle cleanup retries the stale port');
+  assert.equal(lateOpenErrorPorts[0].listenerCount('error'), 0);
+  assert.equal(lateOpenErrorPorts[0].listenerCount('close'), 0);
+  assert.equal(lateOpenErrorPorts[1].isOpen, false);
+}
+
+if (runRegression('late-open-cleanup-timeout-retry')) {
+  const lateOpenTimeoutPorts = [];
+  const lateOpenTimeoutController = new HardwareController({
+    createPort: options => {
+      const createdPort = new FakePort(options.path);
+      if (lateOpenTimeoutPorts.length === 0) createdPort.stallNextOpen = true;
+      lateOpenTimeoutPorts.push(createdPort);
+      return createdPort;
+    },
+    probeTimeoutMs: 0,
+    writeTimeoutMs: 100,
+    lifecycleTimeoutMs: 30
+  });
+  const staleTimeoutConnect = lateOpenTimeoutController.connect('COM59', {
+    baudRate: 115200,
+    linearAxis: 'L0',
+    strokeMin: 0,
+    strokeMax: 1,
+    invertPosition: false
+  });
+  await assert.rejects(staleTimeoutConnect, /hardware-open-timeout/);
+  await lateOpenTimeoutController.connect('COM60', {
+    baudRate: 115200,
+    linearAxis: 'L0',
+    strokeMin: 0,
+    strokeMax: 1,
+    invertPosition: false
+  });
+  lateOpenTimeoutPorts[0].stallNextClose = true;
+  lateOpenTimeoutPorts[0].completeOpen();
+  await waitFor(() => lateOpenTimeoutPorts[0].pendingClose !== undefined);
+  await delay(40);
+  assert.equal(lateOpenTimeoutPorts[0].isOpen, true, 'timed-out stale cleanup retains the physical handle');
+  assert.equal(lateOpenTimeoutPorts[0].listenerCount('error'), 1, 'timed-out stale cleanup retains an error sink');
+  assert.equal(lateOpenTimeoutPorts[1].isOpen, true);
+  assert.deepEqual(await lateOpenTimeoutController.disconnect(), { connected: false });
+  assert.equal(lateOpenTimeoutPorts[0].isOpen, false, 'later lifecycle cleanup retries a timed-out stale close');
+  lateOpenTimeoutPorts[0].completeClose();
+  await delay(0);
+  assert.equal(lateOpenTimeoutPorts[0].listenerCount('error'), 0);
+  assert.equal(lateOpenTimeoutPorts[0].listenerCount('close'), 0);
+  assert.equal(lateOpenTimeoutPorts[1].isOpen, false);
+}
+
+if (runRegression('duplicate-disconnect')) {
+  const duplicateDisconnectPort = new FakePort('COM30');
+  const duplicateDisconnectController = new HardwareController({
+    createPort: () => duplicateDisconnectPort,
+    probeTimeoutMs: 0,
+    writeTimeoutMs: 20
+  });
+  await duplicateDisconnectController.connect('COM30', {
+    baudRate: 115200,
+    linearAxis: 'L0',
+    strokeMin: 0,
+    strokeMax: 1,
+    invertPosition: false
+  });
+  duplicateDisconnectPort.stallNextClose = true;
+  const firstDisconnect = duplicateDisconnectController.disconnect();
+  const secondDisconnect = duplicateDisconnectController.disconnect();
+  assert.strictEqual(secondDisconnect, firstDisconnect, 'overlapping disconnect calls share one promise');
+  await waitFor(() => duplicateDisconnectPort.pendingClose !== undefined);
+  duplicateDisconnectPort.completeClose();
+  assert.deepEqual(await firstDisconnect, { connected: false });
+}
+
+if (runRegression('connect-during-disconnect')) {
+  const connectDuringDisconnectPorts = [];
+  const connectDuringDisconnectController = new HardwareController({
+    createPort: options => {
+      const createdPort = new FakePort(options.path);
+      connectDuringDisconnectPorts.push(createdPort);
+      return createdPort;
+    },
+    probeTimeoutMs: 0,
+    writeTimeoutMs: 20
+  });
+  await connectDuringDisconnectController.connect('COM31', {
+    baudRate: 115200,
+    linearAxis: 'L0',
+    strokeMin: 0,
+    strokeMax: 1,
+    invertPosition: false
+  });
+  const disconnectingPort = connectDuringDisconnectPorts[0];
+  disconnectingPort.stallNextClose = true;
+  const pendingDisconnect = connectDuringDisconnectController.disconnect();
+  const pendingConnect = connectDuringDisconnectController.connect('COM32', {
+    baudRate: 115200,
+    linearAxis: 'L0',
+    strokeMin: 0,
+    strokeMax: 1,
+    invertPosition: false
+  });
+  await delay(0);
+  assert.equal(connectDuringDisconnectPorts.length, 1, 'connect waits without creating a replacement port');
+  await waitFor(() => disconnectingPort.pendingClose !== undefined);
+  disconnectingPort.completeClose();
+  assert.deepEqual(await pendingDisconnect, { connected: false });
+  assert.equal((await pendingConnect).path, 'COM32');
+  assert.equal(connectDuringDisconnectPorts.length, 2);
+  await connectDuringDisconnectController.disconnect();
+}
+
+if (runRegression('connect-after-close-failure')) {
+  const closeFailureRacePorts = [];
+  const closeFailureRaceController = new HardwareController({
+    createPort: options => {
+      const createdPort = new FakePort(options.path);
+      closeFailureRacePorts.push(createdPort);
+      return createdPort;
+    },
+    probeTimeoutMs: 0,
+    writeTimeoutMs: 20
+  });
+  await closeFailureRaceController.connect('COM33', {
+    baudRate: 115200,
+    linearAxis: 'L0',
+    strokeMin: 0,
+    strokeMax: 1,
+    invertPosition: false
+  });
+  const originalPort = closeFailureRacePorts[0];
+  originalPort.stallNextClose = true;
+  const failedDisconnect = closeFailureRaceController.disconnect();
+  const waitingConnect = closeFailureRaceController.connect('COM34', {
+    baudRate: 115200,
+    linearAxis: 'L0',
+    strokeMin: 0,
+    strokeMax: 1,
+    invertPosition: false
+  });
+  const disconnectRejected = assert.rejects(failedDisconnect, /serial-close-failed/);
+  const connectRejected = assert.rejects(waitingConnect, /serial-close-failed/);
+  await waitFor(() => originalPort.pendingClose !== undefined);
+  originalPort.failNextClose = true;
+  originalPort.completeClose();
+  await disconnectRejected;
+  await connectRejected;
+  assert.equal(closeFailureRacePorts.length, 1, 'failed prior close creates no replacement port');
+  assert.equal(closeFailureRacePorts.filter(candidate => candidate.isOpen).length, 1, 'one physical port remains open');
+  assert.deepEqual(closeFailureRaceController.getConnectionStatus(), { connected: true, path: 'COM33' });
+  assert.deepEqual(
+    closeFailureRaceController.queueMotion({ position: 0.5, intensity: 0.25, timestamp: Date.now() }),
+    { queued: true }
+  );
+  await waitFor(() => originalPort.writes.some(payload => payload.trim() === 'L05000I17'));
+  await closeFailureRaceController.disconnect();
+}
+
+if (runRegression('close-error-after-closure')) {
+  const closedErrorStatuses = [];
+  const closedErrorPort = new FakePort('COM35');
+  const closedErrorController = new HardwareController({
+    createPort: () => closedErrorPort,
+    onConnectionStatus: status => closedErrorStatuses.push(status),
+    probeTimeoutMs: 0,
+    writeTimeoutMs: 20
+  });
+  await closedErrorController.connect('COM35', {
+    baudRate: 115200,
+    linearAxis: 'L0',
+    strokeMin: 0,
+    strokeMax: 1,
+    invertPosition: false
+  });
+  closedErrorPort.closeErrorAfterPhysicalClose = true;
+  assert.deepEqual(await closedErrorController.disconnect(), { connected: false });
+  assert.deepEqual(closedErrorStatuses.at(-1), {
+    connected: false,
+    reason: 'hardware-disconnected',
+    unexpected: false
+  });
+  assert.deepEqual(
+    closedErrorController.queueMotion({ position: 0.5, intensity: 0.25, timestamp: Date.now() }),
+    { queued: false, reason: 'hardware-not-connected' }
+  );
+}
+
+if (runRegression('coalesced-room-exit')) {
+  const coalescedRoomExitPort = new FakePort('COM36');
+  const coalescedRoomExitController = new HardwareController({
+    createPort: () => coalescedRoomExitPort,
+    probeTimeoutMs: 0,
+    writeTimeoutMs: 100
+  });
+  await coalescedRoomExitController.connect('COM36', {
+    baudRate: 115200,
+    linearAxis: 'L0',
+    strokeMin: 0,
+    strokeMax: 1,
+    stopPosition: 0.4,
+    invertPosition: false
+  });
+  coalescedRoomExitPort.stallNextWrite = true;
+  const writesBeforeRoomExit = coalescedRoomExitPort.writes.length;
+  const firstRoomExit = coalescedRoomExitController.stopForRoomExit();
+  const secondRoomExit = coalescedRoomExitController.stopForRoomExit();
+  assert.strictEqual(secondRoomExit, firstRoomExit, 'overlapping room-exit calls share one promise');
+  await waitFor(() => coalescedRoomExitPort.activeWrite !== undefined);
+  assert.equal(coalescedRoomExitPort.writes.length, writesBeforeRoomExit + 1, 'room-exit calls share one stop write');
+  assert.deepEqual(
+    coalescedRoomExitController.queueMotion({ position: 0.5, intensity: 0.25, timestamp: Date.now() }),
+    { queued: false, reason: 'hardware-room-exit-stopping' }
+  );
+  coalescedRoomExitPort.completeWrite();
+  assert.deepEqual(await firstRoomExit, { stopped: true });
+  assert.deepEqual(await secondRoomExit, { stopped: true });
+  assert.deepEqual(
+    coalescedRoomExitController.queueMotion({ position: 0.5, intensity: 0.25, timestamp: Date.now() }),
+    { queued: true },
+    'motion resumes only after the shared room-exit operation settles'
+  );
+  await waitFor(() => coalescedRoomExitPort.writes.length === writesBeforeRoomExit + 2);
+  await coalescedRoomExitController.disconnect();
+}
+
+if (runRegression('room-exit-disconnect-settlement')) {
+  const settlementPort = new FakePort('COM38');
+  const settlementController = new HardwareController({
+    createPort: () => settlementPort,
+    probeTimeoutMs: 0,
+    writeTimeoutMs: 100
+  });
+  await settlementController.connect('COM38', {
+    baudRate: 115200,
+    linearAxis: 'L0',
+    strokeMin: 0,
+    strokeMax: 1,
+    stopPosition: 0.4,
+    invertPosition: false
+  });
+  settlementPort.stallNextWrite = true;
+  const settlingRoomExit = settlementController.stopForRoomExit();
+  const settlementAdmission = settlingRoomExit.then(() => (
+    settlementController.queueMotion({ position: 0.5, intensity: 0.25, timestamp: Date.now() })
+  ));
+  const settlementDisconnect = settlementController.disconnect();
+  await waitFor(() => settlementPort.activeWrite !== undefined);
+  settlementPort.completeWrite();
+  assert.deepEqual(await settlingRoomExit, { stopped: true });
+  assert.deepEqual(await settlementAdmission, {
+    queued: false,
+    reason: 'hardware-disconnecting'
+  }, 'the waiting disconnect owns queue admission at the room-exit settlement boundary');
+  assert.deepEqual(await settlementDisconnect, { connected: false });
+}
+
+if (runRegression('room-exit-then-disconnect')) {
+  const roomExitDisconnectStatuses = [];
+  const roomExitDisconnectPort = new FakePort('COM37');
+  const roomExitDisconnectController = new HardwareController({
+    createPort: () => roomExitDisconnectPort,
+    onConnectionStatus: status => roomExitDisconnectStatuses.push(status),
+    probeTimeoutMs: 0,
+    writeTimeoutMs: 20
+  });
+  await roomExitDisconnectController.connect('COM37', {
+    baudRate: 115200,
+    linearAxis: 'L0',
+    strokeMin: 0,
+    strokeMax: 1,
+    stopPosition: 0.4,
+    invertPosition: false
+  });
+  roomExitDisconnectPort.stallNextWrite = true;
+  const pendingRoomExit = roomExitDisconnectController.stopForRoomExit();
+  const disconnectAfterRoomExit = roomExitDisconnectController.disconnect();
+  assert.deepEqual(
+    roomExitDisconnectController.queueMotion({ position: 0.5, intensity: 0.25, timestamp: Date.now() }),
+    { queued: false, reason: 'hardware-room-exit-stopping' },
+    'disconnect does not overwrite the pending room-exit gate'
+  );
+  assert.equal(roomExitDisconnectPort.isOpen, true, 'disconnect waits for the bounded room-exit stop');
+  assert.deepEqual(await pendingRoomExit, { stopped: false, reason: 'hardware-stop-write-failed' });
+  assert.deepEqual(await disconnectAfterRoomExit, { connected: false });
+  assert.equal(roomExitDisconnectPort.isOpen, false, 'port closes after the room-exit stop settles');
+  assert.deepEqual(roomExitDisconnectStatuses.at(-1), {
+    connected: false,
+    reason: 'hardware-room-exit-stop-failed',
+    unexpected: false
+  });
+}
 
 const unexpectedStatuses = [];
 const unexpectedPort = new FakePort('COM15');
@@ -456,27 +1804,30 @@ await safeCloseFailureController.connect('COM16', {
   invertPosition: false
 });
 safeCloseFailurePort.failNextClose = true;
-await assert.rejects(safeCloseFailureController.disconnectSafely(), /serial-close-failed/);
+await assert.rejects(safeCloseFailureController.disconnect(), /serial-close-failed/);
 assert.deepEqual(safeCloseFailureController.getConnectionStatus(), { connected: true, path: 'COM16' });
 assert.deepEqual(safeCloseFailureStatuses, [{ connected: true, path: 'COM16' }]);
 await safeCloseFailureController.disconnect();
 
-const legacyStopPort = new FakePort('COM18');
-const legacyStopController = new HardwareController({
-  createPort: () => legacyStopPort,
+const absoluteStopPort = new FakePort('COM18');
+const absoluteStopController = new HardwareController({
+  createPort: () => absoluteStopPort,
   probeTimeoutMs: 0,
   writeTimeoutMs: 20
 });
-await legacyStopController.connect('COM18', {
+await absoluteStopController.connect('COM18', {
   baudRate: 115200,
   linearAxis: 'L0',
   strokeMin: 0.25,
   strokeMax: 0.75,
   invertPosition: false
 });
-await legacyStopController.emergencyStop();
-assert.match(legacyStopPort.writes.at(-1).trim(), /^DSTOP\nL02500I1$/);
-await legacyStopController.disconnect();
+assert.deepEqual(
+  await absoluteStopController.latchEmergencyStop(),
+  { stopped: true, emergencyStopped: true }
+);
+assert.match(absoluteStopPort.writes.at(-1).trim(), /^DSTOP\nL02500I1$/);
+await absoluteStopController.disconnect();
 
 const thrownWritePort = new FakePort('COM20');
 const thrownWriteController = new HardwareController({

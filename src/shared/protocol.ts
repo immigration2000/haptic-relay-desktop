@@ -81,13 +81,14 @@ export type HardwareStopResult = {
   reason?: string;
 };
 
-export type HardwareLatchedStopResult = HardwareStopResult & {
-  protection: HardwareProtection;
+export type HardwareEmergencyState = {
+  emergencyStopped: boolean;
 };
+
+export type HardwareLatchedStopResult = HardwareStopResult & HardwareEmergencyState;
 
 export type HardwareProtectionResult = {
   protection: HardwareProtection;
-  stop?: HardwareStopResult;
 };
 
 export type HardwareOutputSnapshot = {
@@ -107,10 +108,10 @@ export type HardwareConnectionStatus = {
 
 export type HardwareDisconnectResult = {
   connected: false;
-  stop: {
-    stopped: boolean;
-    reason?: string;
-  };
+};
+
+export type RoomDisconnectResult = HardwareDisconnectResult & {
+  stop: HardwareStopResult;
 };
 
 export type PlaybackSettings = {

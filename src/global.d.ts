@@ -1,4 +1,4 @@
-import type { AppLogEntry, AppSettings, ApprovalRequest, HardwareConnectionStatus, HardwareDisconnectResult, HardwareLatchedStopResult, HardwareOutputSnapshot, HardwareProfile, HardwareProtection, HardwareProtectionResult, MotionDemoSnapshot, MotionMonitorSnapshot, MotionPatternConfig, PortInfo, RoomDirectoryEntry, RoomSettings, ViewerSession } from './shared/protocol';
+import type { AppLogEntry, AppSettings, ApprovalRequest, HardwareConnectionStatus, HardwareDisconnectResult, HardwareEmergencyState, HardwareLatchedStopResult, HardwareOutputSnapshot, HardwareProfile, HardwareProtection, HardwareProtectionResult, MotionDemoSnapshot, MotionMonitorSnapshot, MotionPatternConfig, PortInfo, RoomDirectoryEntry, RoomDisconnectResult, RoomSettings, ViewerSession } from './shared/protocol';
 
 type ViewerStatus = {
   roomName: string;
@@ -47,7 +47,9 @@ declare global {
       connectHardware: (pathName: string, profile: HardwareProfile) => Promise<HardwareConnectResult>;
       disconnectHardware: () => Promise<HardwareDisconnectResult>;
       getHardwareStatus: () => Promise<HardwareConnectionStatus>;
+      getHardwareEmergencyState: () => Promise<HardwareEmergencyState>;
       stopHardware: () => Promise<HardwareLatchedStopResult>;
+      releaseHardwareStop: () => Promise<HardwareEmergencyState>;
       testHardware: () => Promise<{ tested: boolean; steps?: number; reason?: string }>;
       sendMotion: (intensity: number, position: number) => Promise<unknown>;
       startMotionDemo: (intensity: number, position: number) => Promise<{ streaming: boolean; intervalMs: number }>;
@@ -80,7 +82,7 @@ declare global {
       saveSettings: (settings: AppSettings) => Promise<{ settings: AppSettings }>;
       setMotionDelay: (delayMs: number) => Promise<{ settings: AppSettings; buffer: MotionDelayBuffer }>;
       onLog: (listener: (entry: AppLogEntry) => void) => () => void;
-      disconnectRoom: () => Promise<unknown>;
+      disconnectRoom: () => Promise<RoomDisconnectResult>;
     };
   }
 }

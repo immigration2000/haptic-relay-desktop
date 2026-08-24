@@ -101,6 +101,131 @@ async function runSmokeTest() {
   });
   record('viewer join', joined.status === 200 && viewerBound.ok === true, JSON.stringify(viewerBound));
 
+  const terminalStatuses = [];
+  const terminalConnections = [];
+  const terminalRejoinClient = new RelayClient(
+    undefined,
+    undefined,
+    status => terminalStatuses.push(status),
+    undefined,
+    undefined,
+    status => terminalConnections.push(status)
+  );
+  terminalRejoinClient.socket = { connected: true, disconnect() {} };
+  terminalRejoinClient.roomName = 'ended-room';
+  terminalRejoinClient.session = {
+    role: 'viewer',
+    roomName: 'ended-room',
+    displayName: 'terminal-viewer',
+    token: 'not-exposed',
+    waitingForApproval: false
+  };
+  terminalRejoinClient.emitWithAck = async () => ({ ok: false, reason: 'room-not-found' });
+  await terminalRejoinClient.rejoinSession();
+  assert.equal(terminalRejoinClient.hasActiveRoom(), false, 'terminal rejoin ack clears active room state');
+  assert.deepEqual(terminalStatuses, [{ roomName: 'ended-room', status: 'removed', reason: 'room-not-found' }]);
+  assert.equal(terminalConnections.length, 0, 'terminal rejoin ack is not reported as a transient connection error');
+  record('RelayClient clears terminal rejoin state', true);
+
+  const transientStatuses = [];
+  const transientConnections = [];
+  const transientRejoinClient = new RelayClient(
+    undefined,
+    undefined,
+    status => transientStatuses.push(status),
+    undefined,
+    undefined,
+    status => transientConnections.push(status)
+  );
+  transientRejoinClient.socket = { connected: true, disconnect() {} };
+  transientRejoinClient.roomName = 'transient-room';
+  transientRejoinClient.session = {
+    role: 'viewer',
+    roomName: 'transient-room',
+    displayName: 'transient-viewer',
+    token: 'not-exposed',
+    waitingForApproval: false
+  };
+  transientRejoinClient.emitWithAck = async () => { throw new Error('operation-has-timed-out'); };
+  await transientRejoinClient.rejoinSession();
+  assert.equal(transientRejoinClient.hasActiveRoom(), true, 'transient rejoin failure retains active room state');
+  assert.deepEqual(transientStatuses, [], 'transient rejoin failure does not emit a terminal viewer status');
+  assert.equal(transientConnections.at(-1)?.status, 'error');
+  record('RelayClient retains transient rejoin state', true);
+
+  const pendingJoinGate = deferred();
+  const pendingJoinStarted = deferred();
+  const pendingJoinClient = new RelayClient();
+  await withFetchMock(async (input, init, originalFetch) => {
+    const body = JSON.parse(init?.body ?? '{}');
+    if (body.displayName !== 'pending-join-viewer') return originalFetch(input, init);
+    pendingJoinStarted.resolve();
+    await pendingJoinGate.promise;
+    return jsonResponse({ ok: true, roomName, relayUrl: baseUrl, viewerToken: joined.payload.viewerToken });
+  }, async () => {
+    const pendingJoin = pendingJoinClient.joinRoom(baseUrl, {
+      displayName: 'pending-join-viewer',
+      roomName,
+      password: 'open-secret'
+    });
+    const pendingJoinCancelled = assert.rejects(pendingJoin, /relay-lifecycle-cancelled/);
+    await pendingJoinStarted.promise;
+    pendingJoinClient.disconnect();
+    pendingJoinGate.resolve();
+    await pendingJoinCancelled;
+  });
+  assert.equal(pendingJoinClient.hasActiveRoom(), false, 'disconnect prevents pending join resurrection');
+  record('disconnect cancels pending RelayClient join', true);
+
+  const pendingCreateGate = deferred();
+  const pendingCreateStarted = deferred();
+  const pendingCreateClient = new RelayClient();
+  await withFetchMock(async (_input, _init) => {
+    pendingCreateStarted.resolve();
+    await pendingCreateGate.promise;
+    return jsonResponse({
+      ok: true,
+      roomName,
+      relayUrl: baseUrl,
+      hostToken: created.payload.hostToken,
+      entryMode: 'open'
+    }, 201);
+  }, async () => {
+    const pendingCreate = pendingCreateClient.createRoom(baseUrl, { roomName: 'pending-create-room', entryMode: 'open' });
+    const pendingCreateCancelled = assert.rejects(pendingCreate, /relay-lifecycle-cancelled/);
+    await pendingCreateStarted.promise;
+    pendingCreateClient.disconnect();
+    pendingCreateGate.resolve();
+    await pendingCreateCancelled;
+  });
+  assert.equal(pendingCreateClient.hasActiveRoom(), false, 'disconnect prevents pending create resurrection');
+  record('disconnect cancels pending RelayClient create', true);
+
+  const staleJoinGate = deferred();
+  const staleJoinStarted = deferred();
+  const competingJoinClient = new RelayClient();
+  await withFetchMock(async (_input, init) => {
+    const body = JSON.parse(init?.body ?? '{}');
+    if (body.displayName === 'stale-join-viewer') {
+      staleJoinStarted.resolve();
+      await staleJoinGate.promise;
+      return jsonResponse({ ok: true, roomName: 'stale-room', relayUrl: baseUrl, viewerToken: joined.payload.viewerToken });
+    }
+    return jsonResponse({ ok: true, roomName, relayUrl: baseUrl, viewerToken: joined.payload.viewerToken });
+  }, async () => {
+    const staleJoin = competingJoinClient.joinRoom(baseUrl, { displayName: 'stale-join-viewer', roomName: 'stale-room' });
+    const staleJoinCancelled = assert.rejects(staleJoin, /relay-lifecycle-cancelled/);
+    await staleJoinStarted.promise;
+    const winningJoin = competingJoinClient.joinRoom(baseUrl, { displayName: 'winning-join-viewer', roomName });
+    await winningJoin;
+    staleJoinGate.resolve();
+    await staleJoinCancelled;
+  });
+  assert.equal(competingJoinClient.roomName, roomName, 'older join completion cannot overwrite the winning room');
+  assert.equal(competingJoinClient.session?.displayName, 'winning-join-viewer', 'older join cannot overwrite winning session');
+  competingJoinClient.disconnect();
+  record('latest competing RelayClient join wins', true);
+
   const directoryAfterJoin = await get('/api/rooms');
   const joinedDirectoryRoom = directoryAfterJoin.payload.rooms?.find(room => room.roomName === roomName);
   record(
@@ -119,6 +244,7 @@ async function runSmokeTest() {
     roomName,
     password: 'open-secret'
   });
+  assert.equal(mixedProtocolViewer.hasActiveRoom(), true, 'joined RelayClient reports an active room');
 
   const legacyMotionPromise = onceEvent(viewer, 'm');
   host.volatile.compress(false).emit('m', Uint8Array.from([0x80, 0x00, 0x40, 0x00]));
@@ -236,6 +362,8 @@ async function runSmokeTest() {
   await delay(550);
   assert.equal(delayedMotion.filter(item => item.frame.sequence === 79).length, 0, 'cleared delayed RelayClient motion was delivered');
   record('RelayClient clears delayed motion on room stop', true);
+  mixedProtocolViewer.disconnect();
+  assert.equal(mixedProtocolViewer.hasActiveRoom(), false, 'disconnect clears active room state');
 
   const removedPromise = onceEvent(viewer, 'viewer:removed');
   const moderation = await emitWithAck(host, 'viewer:moderate', { socketId: viewer.id, action: 'kick' });
@@ -350,6 +478,29 @@ async function post(path, body) {
 async function get(path) {
   const response = await fetch(`${baseUrl}${path}`);
   return { status: response.status, payload: await response.json() };
+}
+
+async function withFetchMock(mock, run) {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (input, init) => mock(input, init, originalFetch);
+  try {
+    return await run();
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+}
+
+function jsonResponse(payload, status = 200) {
+  return new Response(JSON.stringify(payload), {
+    status,
+    headers: { 'content-type': 'application/json' }
+  });
+}
+
+function deferred() {
+  let resolve;
+  const promise = new Promise(next => { resolve = next; });
+  return { promise, resolve };
 }
 
 async function connectSocket() {
