@@ -1,4 +1,5 @@
 import { app, BrowserWindow, clipboard, dialog, ipcMain, session } from 'electron';
+import { randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -14,8 +15,11 @@ import {
   validateUnitInterval
 } from './app-settings.js';
 import { SettingsFileStore } from './settings-file-store.js';
+import { DiagnosticLogStore } from './diagnostic-log-store.js';
+import { buildLogExportPayload } from './log-export.js';
 import type { AppLogEntry, AppSettings, MotionDemoSnapshot, MotionFrame, MotionMonitorSnapshot, RoomSettings } from './protocol.js';
 import { HardwareController } from './services/hardware-controller.js';
+import type { HardwareDiagnosticEvent } from './services/hardware-controller.js';
 import { validateMotionPatternConfig } from './services/demo-motion-pattern.js';
 import { DemoMotionStream } from './services/demo-motion-stream.js';
 import { validateMotionDelayMs } from './services/motion-delay-buffer.js';
@@ -43,6 +47,15 @@ const DEV_CSP_OVERRIDES: Record<string, string> = {
   "default-src 'self'": "default-src 'self' blob:"
 };
 const MAX_LOG_ENTRIES = 300;
+const DIAGNOSTIC_SHUTDOWN_TIMEOUT_MS = 250;
+const DIAGNOSTIC_DATA_FIELDS = [
+  'portPath', 'baudRate', 'linearAxis', 'vibrationAxis', 'strokeMin', 'strokeMax',
+  'stopPosition', 'invertPosition', 'path', 'vendorId', 'productId', 'serialNumber',
+  'manufacturer', 'pnpId', 'locationId', 'command', 'raw', 'responseReceived',
+  'detected', 'version', 'axes', 'durationMs', 'deviceAcknowledged', 'operation',
+  'name', 'message', 'timeout', 'outcome', 'position', 'intensity', 'reason',
+  'stopped', 'emergencyStopped', 'unexpected'
+] as const;
 
 let mainWindow: BrowserWindow | undefined;
 let nextLogId = 1;
@@ -50,6 +63,9 @@ let receivedMotionFrames = 0;
 const logEntries: AppLogEntry[] = [];
 const lastLogByKey = new Map<string, number>();
 let settingsStore: SettingsFileStore | undefined;
+let diagnosticLogStore: DiagnosticLogStore | undefined;
+const diagnosticSessionId = randomUUID();
+let persistentLogFailureReported = false;
 let shutdownPromise: Promise<void> | undefined;
 let shutdownComplete = false;
 let quitAfterShutdown = false;
@@ -72,8 +88,46 @@ function addLog(entry: Omit<AppLogEntry, 'id' | 'timestamp'>) {
   sendToRenderer(mainWindow, 'app:log', nextEntry);
 }
 
+function reportPersistentLogFailure(error: Error) {
+  if (persistentLogFailureReported) return;
+  persistentLogFailureReported = true;
+  console.error('persistent diagnostic logging disabled', error.message);
+  addLog({
+    level: 'error',
+    source: 'app',
+    message: 'persistent-log-disabled',
+    details: error.message
+  });
+}
+
+function routeHardwareDiagnostic(diagnostic: HardwareDiagnosticEvent) {
+  if (!diagnosticLogStore) return;
+  if (diagnostic.event === 'hardware-motion-sample') {
+    const outcome = diagnostic.data.outcome;
+    if (outcome !== 'completed' && outcome !== 'dropped' && outcome !== 'failed') return;
+    diagnosticLogStore.recordMotion({
+      timestamp: diagnostic.timestamp,
+      outcome,
+      command: primitiveString(diagnostic.data.command),
+      position: primitiveNumber(diagnostic.data.position),
+      intensity: primitiveNumber(diagnostic.data.intensity),
+      reason: primitiveString(diagnostic.data.reason)
+    });
+    return;
+  }
+
+  void diagnosticLogStore.record({
+    timestamp: diagnostic.timestamp,
+    level: diagnostic.level,
+    source: diagnostic.source,
+    event: diagnostic.event,
+    data: sanitizeDiagnosticData(diagnostic.data)
+  });
+}
+
 const hardware = new HardwareController({
   onLog: entry => addLog(entry),
+  onDiagnostic: routeHardwareDiagnostic,
   onOutput: snapshot => sendToRenderer(mainWindow, 'hardware:output', snapshot),
   onConnectionStatus: status => sendToRenderer(mainWindow, 'hardware:connection-status', status)
 });
@@ -191,6 +245,25 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  diagnosticLogStore = new DiagnosticLogStore({
+    directory: path.join(app.getPath('userData'), 'logs'),
+    sessionId: diagnosticSessionId,
+    onError: reportPersistentLogFailure
+  });
+  void diagnosticLogStore.record({
+    timestamp: Date.now(),
+    level: 'info',
+    source: 'app',
+    event: 'session-started',
+    data: {
+      appVersion: app.getVersion(),
+      electronVersion: process.versions.electron,
+      nodeVersion: process.versions.node,
+      platform: process.platform,
+      arch: process.arch,
+      packaged: app.isPackaged
+    }
+  });
   configureSecurityPolicy();
   createWindow();
 });
@@ -382,12 +455,13 @@ ipcMain.handle('app:export-logs', async event => {
     return { exported: false, canceled: true, count: logEntries.length };
   }
 
-  const payload = {
-    app: 'Haptic Relay',
+  const payload = buildLogExportPayload({
+    appName: 'Haptic Relay',
     version: app.getVersion(),
     exportedAt: new Date().toISOString(),
-    entries: logEntries
-  };
+    entries: logEntries,
+    diagnostic: diagnosticLogStore?.metadata()
+  });
 
   await fs.writeFile(result.filePath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
   addLog({ level: 'info', source: 'app', message: 'logs-exported', details: `${logEntries.length}` });
@@ -555,10 +629,56 @@ function shutdownApplication() {
     } catch (error) {
       addLog({ level: 'error', source: 'hardware', message: 'hardware-disconnect-failed', details: formatError(error) });
     }
+    await flushDiagnosticsForShutdown();
   })().finally(() => {
     shutdownPromise = undefined;
   });
   return shutdownPromise;
+}
+
+async function flushDiagnosticsForShutdown() {
+  if (!diagnosticLogStore) return;
+  const flushPromise = (async () => {
+    await diagnosticLogStore?.record({
+      timestamp: Date.now(),
+      level: 'info',
+      source: 'app',
+      event: 'session-ended',
+      data: {}
+    });
+    await diagnosticLogStore?.flushMotion();
+    await diagnosticLogStore?.flush();
+  })();
+  const flushed = await Promise.race([
+    flushPromise.then(() => true),
+    new Promise<false>(resolve => setTimeout(() => resolve(false), DIAGNOSTIC_SHUTDOWN_TIMEOUT_MS))
+  ]);
+  if (!flushed) console.error('persistent diagnostic flush timed out');
+}
+
+function sanitizeDiagnosticData(data: Record<string, unknown>) {
+  const sanitized: Record<string, unknown> = {};
+  for (const field of DIAGNOSTIC_DATA_FIELDS) {
+    const value = data[field];
+    if (isDiagnosticPrimitive(value)) {
+      sanitized[field] = value;
+    } else if (Array.isArray(value)) {
+      sanitized[field] = value.filter(isDiagnosticPrimitive);
+    }
+  }
+  return sanitized;
+}
+
+function isDiagnosticPrimitive(value: unknown): value is string | number | boolean | null {
+  return value === null || typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean';
+}
+
+function primitiveString(value: unknown) {
+  return typeof value === 'string' ? value : undefined;
+}
+
+function primitiveNumber(value: unknown) {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }
 
 function formatFileTimestamp(date: Date) {
