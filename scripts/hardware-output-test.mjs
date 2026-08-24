@@ -1872,6 +1872,189 @@ assert.equal(failedCleanupPort.isOpen, true, 'failed fail-closed cleanup retains
 await failedCleanupController.disconnect();
 assert.equal(failedCleanupPort.isOpen, false, 'explicit disconnect retries closing a failed port cleanup');
 
+if (runRegression('diagnostics')) {
+  class ProbeReplyPort extends FakePort {
+    write(payload, callback) {
+      const accepted = super.write(payload, callback);
+      if (payload === 'D1\nD2\n') {
+        queueMicrotask(() => this.emit('data', Buffer.from('TCode v0.3\nL0 V0\n')));
+      }
+      return accepted;
+    }
+  }
+
+  let clock = 10_000;
+  const now = () => {
+    clock += 5;
+    return clock;
+  };
+  const diagnostics = [];
+  const diagnosticPort = new ProbeReplyPort('COM3');
+  const diagnosticController = new HardwareController({
+    createPort: () => diagnosticPort,
+    listPorts: async () => [{
+      path: 'COM3',
+      vendorId: '10C4',
+      productId: 'EA64',
+      serialNumber: '0693C90A',
+      manufacturer: 'Silicon Labs',
+      pnpId: 'USB\\VID_10C4&PID_EA64',
+      locationId: 'Port_#0002.Hub_#0001'
+    }],
+    onDiagnostic: event => diagnostics.push(event),
+    now,
+    probeTimeoutMs: 0,
+    writeTimeoutMs: 20
+  });
+
+  const diagnosticProfile = {
+    baudRate: 115200,
+    linearAxis: 'L0',
+    vibrationAxis: undefined,
+    strokeMin: 0.2,
+    strokeMax: 0.8,
+    stopPosition: 0.35,
+    invertPosition: false
+  };
+  const connectResult = await diagnosticController.connect('COM3', diagnosticProfile);
+  assert.deepEqual(connectResult.probe, {
+    detected: true,
+    raw: ['TCode v0.3', 'L0 V0'],
+    version: 'v0.3',
+    axes: ['L0', 'V0']
+  });
+  assert.deepEqual(
+    diagnostics.find(item => item.event === 'hardware-connect-requested')?.data,
+    {
+      portPath: 'COM3',
+      baudRate: 115200,
+      linearAxis: 'L0',
+      vibrationAxis: undefined,
+      strokeMin: 0.2,
+      strokeMax: 0.8,
+      stopPosition: 0.35,
+      invertPosition: false
+    }
+  );
+  assert.deepEqual(
+    diagnostics.find(item => item.event === 'hardware-port-identified')?.data,
+    {
+      path: 'COM3',
+      vendorId: '10C4',
+      productId: 'EA64',
+      serialNumber: '0693C90A',
+      manufacturer: 'Silicon Labs',
+      pnpId: 'USB\\VID_10C4&PID_EA64',
+      locationId: 'Port_#0002.Hub_#0001'
+    }
+  );
+  const probeDiagnostic = diagnostics.find(item => item.event === 'hardware-probe-completed');
+  assert.deepEqual(probeDiagnostic?.data, {
+    command: 'D1\nD2',
+    raw: 'TCode v0.3\nL0 V0',
+    responseReceived: true,
+    detected: true,
+    version: 'v0.3',
+    axes: ['L0', 'V0'],
+    durationMs: probeDiagnostic?.data.durationMs
+  });
+  assert.equal(Number.isFinite(probeDiagnostic?.data.durationMs), true);
+  assert.equal(probeDiagnostic.data.durationMs >= 0, true);
+
+  await diagnosticController.runTestPattern();
+  const testWrites = diagnostics.filter(item => item.event === 'hardware-write-completed' && item.data.operation === 'test');
+  assert.equal(testWrites.length, 4);
+  assert.equal(testWrites.every(item => item.data.deviceAcknowledged === false), true);
+  assert.equal(testWrites.every(item => Number.isFinite(item.data.durationMs) && item.data.durationMs >= 0), true);
+  assert.equal(testWrites.every(item => typeof item.data.command === 'string' && item.data.command.startsWith('L0')), true);
+
+  assert.deepEqual(await diagnosticController.latchEmergencyStop(), { stopped: true, emergencyStopped: true });
+  assert.equal(diagnostics.some(item => item.event === 'emergency-latched' && item.data.emergencyStopped === true), true);
+  assert.deepEqual(
+    diagnosticController.queueMotion({ position: 0.4, intensity: 0.1, timestamp: 11_000 }),
+    { queued: false, reason: 'hardware-emergency-stopped' }
+  );
+  assert.equal(
+    diagnostics.some(item => item.event === 'hardware-motion-sample' && item.data.outcome === 'dropped' && item.data.reason === 'hardware-emergency-stopped'),
+    true
+  );
+  diagnosticController.releaseEmergencyStop();
+  assert.equal(diagnostics.some(item => item.event === 'emergency-released' && item.data.emergencyStopped === false), true);
+
+  diagnosticController.setProtection({ intensityLimit: 1, positionMin: 0, positionMax: 1, paused: true });
+  assert.deepEqual(
+    diagnosticController.queueMotion({ position: 0.4, intensity: 0.1, timestamp: 11_100 }),
+    { queued: false, reason: 'protection-paused' }
+  );
+  assert.equal(
+    diagnostics.some(item => item.event === 'hardware-motion-sample' && item.data.outcome === 'dropped' && item.data.reason === 'protection-paused'),
+    true
+  );
+  diagnosticController.setProtection({ intensityLimit: 1, positionMin: 0, positionMax: 1, paused: false });
+
+  assert.deepEqual(await diagnosticController.stopForRoomExit(), { stopped: true });
+  assert.equal(diagnostics.some(item => item.event === 'room-exit-stop' && item.data.stopped === true), true);
+  assert.deepEqual(await diagnosticController.disconnect(), { connected: false });
+  assert.equal(diagnostics.some(item => item.event === 'hardware-disconnected' && item.data.unexpected === false), true);
+  assert.deepEqual(
+    diagnosticController.queueMotion({ position: 0.4, intensity: 0.1, timestamp: 11_200 }),
+    { queued: false, reason: 'hardware-not-connected' }
+  );
+
+  const noResponseDiagnostics = [];
+  const noResponseController = new HardwareController({
+    createPort: options => new FakePort(options.path),
+    listPorts: async () => [],
+    onDiagnostic: event => noResponseDiagnostics.push(event),
+    now,
+    probeTimeoutMs: 0,
+    writeTimeoutMs: 20
+  });
+  await noResponseController.connect('COM4', diagnosticProfile);
+  assert.equal(
+    noResponseDiagnostics.some(item => item.event === 'hardware-probe-completed'
+      && item.data.responseReceived === false
+      && item.data.detected === false
+      && item.data.raw === ''),
+    true
+  );
+  await noResponseController.disconnect();
+
+  const timeoutDiagnostics = [];
+  const timeoutPort = new FakePort('COM5');
+  const timeoutController = new HardwareController({
+    createPort: () => timeoutPort,
+    listPorts: async () => [],
+    onDiagnostic: event => timeoutDiagnostics.push(event),
+    now,
+    probeTimeoutMs: 0,
+    writeTimeoutMs: 10
+  });
+  await timeoutController.connect('COM5', diagnosticProfile);
+  timeoutPort.stallNextWrite = true;
+  timeoutController.queueMotion({ position: 0.5, intensity: 0.1, timestamp: 12_000 });
+  await waitFor(() => timeoutDiagnostics.some(item => item.event === 'hardware-motion-sample' && item.data.outcome === 'failed'));
+  const failedMotion = timeoutDiagnostics.find(item => item.event === 'hardware-motion-sample' && item.data.outcome === 'failed');
+  assert.equal(failedMotion.data.reason, 'hardware-write-timeout');
+  assert.equal(failedMotion.data.timeout, true);
+  assert.equal('stack' in failedMotion.data, false);
+
+  const closeDiagnostics = [];
+  const unexpectedClosePort = new FakePort('COM6');
+  const unexpectedCloseController = new HardwareController({
+    createPort: () => unexpectedClosePort,
+    listPorts: async () => [],
+    onDiagnostic: event => closeDiagnostics.push(event),
+    now,
+    probeTimeoutMs: 0,
+    writeTimeoutMs: 20
+  });
+  await unexpectedCloseController.connect('COM6', diagnosticProfile);
+  unexpectedClosePort.isOpen = false;
+  unexpectedClosePort.emit('close');
+  assert.equal(closeDiagnostics.some(item => item.event === 'hardware-port-closed' && item.data.unexpected === true), true);
+}
+
 console.log('hardware output tests passed');
 
 function delay(ms) {

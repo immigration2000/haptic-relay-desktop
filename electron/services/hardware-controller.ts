@@ -45,13 +45,36 @@ type HardwareLog = {
   details?: string;
 };
 
+export type HardwareDiagnosticEvent = {
+  timestamp: number;
+  level: 'info' | 'warning' | 'error';
+  source: 'hardware' | 'protection';
+  event: string;
+  data: Record<string, unknown>;
+};
+
+type PortIdentity = {
+  path: string;
+  manufacturer?: string;
+  serialNumber?: string;
+  pnpId?: string;
+  locationId?: string;
+  productId?: string;
+  vendorId?: string;
+};
+
+type WriteOperation = 'probe' | 'test' | 'stop' | 'motion';
+
 type HardwarePort = Pick<SerialPort, 'path' | 'isOpen' | 'open' | 'close' | 'write' | 'once' | 'on' | 'off'>;
 
 type HardwareControllerOptions = {
   onLog?: (entry: HardwareLog) => void;
+  onDiagnostic?: (event: HardwareDiagnosticEvent) => void;
   onOutput?: (snapshot: HardwareOutputSnapshot) => void;
   onConnectionStatus?: (status: HardwareConnectionStatus) => void;
   createPort?: (options: { path: string; baudRate: number; autoOpen: false }) => HardwarePort;
+  listPorts?: () => Promise<PortIdentity[]>;
+  now?: () => number;
   probeTimeoutMs?: number;
   writeTimeoutMs?: number;
   lifecycleTimeoutMs?: number;
@@ -137,7 +160,7 @@ export class HardwareController {
   }
 
   async listPorts() {
-    return SerialPort.list();
+    return (this.options.listPorts ?? SerialPort.list)();
   }
 
   connect(pathName: string, profile: HardwareProfile = DEFAULT_HARDWARE_PROFILE): Promise<HardwareConnectResult> {
@@ -176,6 +199,17 @@ export class HardwareController {
   private async performConnect(pathName: string, profile: HardwareProfile): Promise<HardwareConnectResult> {
     await this.performDisconnect();
     this.profile = profile;
+    this.emitDiagnostic('info', 'hardware', 'hardware-connect-requested', {
+      portPath: pathName,
+      baudRate: profile.baudRate,
+      linearAxis: profile.linearAxis,
+      vibrationAxis: profile.vibrationAxis,
+      strokeMin: profile.strokeMin,
+      strokeMax: profile.strokeMax,
+      stopPosition: profile.stopPosition,
+      invertPosition: profile.invertPosition
+    });
+    await this.reportPortIdentity(pathName);
 
     const createPort = this.options.createPort ?? (options => new SerialPort(options));
     const port = createPort({
@@ -243,7 +277,9 @@ export class HardwareController {
   private async performRoomExitStop() {
     this.lifecycleTransition = 'room-exit';
     try {
-      return await this.writeStopPayload();
+      const result = await this.writeStopPayload();
+      this.emitDiagnostic(result.stopped ? 'info' : 'error', 'hardware', 'room-exit-stop', { ...result });
+      return result;
     } finally {
       if (this.lifecycleTransition === 'room-exit') this.lifecycleTransition = undefined;
     }
@@ -272,6 +308,7 @@ export class HardwareController {
 
   private async performDisconnect() {
     this.lifecycleTransition = 'disconnect';
+    const hadConnection = Boolean(this.port || this.failedPort || this.connectionStatus.connected);
     try {
       this.operationGeneration += 1;
       if (this.flushTimer) {
@@ -291,6 +328,9 @@ export class HardwareController {
         await this.retryFailedPortCleanup();
         await this.cleanupStalePorts();
         this.reportConnectionStatus({ connected: false, reason: 'hardware-disconnected', unexpected: false });
+        if (hadConnection) {
+          this.emitDiagnostic('info', 'hardware', 'hardware-disconnected', { unexpected: false });
+        }
         return { connected: false as const };
       }
 
@@ -316,6 +356,7 @@ export class HardwareController {
       await this.retryFailedPortCleanup();
       await this.cleanupStalePorts();
       this.options.onLog?.({ level: 'info', source: 'hardware', message: 'hardware-disconnected' });
+      this.emitDiagnostic('info', 'hardware', 'hardware-disconnected', { unexpected: false });
       return { connected: false as const };
     } finally {
       if (this.lifecycleTransition === 'disconnect') this.lifecycleTransition = undefined;
@@ -375,12 +416,17 @@ export class HardwareController {
 
   queueMotion(frame: MotionFrame) {
     const lifecycleBlockReason = this.getLifecycleBlockReason();
-    if (lifecycleBlockReason) return { queued: false, reason: lifecycleBlockReason };
+    if (lifecycleBlockReason) {
+      this.reportDroppedMotion(frame, lifecycleBlockReason);
+      return { queued: false, reason: lifecycleBlockReason };
+    }
     if (this.emergencyStopped) {
+      this.reportDroppedMotion(frame, 'hardware-emergency-stopped');
       return { queued: false, reason: 'hardware-emergency-stopped' };
     }
 
     if (!this.port?.isOpen) {
+      this.reportDroppedMotion(frame, 'hardware-not-connected');
       return { queued: false, reason: 'hardware-not-connected' };
     }
 
@@ -388,6 +434,7 @@ export class HardwareController {
     if (!protectedFrame) {
       this.latestFrame = undefined;
       this.options.onLog?.({ level: 'warning', source: 'protection', message: 'motion-dropped-paused' });
+      this.reportDroppedMotion(frame, 'protection-paused');
       return { queued: false, reason: 'protection-paused' };
     }
 
@@ -399,6 +446,7 @@ export class HardwareController {
 
   async latchEmergencyStop() {
     this.emergencyStopped = true;
+    this.emitDiagnostic('warning', 'hardware', 'emergency-latched', { emergencyStopped: true });
     const result = await this.writeStopPayload();
     return { ...result, emergencyStopped: this.emergencyStopped };
   }
@@ -406,6 +454,7 @@ export class HardwareController {
   releaseEmergencyStop() {
     this.emergencyStopped = false;
     this.options.onLog?.({ level: 'info', source: 'hardware', message: 'hardware-emergency-released' });
+    this.emitDiagnostic('info', 'hardware', 'emergency-released', { emergencyStopped: false });
     return { emergencyStopped: false };
   }
 
@@ -427,7 +476,7 @@ export class HardwareController {
       stopPosition: this.profile.stopPosition
     });
 
-    const writeError = await this.writePayload(payload).then(() => {
+    const writeError = await this.writePayload(payload, 'stop').then(() => {
       this.reportOutput('stop', payload);
       return undefined;
     }).catch(error => {
@@ -491,12 +540,13 @@ export class HardwareController {
           return { tested: false, reason: 'protection-paused' };
         }
 
-        const payload = encodeTCodeMotion(applyProfile(protectedFrame, this.profile), {
+        const profiledFrame = applyProfile(protectedFrame, this.profile);
+        const payload = encodeTCodeMotion(profiledFrame, {
           linearAxis: this.profile.linearAxis,
           vibrationAxis: this.profile.vibrationAxis,
           intervalMs: HARDWARE_TEST_STEP_DELAY_MS
         });
-        await this.writePayload(payload);
+        await this.writePayload(payload, 'test', profiledFrame);
         const cancellationAfterWrite = cancellationResult();
         if (cancellationAfterWrite) return cancellationAfterWrite;
         this.reportOutput('test', payload);
@@ -534,14 +584,15 @@ export class HardwareController {
     const frame = this.latestFrame;
     this.latestFrame = undefined;
 
-    const payload = encodeTCodeMotion(applyProfile(frame, this.profile), {
+    const profiledFrame = applyProfile(frame, this.profile);
+    const payload = encodeTCodeMotion(profiledFrame, {
       linearAxis: this.profile.linearAxis,
       vibrationAxis: this.profile.vibrationAxis,
       intervalMs: TCODE_INTERVAL_MS
     });
 
     try {
-      await this.writePayload(payload);
+      await this.writePayload(payload, 'motion', profiledFrame);
       this.reportOutput('motion', payload);
     } catch (error) {
       console.error('hardware write failed', error);
@@ -556,6 +607,8 @@ export class HardwareController {
     if (!this.port?.isOpen) return parseTCodeProbe([]);
 
     const port = this.port;
+    const startedAt = this.now();
+    const probePayload = encodeTCodeProbe();
     const chunks: string[] = [];
     const onData = (chunk: Buffer) => {
       chunks.push(chunk.toString('utf8'));
@@ -563,7 +616,7 @@ export class HardwareController {
 
     port.on('data', onData);
     try {
-      await this.writePayload(encodeTCodeProbe());
+      await this.writePayload(probePayload, 'probe');
       await new Promise(resolve => setTimeout(resolve, this.options.probeTimeoutMs ?? TCODE_PROBE_TIMEOUT_MS));
       if (this.port !== port || !port.isOpen) throw new Error('hardware-connection-lost');
     } catch (error) {
@@ -580,10 +633,24 @@ export class HardwareController {
       .map(line => line.trim())
       .filter(Boolean);
 
-    return parseTCodeProbe(raw);
+    const result = parseTCodeProbe(raw);
+    this.emitDiagnostic('info', 'hardware', 'hardware-probe-completed', {
+      command: boundedText(probePayload.trim()),
+      raw: boundedText(raw.join('\n')),
+      responseReceived: raw.length > 0,
+      detected: result.detected,
+      version: result.version,
+      axes: result.axes,
+      durationMs: Math.max(0, this.now() - startedAt)
+    });
+    return result;
   }
 
-  private writePayload(payload: string) {
+  private writePayload(
+    payload: string,
+    operation: WriteOperation,
+    frame?: Pick<MotionFrame, 'position' | 'intensity'>
+  ) {
     return new Promise<void>((resolve, reject) => {
       const port = this.port;
       if (!port?.isOpen) {
@@ -591,6 +658,7 @@ export class HardwareController {
         return;
       }
 
+      const startedAt = this.now();
       let settled = false;
       let timeout: NodeJS.Timeout | undefined;
       let activeWrite: ActiveWrite | undefined;
@@ -600,9 +668,11 @@ export class HardwareController {
         if (timeout) clearTimeout(timeout);
         if (activeWrite) this.activeWrites.delete(activeWrite);
         if (!error) {
+          this.reportCompletedWrite(port, payload, operation, startedAt, frame);
           resolve();
           return;
         }
+        this.reportFailedWrite(port, payload, operation, startedAt, error, frame);
         if (this.port === port) this.failPort(port, error, 'hardware-write-failed');
         reject(error);
       };
@@ -618,9 +688,121 @@ export class HardwareController {
     });
   }
 
+  private async reportPortIdentity(pathName: string) {
+    try {
+      const ports = await this.listPorts();
+      const identity = ports.find(port => port.path.toLowerCase() === pathName.toLowerCase());
+      if (!identity) return;
+
+      const data: Record<string, unknown> = { path: identity.path };
+      for (const key of ['vendorId', 'productId', 'serialNumber', 'manufacturer', 'pnpId', 'locationId'] as const) {
+        if (identity[key] !== undefined) data[key] = identity[key];
+      }
+      this.emitDiagnostic('info', 'hardware', 'hardware-port-identified', data);
+    } catch (error) {
+      this.emitDiagnostic('warning', 'hardware', 'hardware-port-identification-failed', normalizedErrorData(error));
+    }
+  }
+
+  private reportCompletedWrite(
+    port: HardwarePort,
+    payload: string,
+    operation: WriteOperation,
+    startedAt: number,
+    frame?: Pick<MotionFrame, 'position' | 'intensity'>
+  ) {
+    const durationMs = Math.max(0, this.now() - startedAt);
+    const command = boundedText(payload.trim());
+    if (operation === 'motion') {
+      this.emitDiagnostic('info', 'hardware', 'hardware-motion-sample', {
+        outcome: 'completed',
+        command,
+        position: frame?.position,
+        intensity: frame?.intensity,
+        durationMs
+      });
+      return;
+    }
+
+    this.emitDiagnostic('info', 'hardware', 'hardware-write-completed', {
+      operation,
+      command,
+      portPath: port.path,
+      baudRate: this.profile.baudRate,
+      durationMs,
+      deviceAcknowledged: false
+    });
+  }
+
+  private reportFailedWrite(
+    port: HardwarePort,
+    payload: string,
+    operation: WriteOperation,
+    startedAt: number,
+    error: Error,
+    frame?: Pick<MotionFrame, 'position' | 'intensity'>
+  ) {
+    const durationMs = Math.max(0, this.now() - startedAt);
+    const normalized = normalizedErrorData(error);
+    if (operation === 'motion') {
+      this.emitDiagnostic('error', 'hardware', 'hardware-motion-sample', {
+        outcome: 'failed',
+        command: boundedText(payload.trim()),
+        position: frame?.position,
+        intensity: frame?.intensity,
+        durationMs,
+        reason: normalized.message,
+        timeout: normalized.timeout
+      });
+      return;
+    }
+
+    this.emitDiagnostic('error', 'hardware', 'hardware-write-failed', {
+      operation,
+      command: boundedText(payload.trim()),
+      portPath: port.path,
+      baudRate: this.profile.baudRate,
+      durationMs,
+      ...normalized
+    });
+  }
+
+  private reportDroppedMotion(frame: MotionFrame, reason: string) {
+    this.emitDiagnostic('warning', 'hardware', 'hardware-motion-sample', {
+      outcome: 'dropped',
+      position: frame.position,
+      intensity: frame.intensity,
+      reason: boundedText(reason)
+    });
+  }
+
+  private emitDiagnostic(
+    level: HardwareDiagnosticEvent['level'],
+    source: HardwareDiagnosticEvent['source'],
+    event: string,
+    data: Record<string, unknown>
+  ) {
+    try {
+      this.options.onDiagnostic?.({
+        timestamp: this.now(),
+        level,
+        source,
+        event,
+        data
+      });
+    } catch {
+      // Diagnostics are observational and must never interrupt hardware work.
+    }
+  }
+
+  private now() {
+    return this.options.now?.() ?? Date.now();
+  }
+
   private handlePortError(port: HardwarePort, error: Error) {
     if (this.port !== port) return;
     this.options.onLog?.({ level: 'error', source: 'hardware', message: 'hardware-port-error', details: formatError(error) });
+    this.emitDiagnostic('error', 'hardware', 'hardware-port-error', normalizedErrorData(error));
     this.failPort(port, error, 'hardware-port-error');
   }
 
@@ -634,6 +816,7 @@ export class HardwareController {
     if (this.port !== port) return;
     const error = new Error('hardware-port-closed');
     this.options.onLog?.({ level: 'error', source: 'hardware', message: 'hardware-port-closed' });
+    this.emitDiagnostic('error', 'hardware', 'hardware-port-closed', { unexpected: true });
     this.failPort(port, error, 'hardware-port-closed');
   }
 
@@ -984,6 +1167,19 @@ function formatError(error: unknown) {
   if (error instanceof Error) return error.message;
   if (typeof error === 'string') return error;
   return 'unknown-error';
+}
+
+function normalizedErrorData(error: unknown) {
+  const normalized = error instanceof Error ? error : new Error(formatError(error));
+  return {
+    name: normalized.name,
+    message: boundedText(normalized.message),
+    timeout: normalized.message.includes('timeout')
+  };
+}
+
+function boundedText(value: string) {
+  return value.slice(0, 4096);
 }
 
 function delay(ms: number) {
