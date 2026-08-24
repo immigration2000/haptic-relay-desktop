@@ -4,7 +4,7 @@
 
 ## 1. 현재 기준점
 
-- 작성 기준: 2026-08-22 KST
+- 작성 기준: 2026-08-24 KST
 - 앱 저장소: `https://github.com/immigration2000/haptic-relay-desktop.git`
 - 원격 정본 브랜치: `main`
 - 릴리스 기준 태그: `v0.1.1-demo.9` (태그가 가리키는 원격 커밋을 정본으로 사용)
@@ -106,12 +106,17 @@ Demo 9 UI 계약:
 - stroke 범위, 방향 반전, 강도 상한, 위치 보호 범위, 수신 일시정지
 - 연결 직후 `D1\nD2\n` capability probe
 - 최대 60Hz 하드웨어 write, 쓰기 중 newest frame 하나만 유지
-- 기본 1000ms 무수신 safety stop
 - `DSTOP` 후 안전 위치 fallback
 - 성공한 serial write의 T-Code, 시각, 포트, baud를 앱 내부 출력 모니터에 표시
 - 로컬 장비 테스트 패턴과 앱/방 전체 긴급 정지
-- 프로필 범위 안의 절대 긴급 정지 위치를 설정하며, 긴급정지·연결 해제·safety timeout에 동일 적용
-- 연결 해제는 정지 명령을 최대 500ms 시도한 뒤 포트를 닫고, 진행 중인 테스트 패턴은 긴급정지로 취소
+- 로컬 장비 테스트는 마지막 `0.5` 위치에서 끝나며 별도 stop payload를 보내지 않음
+- 같은 값이나 일시적인 packet inactivity에서는 마지막 명령 위치 유지
+- 절대 긴급 정지 위치는 방 나가기와 긴급정지에만 적용
+- 하드웨어 포트 닫기는 위치 명령 없이 serial port만 닫음
+- 긴급정지는 명시적 로컬 해제 전까지 relay, demo, test motion을 막는 runtime latch
+- 로컬 해제는 motion이나 relay release event를 보내지 않으며 다른 참여자를 해제하지 않음
+- 수신 일시정지와 긴급정지 잠금은 서로 독립적으로 동작
+- 방 나가기/재입장과 하드웨어 포트 닫기/재연결은 잠금을 해제하지 않으며 앱 재시작만 초기 해제 상태로 시작
 
 현재 데스크톱 encoder 예시:
 
@@ -140,7 +145,7 @@ position 0.5, interval 17ms -> L05000I17\n
 
 이 수치는 개발 PC/테스트 조건 결과입니다. 휴대폰 Termux나 실제 인터넷 500명 운영 보증이 아닙니다.
 
-## 5. Demo 9에서 마지막으로 반영한 변경
+## 5. 현재 worktree에서 마지막으로 반영한 변경
 
 - 모달이 렌더링될 때마다 첫 요소로 포커스를 되돌려 비밀번호를 한 글자씩만 입력할 수 있던 버그 수정
 - 최신 `onClose`를 ref로 보관하고 포커스/키보드 effect는 모달 mount 시 한 번만 실행
@@ -151,6 +156,8 @@ position 0.5, interval 17ms -> L05000I17\n
 - 하드웨어 연결 해제 버튼과 비정상 단절 상태 동기화
 - 절대 긴급 정지 위치 및 settings schema v3 마이그레이션
 - callback/동기 write 실패와 stalled write를 fail-closed 처리하고 명시적 재연결 전 출력을 차단
+- packet inactivity 자동 정지를 제거하고 마지막 위치 유지로 통일
+- room leave/in-room app exit stop, close-only hardware disconnect, explicit local emergency release 분리
 - AWS 릴레이를 앱 기본값으로, 휴대폰 릴레이를 수동 예비 항목으로 전환
 - Electron 43.4.1과 감사 가능한 간접 의존성으로 갱신하여 `npm audit` 0건 확인
 
@@ -258,7 +265,7 @@ npm.cmd run release:check
 
 ## 9. 권장 다음 작업 순서
 
-1. 실제 OSR 장비로 수동, 삼각 반복, 시연 중지 후 재시작, 긴급정지, write timeout/케이블 단절/재연결 확인
+1. 실제 OSR 장비로 마지막 위치 유지, 로컬/방 전체 긴급정지 잠금과 개별 해제, close-only 하드웨어 포트 닫기, 방 나가기 절대 위치 이동 확인
 2. PC와 노트북에서 Demo 9 설치본으로 `https://aws-relay.syncra.uk` 외부 방 생성/입장/방 종료 재확인
 3. 사용자 제작 스크립트 모델과 안전 제한 설계
 4. 동작 녹화/재생

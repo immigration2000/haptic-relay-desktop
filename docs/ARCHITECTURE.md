@@ -54,6 +54,23 @@ decode -> sequence filter -> local receipt-time delay queue -> hardware queue
 
 The local delay accepts `0-10000ms` in `100ms` steps. Its default is `0ms`, and unversioned or schema-v1 settings migrate to `0ms`. A configured delay change and session or safety events clear queued frames so stale motion cannot cross those boundaries. Local interpolation remains the next independent Phase 1 task.
 
+## Hardware Motion Lifecycle
+
+Normal room motion is stateful: an unchanged streamer value or temporary packet inactivity leaves the device at its last commanded position. There is no inactivity-triggered stop-position command. Receive pause independently blocks new frames without moving the device.
+
+The configured absolute stop position is reserved for room exit and emergency stop:
+
+```text
+valid room frame -> emergency-latch gate -> receive-pause gate -> hardware queue
+
+room leave / in-room app exit -> stopForRoomExit() -> DSTOP + absolute position
+local or room-wide emergency -> latchEmergencyStop() -> DSTOP + absolute position + local latch
+local explicit release -> releaseEmergencyStop() -> no serial output, no relay release
+hardware disconnect -> clear pending output -> close serial port only
+```
+
+The emergency latch is runtime-local and independent from receive pause. Production motion admission checks the emergency latch before applying receive protection; changing either state never changes the other. A room-wide stop latches each connected participant, but the relay protocol has no release event: each participant must press **긴급정지 해제** locally. Releasing the latch sends no motion, so only a later valid streamer frame may move the device. Hardware disconnect/reconnect and room leave/rejoin do not release the latch; a full application restart initializes it as released.
+
 ## Control Plane
 
 The current Node process serves both the Control API and Relay Node so local development stays simple. The API contract is intentionally separable.
@@ -237,6 +254,9 @@ The relay protocol and hardware protocol are intentionally different.
 - Require explicit room join before receiving motion.
 - Provide host and viewer emergency stop controls.
 - Treat emergency stop as a distinct control event, not as an ordinary zero-value motion frame.
+- Keep emergency stop latched locally until explicit local release; never fan out a release event.
+- Use the absolute stop position only for room exit and emergency stop. Hardware disconnect closes the port without a position command.
+- Keep receive pause independent from the emergency latch.
 - Clamp all incoming motion values to valid ranges.
 - Rate-limit motion frames to protect devices and relay infrastructure.
 - Keep `.env` and relay secrets out of git.

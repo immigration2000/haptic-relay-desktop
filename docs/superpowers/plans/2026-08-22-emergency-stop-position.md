@@ -1,6 +1,10 @@
 # Configurable Emergency Stop Position Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Historical record — partially superseded:** The absolute emergency position remains current, but hardware disconnect no longer writes it. See [2026-08-23-room-motion-emergency-latch-design.md](../specs/2026-08-23-room-motion-emergency-latch-design.md) for the current lifecycle authority.
+
+> **ARCHIVED — DO NOT EXECUTE.** Preserve the tasks below only as historical implementation evidence. Use [2026-08-23-room-motion-emergency-latch-design.md](../specs/2026-08-23-room-motion-emergency-latch-design.md) for current behavior and planning authority.
+
+> **Archived plan:** The former agent execution directive is intentionally disabled. Do not run or resume the tasks below.
 
 **Goal:** Persist and apply one absolute, stroke-bounded stop position to both emergency stop and safe hardware disconnect.
 
@@ -602,6 +606,8 @@ git status --short --branch
 ```
 
 Expected: the range after design commit contains only settings/protocol, controller/tests, and UI/test changes; the application worktree is clean.
+
+> **ARCHIVED — DO NOT EXECUTE THIS PHYSICAL SECTION.** The referenced 2026-08-22 disconnect checks are obsolete and must not be followed. Use [the current lifecycle authority](../specs/2026-08-23-room-motion-emergency-latch-design.md) and [current hardware session checklist](../../HARDWARE_SESSION_CHECKLIST.md).
 
 - [ ] **Step 6: Stop before physical COM3 access and request readiness**
 
