@@ -17,7 +17,8 @@ import {
 import { encodeTCodeMotion, encodeTCodeProbe, encodeTCodeStop, parseTCodeProbe } from './tcode-encoder.js';
 import type { TCodeProbeResult } from './tcode-encoder.js';
 
-const TCODE_PROBE_TIMEOUT_MS = 350;
+const TCODE_PROBE_TIMEOUT_MS = 1_500;
+const TCODE_PROBE_RETRY_DELAY_MS = 500;
 const HARDWARE_WRITE_TIMEOUT_MS = 500;
 const HARDWARE_LIFECYCLE_TIMEOUT_MS = 500;
 const HARDWARE_TEST_STEP_DELAY_MS = 180;
@@ -655,15 +656,48 @@ export class HardwareController {
     const port = this.port;
     const startedAt = this.now();
     const probePayload = encodeTCodeProbe();
+    const probeTimeoutMs = Math.max(0, this.options.probeTimeoutMs ?? TCODE_PROBE_TIMEOUT_MS);
+    const firstProbeWindowMs = Math.min(TCODE_PROBE_RETRY_DELAY_MS, Math.floor(probeTimeoutMs / 2));
     const chunks: string[] = [];
+    const getRaw = () => chunks
+      .join('')
+      .split(/\r?\n/)
+      .map(line => line.trim())
+      .filter(Boolean);
+    let signalVersionReady: (() => void) | undefined;
+    let versionReadySignalled = false;
+    const versionReady = new Promise<void>(resolve => {
+      signalVersionReady = resolve;
+    });
     const onData = (chunk: Buffer) => {
       chunks.push(chunk.toString('utf8'));
+      if (!versionReadySignalled && parseTCodeProbe(getRaw()).version) {
+        versionReadySignalled = true;
+        signalVersionReady?.();
+      }
+    };
+    const waitForVersion = async (timeoutMs: number) => {
+      if (parseTCodeProbe(getRaw()).version) return true;
+      if (timeoutMs <= 0) return false;
+
+      let timeout: NodeJS.Timeout | undefined;
+      const timedOut = new Promise<false>(resolve => {
+        timeout = setTimeout(() => resolve(false), timeoutMs);
+      });
+      const found = await Promise.race([versionReady.then(() => true as const), timedOut]);
+      if (timeout) clearTimeout(timeout);
+      return found;
     };
 
     port.on('data', onData);
     try {
       await this.writePayload(probePayload, 'probe');
-      await new Promise(resolve => setTimeout(resolve, this.options.probeTimeoutMs ?? TCODE_PROBE_TIMEOUT_MS));
+      const ready = await waitForVersion(firstProbeWindowMs);
+      if (!ready && probeTimeoutMs > firstProbeWindowMs) {
+        if (this.port !== port || !port.isOpen) throw new Error('hardware-connection-lost');
+        await this.writePayload(probePayload, 'probe');
+        await waitForVersion(probeTimeoutMs - firstProbeWindowMs);
+      }
       if (this.port !== port || !port.isOpen) throw new Error('hardware-connection-lost');
     } catch (error) {
       console.warn('hardware T-Code probe failed', error);
@@ -673,11 +707,7 @@ export class HardwareController {
       port.off('data', onData);
     }
 
-    const raw = chunks
-      .join('')
-      .split(/\r?\n/)
-      .map(line => line.trim())
-      .filter(Boolean);
+    const raw = getRaw();
 
     const result = parseTCodeProbe(raw);
     this.emitDiagnostic('info', 'hardware', 'hardware-probe-completed', {

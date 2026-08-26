@@ -143,6 +143,26 @@ class FakePort extends EventEmitter {
   }
 }
 
+class RestartingTCodePort extends FakePort {
+  constructor(path) {
+    super(path);
+    this.probeReply = undefined;
+    this.probeAttempts = 0;
+  }
+
+  write(payload, callback) {
+    const accepted = super.write(payload, callback);
+    if (!payload.includes('D1')) return accepted;
+
+    this.probeAttempts += 1;
+    const reply = this.probeAttempts === 1
+      ? 'rst:0x1 (POWERON_RESET),boot:0x13 (SPI_FAST_FLASH_BOOT)\nclk_drv:0x00\nentry 0x400805e4\n'
+      : 'TCode v0.3\nL0 V0\n';
+    queueMicrotask(() => this.emit('data', Buffer.from(reply)));
+    return accepted;
+  }
+}
+
 class SerialPortFaithfulFake extends FakePort {
   constructor(path) {
     super(path);
@@ -234,6 +254,18 @@ if (runRegression('hardware-readiness')) {
   );
   assert.deepEqual(readyController.queueMotion(frame), { queued: true });
   await readyController.disconnect();
+
+  const restartingPort = new RestartingTCodePort('COM7');
+  const restartingController = new HardwareController({
+    createPort: () => restartingPort,
+    probeTimeoutMs: 40,
+    writeTimeoutMs: 20,
+    lifecycleTimeoutMs: 20
+  });
+  const restartingResult = await restartingController.connect('COM7', profile);
+  assert.equal(restartingPort.probeAttempts, 2, 'probe retries after the control-line reset boot output');
+  assert.equal(restartingResult.probe.version, 'v0.3');
+  await restartingController.disconnect();
 
   const setFailurePort = new FakePort('COM4');
   setFailurePort.failNextSet = true;
@@ -742,6 +774,7 @@ assert.equal(
 await inactivityController.disconnect();
 
 const probePort = new FakePort();
+probePort.probeReply = undefined;
 const probeController = new HardwareController({
   createPort: () => probePort,
   probeTimeoutMs: 50,
@@ -762,6 +795,7 @@ await assert.rejects(
 );
 
 const closedProbePort = new FakePort('COM11');
+closedProbePort.probeReply = undefined;
 const closedProbeController = new HardwareController({
   createPort: () => closedProbePort,
   probeTimeoutMs: 50,
