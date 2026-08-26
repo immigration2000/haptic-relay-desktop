@@ -46,11 +46,11 @@ export function encodeTCodeProbe() {
 
 export function parseTCodeProbe(raw: string[]) {
   const text = raw.join('\n');
-  const version = text.match(/(?:t-?code|version|v)\s*[:= ]\s*(v?\d+(?:\.\d+)?)/i)?.[1];
-  const axes = [...new Set(text.match(/\b[LRVA][0-9]\b/gi)?.map(axis => axis.toUpperCase()) ?? [])].sort();
+  const version = text.match(/\b(?:t-?code|version)\s*[:= ]\s*(v?\d+(?:\.\d+)?)/i)?.[1];
+  const axes = [...new Set(text.match(/\b[LRVA][0-9]\b/g) ?? [])].sort();
 
   return {
-    detected: raw.length > 0,
+    detected: version !== undefined,
     raw,
     version,
     axes
