@@ -65,7 +65,7 @@ type PortIdentity = {
 
 type WriteOperation = 'probe' | 'test' | 'stop' | 'motion';
 
-type HardwarePort = Pick<SerialPort, 'path' | 'isOpen' | 'open' | 'close' | 'write' | 'once' | 'on' | 'off'>;
+type HardwarePort = Pick<SerialPort, 'path' | 'isOpen' | 'open' | 'close' | 'write' | 'set' | 'once' | 'on' | 'off'>;
 
 type HardwareControllerOptions = {
   onLog?: (entry: HardwareLog) => void;
@@ -124,6 +124,7 @@ type StalePortRecord = {
 
 export class HardwareController {
   private port: HardwarePort | undefined;
+  private readyPort: HardwarePort | undefined;
   private failedPort: HardwarePort | undefined;
   private failedPortCleanup: Promise<void> | undefined;
   private readonly options: HardwareControllerOptions;
@@ -228,7 +229,43 @@ export class HardwareController {
       throw normalizedError;
     }
 
+    try {
+      await this.configureControlSignals(port);
+      this.emitDiagnostic('info', 'hardware', 'hardware-control-signals-configured', {
+        portPath: port.path,
+        dtr: true,
+        rts: true
+      });
+    } catch (error) {
+      const normalizedError = error instanceof Error ? error : new Error('hardware-control-signals-failed');
+      this.emitDiagnostic('error', 'hardware', 'hardware-control-signals-failed', {
+        portPath: port.path,
+        ...normalizedErrorData(normalizedError)
+      });
+      this.failPort(port, normalizedError, 'hardware-control-signals-failed');
+      throw normalizedError;
+    }
+
     const probe = await this.probeTCodeCapabilities();
+    if (!probe.version) {
+      const error = new Error('hardware-tcode-not-ready');
+      this.options.onLog?.({ level: 'error', source: 'hardware', message: 'hardware-readiness-failed', details: error.message });
+      this.emitDiagnostic('error', 'hardware', 'hardware-readiness-failed', {
+        portPath: port.path,
+        raw: boundedText(probe.raw.join('\n')),
+        version: probe.version,
+        axes: probe.axes
+      });
+      this.failPort(port, error, error.message);
+      throw error;
+    }
+    if (this.port !== port || !port.isOpen) throw new Error('hardware-connection-lost');
+    this.readyPort = port;
+    this.emitDiagnostic('info', 'hardware', 'hardware-ready', {
+      portPath: port.path,
+      version: probe.version,
+      axes: probe.axes
+    });
     this.reportConnectionStatus({ connected: true, path: pathName });
     this.options.onLog?.({ level: 'info', source: 'hardware', message: 'hardware-connected', details: `${pathName} @ ${this.profile.baudRate}` });
     return { connected: true as const, path: pathName, baudRate: this.profile.baudRate, profile: this.profile, probe };
@@ -324,6 +361,7 @@ export class HardwareController {
           this.detachPortErrorHandler(port);
           this.detachPortCloseHandler(port);
         }
+        if (this.readyPort === port || !port) this.readyPort = undefined;
         this.port = undefined;
         await this.retryFailedPortCleanup();
         await this.cleanupStalePorts();
@@ -351,6 +389,7 @@ export class HardwareController {
           throw error;
         }
       }
+      if (this.readyPort === port) this.readyPort = undefined;
       this.schedulePortHandlersDetach(port, errorHandler, closeHandler);
       this.reportConnectionStatus({ connected: false, reason: 'hardware-disconnected', unexpected: false });
       await this.retryFailedPortCleanup();
@@ -428,6 +467,10 @@ export class HardwareController {
     if (!this.port?.isOpen) {
       this.reportDroppedMotion(frame, 'hardware-not-connected');
       return { queued: false, reason: 'hardware-not-connected' };
+    }
+    if (!this.isPortReady()) {
+      this.reportDroppedMotion(frame, 'hardware-not-ready');
+      return { queued: false, reason: 'hardware-not-ready' };
     }
 
     const protectedFrame = applyProtection(frame, this.protection);
@@ -510,6 +553,9 @@ export class HardwareController {
 
     if (!this.port?.isOpen) {
       return { tested: false, reason: 'hardware-not-connected' };
+    }
+    if (!this.isPortReady()) {
+      return { tested: false, reason: 'hardware-not-ready' };
     }
 
     const activePattern: ActiveTestPattern = {};
@@ -799,6 +845,10 @@ export class HardwareController {
     return this.options.now?.() ?? Date.now();
   }
 
+  private isPortReady(port = this.port) {
+    return Boolean(port && port === this.port && port === this.readyPort && port.isOpen);
+  }
+
   private handlePortError(port: HardwarePort, error: Error) {
     if (this.port !== port) return;
     this.options.onLog?.({ level: 'error', source: 'hardware', message: 'hardware-port-error', details: formatError(error) });
@@ -832,6 +882,7 @@ export class HardwareController {
       this.failActiveWrites(port, error);
       return;
     }
+    if (this.readyPort === port) this.readyPort = undefined;
     this.port = undefined;
     this.operationGeneration += 1;
     if (this.flushTimer) {
@@ -929,6 +980,30 @@ export class HardwareController {
     });
   }
 
+  private configureControlSignals(port: HardwarePort) {
+    return new Promise<void>((resolve, reject) => {
+      let settled = false;
+      let timeout: NodeJS.Timeout | undefined;
+      const finish = (error?: Error | null) => {
+        if (settled) return;
+        settled = true;
+        if (timeout) clearTimeout(timeout);
+        if (error) reject(error);
+        else resolve();
+      };
+      timeout = setTimeout(
+        () => finish(new Error('hardware-control-signals-timeout')),
+        this.lifecycleTimeoutMs
+      );
+
+      try {
+        port.set({ dtr: true, rts: true }, finish);
+      } catch (error) {
+        finish(error instanceof Error ? error : new Error('hardware-control-signals-failed'));
+      }
+    });
+  }
+
   private closePort(port: HardwarePort, role: PendingCloseRecord['role']) {
     return new Promise<void>((resolve, reject) => {
       const record: PendingCloseRecord = {
@@ -999,6 +1074,7 @@ export class HardwareController {
 
   private finalizeClosedPort(record: PendingCloseRecord) {
     const { port } = record;
+    if (this.readyPort === port) this.readyPort = undefined;
     if (this.failedPort === port) this.failedPort = undefined;
     const staleRecord = this.stalePorts.get(port);
     if (staleRecord) this.releaseStalePort(staleRecord);

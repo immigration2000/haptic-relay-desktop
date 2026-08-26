@@ -23,6 +23,11 @@ class FakePort extends EventEmitter {
     this.pendingOpen = undefined;
     this.pendingClose = undefined;
     this.closeErrorHadListener = undefined;
+    this.signalSets = [];
+    this.operations = [];
+    this.failNextSet = false;
+    this.stallNextSet = false;
+    this.probeReply = 'TCode v0.3\nL0 V0\n';
   }
 
   open(callback) {
@@ -72,6 +77,19 @@ class FakePort extends EventEmitter {
     callback(null);
   }
 
+  set(options, callback) {
+    const copiedOptions = { ...options };
+    this.signalSets.push(copiedOptions);
+    this.operations.push({ type: 'set', options: copiedOptions });
+    if (this.stallNextSet) {
+      this.stallNextSet = false;
+      return;
+    }
+    const error = this.failNextSet ? new Error('serial-set-failed') : null;
+    this.failNextSet = false;
+    queueMicrotask(() => callback(error));
+  }
+
   completeClose() {
     const callback = this.pendingClose;
     assert.ok(callback, 'no pending close');
@@ -93,6 +111,7 @@ class FakePort extends EventEmitter {
       throw new Error('serial-write-threw');
     }
     this.writes.push(payload);
+    this.operations.push({ type: 'write', payload });
     const write = {
       callback,
       error: this.failNextWrite ? new Error('serial-write-failed') : null,
@@ -102,6 +121,10 @@ class FakePort extends EventEmitter {
     this.stallNextWrite = false;
     this.pendingWrites.push(write);
     this.flushWrites();
+    if (this.probeReply && payload.includes('D1')) {
+      const reply = this.probeReply;
+      queueMicrotask(() => this.emit('data', Buffer.from(reply)));
+    }
     return true;
   }
 
@@ -168,6 +191,97 @@ class SerialPortFaithfulFake extends FakePort {
     if (!error) this.physicalOpen = false;
     callback(error);
   }
+}
+
+if (runRegression('hardware-readiness')) {
+  const profile = {
+    baudRate: 115200,
+    linearAxis: 'L0',
+    vibrationAxis: undefined,
+    strokeMin: 0.2,
+    strokeMax: 0.8,
+    stopPosition: 0.35,
+    invertPosition: false
+  };
+  const frame = { position: 0.5, intensity: 0.1, timestamp: 1_000 };
+
+  const readyPort = new FakePort('COM3');
+  const readyDiagnostics = [];
+  const readyController = new HardwareController({
+    createPort: () => readyPort,
+    onDiagnostic: event => readyDiagnostics.push(event),
+    probeTimeoutMs: 0,
+    writeTimeoutMs: 20,
+    lifecycleTimeoutMs: 20
+  });
+  const readyResult = await readyController.connect('COM3', profile);
+  assert.deepEqual(readyPort.signalSets, [{ dtr: true, rts: true }]);
+  assert.deepEqual(readyPort.operations.slice(0, 2).map(operation => operation.type), ['set', 'write']);
+  assert.equal(readyResult.probe.version, 'v0.3');
+  assert.deepEqual(readyController.getConnectionStatus(), { connected: true, path: 'COM3' });
+  assert.equal(
+    readyDiagnostics.some(event => event.event === 'hardware-control-signals-configured'
+      && event.data.portPath === 'COM3'
+      && event.data.dtr === true
+      && event.data.rts === true),
+    true
+  );
+  assert.equal(
+    readyDiagnostics.some(event => event.event === 'hardware-ready'
+      && event.data.portPath === 'COM3'
+      && event.data.version === 'v0.3'),
+    true
+  );
+  assert.deepEqual(readyController.queueMotion(frame), { queued: true });
+  await readyController.disconnect();
+
+  const setFailurePort = new FakePort('COM4');
+  setFailurePort.failNextSet = true;
+  const setFailureController = new HardwareController({
+    createPort: () => setFailurePort,
+    probeTimeoutMs: 0,
+    writeTimeoutMs: 20,
+    lifecycleTimeoutMs: 20
+  });
+  await assert.rejects(setFailureController.connect('COM4', profile), /serial-set-failed/);
+  await waitFor(() => !setFailurePort.isOpen);
+  assert.deepEqual(setFailureController.getConnectionStatus(), { connected: false });
+
+  const setTimeoutPort = new FakePort('COM6');
+  setTimeoutPort.stallNextSet = true;
+  const setTimeoutController = new HardwareController({
+    createPort: () => setTimeoutPort,
+    probeTimeoutMs: 0,
+    writeTimeoutMs: 20,
+    lifecycleTimeoutMs: 10
+  });
+  await assert.rejects(
+    setTimeoutController.connect('COM6', profile),
+    /hardware-control-signals-timeout/
+  );
+  await waitFor(() => !setTimeoutPort.isOpen);
+
+  const noReplyPort = new FakePort('COM5');
+  noReplyPort.probeReply = undefined;
+  const noReplyController = new HardwareController({
+    createPort: () => noReplyPort,
+    probeTimeoutMs: 30,
+    writeTimeoutMs: 20,
+    lifecycleTimeoutMs: 20
+  });
+  const noReplyConnect = noReplyController.connect('COM5', profile);
+  await waitFor(() => noReplyPort.writes.some(payload => payload.includes('D1')));
+  assert.deepEqual(
+    noReplyController.queueMotion(frame),
+    { queued: false, reason: 'hardware-not-ready' }
+  );
+  assert.deepEqual(
+    await noReplyController.runTestPattern(),
+    { tested: false, reason: 'hardware-not-ready' }
+  );
+  await assert.rejects(noReplyConnect, /hardware-tcode-not-ready/);
+  await waitFor(() => !noReplyPort.isOpen);
+  assert.deepEqual(noReplyController.getConnectionStatus(), { connected: false });
 }
 
 const outputs = [];
@@ -863,7 +977,7 @@ if (runRegression('connect-disconnect-room-exit')) {
         stopPosition: 0,
         invertPosition: false
       },
-      probe: { detected: false, raw: [], version: undefined, axes: [] }
+      probe: { detected: true, raw: ['TCode v0.3', 'L0 V0'], version: 'v0.3', axes: ['L0', 'V0'] }
     },
     { connected: false },
     { stopped: false, reason: 'hardware-not-connected' }
@@ -1047,7 +1161,6 @@ if (runRegression('room-exit-cancels-pending-motion')) {
   const pendingMotionController = new HardwareController({
     createPort: options => {
       const createdPort = new FakePort(options.path);
-      createdPort.stallNextWrite = true;
       pendingMotionPorts.push(createdPort);
       return createdPort;
     },
@@ -1063,7 +1176,7 @@ if (runRegression('room-exit-cancels-pending-motion')) {
     stopPosition: 0.48,
     invertPosition: false
   });
-  await waitFor(() => pendingMotionPorts[0]?.activeWrite !== undefined);
+  await pendingMotionConnect;
   const pendingMotionPort = pendingMotionPorts[0];
   assert.deepEqual(
     pendingMotionController.queueMotion({ position: 0.6, intensity: 0.25, timestamp: Date.now() }),
@@ -1073,16 +1186,14 @@ if (runRegression('room-exit-cancels-pending-motion')) {
   await delay(60);
   assert.equal(
     pendingMotionPort.writes.length,
-    1,
-    'room-exit admission clears motion queued behind a stalled lifecycle operation'
+    2,
+    'room-exit admission clears timer-pending motion before writing only the stop payload'
   );
   assert.equal(
     pendingMotionPort.writes.some(payload => payload.trim() === 'L06000I17'),
     false,
     'no queued motion reaches the serial port before the room-exit stop'
   );
-  pendingMotionPort.completeWrite();
-  await pendingMotionConnect;
   assert.deepEqual(await pendingMotionRoomExit, { stopped: true });
   assert.equal(pendingMotionOutputs.some(output => output.kind === 'motion'), false);
   assert.equal(pendingMotionOutputs.at(-1).kind, 'stop');
@@ -1141,7 +1252,7 @@ if (runRegression('disconnect-cancels-test-pattern')) {
     strokeMax: 1,
     invertPosition: false
   });
-  await waitFor(() => gatedTestPorts[0]?.writes.length === 1 && gatedTestPorts[0].activeWrite === undefined);
+  await gatedTestConnect;
   const gatedTestPattern = gatedTestController.runTestPattern();
   await waitFor(() => gatedTestOutputs.filter(output => output.kind === 'test').length === 1);
   const gatedTestDisconnect = gatedTestController.disconnect();
@@ -1156,7 +1267,6 @@ if (runRegression('disconnect-cancels-test-pattern')) {
     1,
     'a queued disconnect prevents every later test-pattern write'
   );
-  await gatedTestConnect;
   assert.deepEqual(await gatedTestDisconnect, { connected: false });
 }
 
@@ -1873,23 +1983,13 @@ await failedCleanupController.disconnect();
 assert.equal(failedCleanupPort.isOpen, false, 'explicit disconnect retries closing a failed port cleanup');
 
 if (runRegression('diagnostics')) {
-  class ProbeReplyPort extends FakePort {
-    write(payload, callback) {
-      const accepted = super.write(payload, callback);
-      if (payload === 'D1\nD2\n') {
-        queueMicrotask(() => this.emit('data', Buffer.from('TCode v0.3\nL0 V0\n')));
-      }
-      return accepted;
-    }
-  }
-
   let clock = 10_000;
   const now = () => {
     clock += 5;
     return clock;
   };
   const diagnostics = [];
-  const diagnosticPort = new ProbeReplyPort('COM3');
+  const diagnosticPort = new FakePort('COM3');
   const diagnosticController = new HardwareController({
     createPort: () => diagnosticPort,
     listPorts: async () => [{
@@ -2002,20 +2102,30 @@ if (runRegression('diagnostics')) {
   );
 
   const noResponseDiagnostics = [];
+  const noResponsePort = new FakePort('COM4');
+  noResponsePort.probeReply = undefined;
   const noResponseController = new HardwareController({
-    createPort: options => new FakePort(options.path),
+    createPort: () => noResponsePort,
     listPorts: async () => [],
     onDiagnostic: event => noResponseDiagnostics.push(event),
     now,
     probeTimeoutMs: 0,
     writeTimeoutMs: 20
   });
-  await noResponseController.connect('COM4', diagnosticProfile);
+  await assert.rejects(
+    noResponseController.connect('COM4', diagnosticProfile),
+    /hardware-tcode-not-ready/
+  );
   assert.equal(
     noResponseDiagnostics.some(item => item.event === 'hardware-probe-completed'
       && item.data.responseReceived === false
       && item.data.detected === false
       && item.data.raw === ''),
+    true
+  );
+  assert.equal(
+    noResponseDiagnostics.some(item => item.event === 'hardware-readiness-failed'
+      && item.data.portPath === 'COM4'),
     true
   );
   await noResponseController.disconnect();

@@ -227,6 +227,9 @@ for (const reason of [
   'hardware-write-failed',
   'hardware-port-error',
   'hardware-port-closed',
+  'hardware-not-ready',
+  'hardware-tcode-not-ready',
+  'hardware-control-signals-failed',
   'hardware-disconnected-stop-failed',
   'hardware-test-cancelled',
   'invalid-stop-position'
@@ -244,6 +247,8 @@ for (const reason of ['kick', 'block']) {
   assert.match(formatReasonSource, new RegExp(`['"]${reason}['"]\\s*:`), `missing terminal viewer reason mapping: ${reason}`);
 }
 assert.match(formatLogMessageSource, /['"]hardware-emergency-released['"]\s*:\s*['"]하드웨어 긴급정지 해제['"]/);
+assert.match(formatLogMessageSource, /['"]hardware-readiness-failed['"]\s*:\s*['"]T-Code 준비 확인 실패['"]/);
+assert.match(formatLogMessageSource, /['"]hardware-ready['"]\s*:\s*['"]T-Code 통신 준비 완료['"]/);
 assert.match(mainSource, /async function readSettingsInTransaction\(writeAtomically\)/);
 assert.match(mainSource, /viewer:set-motion-delay[\s\S]*?getSettingsStore\(\)\.exclusive\(async \(?writeAtomically\)? => \{[\s\S]*?readSettingsInTransaction\(writeAtomically\)[\s\S]*?await writeAtomically\(settings\)/);
 assert.match(loadSettingsSource, /const requestId = \+\+settingsLoadRequestId\.current/);
