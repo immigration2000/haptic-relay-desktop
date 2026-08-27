@@ -316,6 +316,63 @@ if (runRegression('hardware-readiness')) {
   assert.deepEqual(noReplyController.getConnectionStatus(), { connected: false });
 }
 
+const cadenceOutputs = [];
+const cadencePort = new FakePort('COM8');
+const cadenceController = new HardwareController({
+  onOutput: output => cadenceOutputs.push(output),
+  createPort: () => cadencePort,
+  probeTimeoutMs: 0,
+  writeTimeoutMs: 20
+});
+
+await cadenceController.connect('COM8', {
+  baudRate: 115200,
+  linearAxis: 'L0',
+  strokeMin: 0,
+  strokeMax: 1,
+  invertPosition: false
+});
+cadenceController.queueMotion({
+  position: 0.4,
+  intensity: 0.1,
+  timestamp: 1_000,
+  sourceTimeMs: 1_000,
+  durationMs: 1000 / 30
+});
+await waitFor(() => cadenceOutputs.length === 1);
+assert.equal(
+  cadenceOutputs[0].command,
+  'L04000I33',
+  'hardware interpolation follows the source frame cadence instead of forcing 60Hz motion'
+);
+cadenceController.queueMotion({
+  position: 0.41,
+  intensity: 0.1,
+  timestamp: 1_100,
+  sourceTimeMs: 1_100,
+  durationMs: 1000 / 30
+});
+await waitFor(() => cadenceOutputs.length === 2);
+assert.equal(
+  cadenceOutputs[1].command,
+  'L04100I100',
+  'coalesced relay frames use their real source-time gap instead of sprinting to the next target'
+);
+cadenceController.queueMotion({
+  position: 0.42,
+  intensity: 0.1,
+  timestamp: 1_101,
+  sourceTimeMs: 1_101,
+  durationMs: 1
+});
+await waitFor(() => cadenceOutputs.length === 3);
+assert.equal(
+  cadenceOutputs[2].command,
+  'L04200I17',
+  'source metadata cannot request motion faster than the hardware output limit'
+);
+await cadenceController.disconnect();
+
 const outputs = [];
 const logs = [];
 let port;
@@ -749,12 +806,12 @@ await inactivityController.connect('COM23', {
   invertPosition: false
 });
 assert.deepEqual(
-  inactivityController.queueMotion({ position: 0.7, intensity: 0.25, timestamp: Date.now() }),
+  inactivityController.queueMotion({ position: 0.7, intensity: 0.25, timestamp: 1_000 }),
   { queued: true }
 );
 await waitFor(() => inactivityOutputs.length === 1);
 assert.deepEqual(
-  inactivityController.queueMotion({ position: 0.7, intensity: 0.25, timestamp: Date.now() }),
+  inactivityController.queueMotion({ position: 0.7, intensity: 0.25, timestamp: 1_017 }),
   { queued: true }
 );
 await waitFor(() => inactivityOutputs.length === 2);

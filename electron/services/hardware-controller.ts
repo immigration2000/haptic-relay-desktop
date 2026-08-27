@@ -132,6 +132,7 @@ export class HardwareController {
   private profile = DEFAULT_HARDWARE_PROFILE;
   private protection = DEFAULT_HARDWARE_PROTECTION;
   private latestFrame: MotionFrame | undefined;
+  private lastMotionOutputFrame: MotionFrame | undefined;
   private flushTimer: NodeJS.Timeout | undefined;
   private writing = false;
   private readonly portErrorHandlers = new Map<HardwarePort, (error: Error) => void>();
@@ -354,6 +355,7 @@ export class HardwareController {
         this.flushTimer = undefined;
       }
       this.latestFrame = undefined;
+      this.lastMotionOutputFrame = undefined;
 
       const port = this.port;
       if (!port?.isOpen) {
@@ -432,6 +434,7 @@ export class HardwareController {
       this.flushTimer = undefined;
     }
     this.latestFrame = undefined;
+    this.lastMotionOutputFrame = undefined;
 
     const reason = this.getLifecycleBlockReason();
     if (!reason) return;
@@ -477,6 +480,7 @@ export class HardwareController {
     const protectedFrame = applyProtection(frame, this.protection);
     if (!protectedFrame) {
       this.latestFrame = undefined;
+      this.lastMotionOutputFrame = undefined;
       this.options.onLog?.({ level: 'warning', source: 'protection', message: 'motion-dropped-paused' });
       this.reportDroppedMotion(frame, 'protection-paused');
       return { queued: false, reason: 'protection-paused' };
@@ -509,6 +513,7 @@ export class HardwareController {
       this.flushTimer = undefined;
     }
     this.latestFrame = undefined;
+    this.lastMotionOutputFrame = undefined;
 
     if (!this.port?.isOpen) {
       return { stopped: false, reason: 'hardware-not-connected' };
@@ -551,6 +556,7 @@ export class HardwareController {
       this.flushTimer = undefined;
     }
     this.latestFrame = undefined;
+    this.lastMotionOutputFrame = undefined;
 
     if (!this.port?.isOpen) {
       return { tested: false, reason: 'hardware-not-connected' };
@@ -635,11 +641,12 @@ export class HardwareController {
     const payload = encodeTCodeMotion(profiledFrame, {
       linearAxis: this.profile.linearAxis,
       vibrationAxis: this.profile.vibrationAxis,
-      intervalMs: TCODE_INTERVAL_MS
+      intervalMs: resolveMotionIntervalMs(profiledFrame, this.lastMotionOutputFrame)
     });
 
     try {
       await this.writePayload(payload, 'motion', profiledFrame);
+      this.lastMotionOutputFrame = profiledFrame;
       this.reportOutput('motion', payload);
     } catch (error) {
       console.error('hardware write failed', error);
@@ -909,6 +916,7 @@ export class HardwareController {
         this.flushTimer = undefined;
       }
       this.latestFrame = undefined;
+      this.lastMotionOutputFrame = undefined;
       this.failActiveWrites(port, error);
       return;
     }
@@ -920,6 +928,7 @@ export class HardwareController {
       this.flushTimer = undefined;
     }
     this.latestFrame = undefined;
+    this.lastMotionOutputFrame = undefined;
     this.failActiveWrites(port, error);
     const expectedTransition = this.lifecycleTransition !== undefined;
     this.reportConnectionStatus({
@@ -1116,6 +1125,7 @@ export class HardwareController {
         this.flushTimer = undefined;
       }
       this.latestFrame = undefined;
+      this.lastMotionOutputFrame = undefined;
       this.failActiveWrites(port, new Error('hardware-disconnected'));
       this.reportConnectionStatus({ connected: false, reason: 'hardware-disconnected', unexpected: false });
     }
@@ -1304,6 +1314,29 @@ function normalizeLifecycleTimeoutMs(value: number | undefined) {
   return value;
 }
 
+function resolveMotionIntervalMs(frame: MotionFrame, previousFrame: MotionFrame | undefined) {
+  const intervals = [TCODE_INTERVAL_MS];
+  if (typeof frame.durationMs === 'number' && Number.isFinite(frame.durationMs) && frame.durationMs > 0) {
+    intervals.push(Math.round(frame.durationMs));
+  }
+
+  const currentSourceTime = resolveMotionSourceTime(frame);
+  const previousSourceTime = previousFrame ? resolveMotionSourceTime(previousFrame) : undefined;
+  if (
+    currentSourceTime !== undefined
+    && previousSourceTime !== undefined
+    && currentSourceTime > previousSourceTime
+  ) {
+    intervals.push(Math.round(currentSourceTime - previousSourceTime));
+  }
+  return Math.max(...intervals);
+}
+
+function resolveMotionSourceTime(frame: MotionFrame) {
+  const sourceTime = frame.sourceTimeMs ?? frame.timestamp;
+  return Number.isFinite(sourceTime) ? sourceTime : undefined;
+}
+
 function isLifecycleCloseTimeout(error: unknown) {
   return error instanceof Error && error.message === 'hardware-close-timeout';
 }
@@ -1353,8 +1386,8 @@ function applyProtection(frame: MotionFrame, protection: HardwareProtection): Mo
   const high = Math.max(protection.positionMin, protection.positionMax);
 
   return {
+    ...frame,
     intensity: Math.min(clamp01(frame.intensity), protection.intensityLimit),
-    position: low + clamp01(frame.position) * (high - low),
-    timestamp: frame.timestamp
+    position: low + clamp01(frame.position) * (high - low)
   };
 }
