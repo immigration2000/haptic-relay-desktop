@@ -502,7 +502,7 @@ export default function App() {
     await runAction('ports', silent ? '포트 확인 중' : '하드웨어 포트 새로고침 중', async setActionStatus => {
       const nextPorts = await window.hapticRelay.listPorts();
       setPorts(nextPorts);
-      if (!selectedPort && nextPorts[0]) setSelectedPort(nextPorts[0].path);
+      setSelectedPort(current => nextPorts.some(port => port.path === current) ? current : (nextPorts[0]?.path ?? ''));
       if (!silent) {
         setActionStatus(nextPorts.length > 0 ? 'ok' : 'warning', nextPorts.length > 0 ? `포트 ${nextPorts.length}개 발견` : '사용 가능한 하드웨어 포트가 없습니다');
       }

@@ -51,6 +51,7 @@ const runActionSource = sourceSection(appSource, '  async function runAction(', 
 const testHardwareSource = sourceSection(appSource, '  async function testHardware()', '  async function createRoom()');
 const emergencyStopSource = sourceSection(appSource, '  async function emergencyStop()', '  async function exportLogs()');
 const applyHardwareProtectionSource = sourceSection(appSource, '  async function applyHardwareProtection()', '  async function refreshPorts(');
+const refreshPortsSource = sourceSection(appSource, '  async function refreshPorts(', '  async function connectHardware()');
 const disconnectHardwareSource = sourceSection(appSource, '  async function disconnectHardware()', '  async function testHardware()');
 const leaveRoomSource = sourceSection(appSource, '  async function leaveRoom()', '  async function localEmergencyStop()');
 const localEmergencyStopSource = sourceSection(appSource, '  async function localEmergencyStop()', '  async function emergencyStop()');
@@ -221,6 +222,12 @@ assert.match(demoDataSource, /\[\s*\{ id: ['"]aws-main['"], name: ['"]AWS 메인
 assert.match(demoDataSource, /\{ id: ['"]phone-backup['"], name: ['"]휴대폰 예비 릴레이['"], url: ['"]https:\/\/relay\.syncra\.uk['"]/);
 assert.doesNotMatch(demoDataSource, /example\.com/);
 assert.match(appSource, /useState\(import\.meta\.env\.VITE_RELAY_URL \?\? RELAY_SERVERS\[0\]\.url\)/);
+const selectedPortUpdaterMatch = refreshPortsSource.match(/setSelectedPort\(current => ([\s\S]*?)\);/);
+assert.ok(selectedPortUpdaterMatch, 'port refresh uses the current selection and the latest port list');
+const updateSelectedPort = Function('nextPorts', `return current => (${selectedPortUpdaterMatch[1]});`);
+assert.equal(updateSelectedPort([{ path: 'COM3' }])('COM6'), 'COM3', 'a missing selected port falls back to the first available port');
+assert.equal(updateSelectedPort([{ path: 'COM3' }])('COM3'), 'COM3', 'an available selected port remains selected');
+assert.equal(updateSelectedPort([])('COM6'), '', 'the selected port clears when no ports remain');
 assert.match(stylesSource, /\.hardware-row\s*\{[^}]*grid-template-columns:\s*minmax\(160px, 1fr\) repeat\(4, auto\)/);
 for (const reason of [
   'hardware-write-timeout',
