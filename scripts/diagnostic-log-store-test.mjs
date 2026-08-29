@@ -187,4 +187,29 @@ const activePath = path.join(diagnosticsDirectory, 'haptic-relay.jsonl');
   assert.equal(fake.files.has(activePath), false, 'persistence disables after the first filesystem failure');
 }
 
+{
+  const fake = createFakeOperations();
+  const store = new DiagnosticLogStore({
+    directory: diagnosticsDirectory,
+    sessionId: 'boundary-session',
+    operations: fake.operations
+  });
+
+  store.recordMotion({ timestamp: 5_100, outcome: 'completed', command: 'L05000I33' });
+  await store.recordBoundary({
+    timestamp: 5_200,
+    level: 'info',
+    source: 'app',
+    event: 'session-ended',
+    data: {}
+  });
+  await store.flush();
+
+  assert.deepEqual(
+    parseJsonLines(fake.files.get(activePath)).map(record => record.event),
+    ['hardware-motion-summary', 'session-ended'],
+    'lifecycle boundaries atomically persist the final motion summary first'
+  );
+}
+
 console.log('diagnostic log store tests passed');

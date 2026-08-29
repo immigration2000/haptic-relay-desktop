@@ -123,6 +123,13 @@ export class DiagnosticLogStore {
     if (sample.reason !== undefined) bucket.lastFailureReason = boundedText(sample.reason);
   }
 
+  recordBoundary(input: DiagnosticEventInput) {
+    const bucket = this.motionBucket;
+    this.motionBucket = undefined;
+    if (bucket) void this.recordMotionBucket(bucket);
+    return this.record(input);
+  }
+
   async flushMotion() {
     const bucket = this.motionBucket;
     this.motionBucket = undefined;

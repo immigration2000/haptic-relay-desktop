@@ -195,11 +195,13 @@ assert.match(mainSource, /app\.on\(['"]before-quit['"][\s\S]*?event\.preventDefa
 assert.match(mainSource, /function shutdownApplication\(\)[\s\S]*?relay\.hasActiveRoom\(\)[\s\S]*?hardware\.stopForRoomExit\(\)[\s\S]*?relay\.disconnect\(\)[\s\S]*?hardware\.disconnect\(\)/);
 assert.match(mainSource, /app\.whenReady\(\)\.then\([\s\S]*?path\.join\(app\.getPath\(['"]userData['"]\), ['"]logs['"]\)[\s\S]*?session-started/);
 assert.match(mainSource, /function routeHardwareDiagnostic\([\s\S]*?hardware-motion-sample[\s\S]*?recordMotion\([\s\S]*?diagnosticLogStore\.record\(/);
+assert.match(mainSource, /DIAGNOSTIC_DATA_FIELDS\s*=\s*\[[\s\S]*?['"]dtr['"][\s\S]*?['"]rts['"]/);
+assert.match(mainSource, /function routeHardwareDiagnostic\([\s\S]*?recordBoundary\(/);
 assert.match(mainSource, /function reportPersistentLogFailure\([\s\S]*?persistent-log-disabled/);
 const persistentFailureSource = sourceSection(mainSource, 'function reportPersistentLogFailure(', 'function routeHardwareDiagnostic(');
 assert.doesNotMatch(persistentFailureSource, /diagnosticLogStore\?\.record|diagnosticLogStore\.record/);
 assert.match(mainSource, /function shutdownApplication\(\)[\s\S]*?await hardware\.disconnect\(\)[\s\S]*?flushDiagnosticsForShutdown\(\)/);
-assert.match(mainSource, /function flushDiagnosticsForShutdown\([\s\S]*?flushMotion\(\)[\s\S]*?diagnosticLogStore\?\.flush\(\)[\s\S]*?Promise\.race\(/);
+assert.match(mainSource, /function flushDiagnosticsForShutdown\([\s\S]*?recordBoundary\([\s\S]*?event:\s*['"]session-ended['"][\s\S]*?diagnosticLogStore\?\.flush\(\)[\s\S]*?Promise\.race\(/);
 assert.match(mainSource, /app:export-logs[\s\S]*?buildLogExportPayload\(/);
 assert.doesNotMatch(mainSource, /pauseAndStop|disconnectSafely/);
 assert.doesNotMatch(windowAllClosedSource, /hardware\.disconnect\(\)/);

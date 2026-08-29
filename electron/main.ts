@@ -54,7 +54,7 @@ const DIAGNOSTIC_DATA_FIELDS = [
   'manufacturer', 'pnpId', 'locationId', 'command', 'raw', 'responseReceived',
   'detected', 'version', 'axes', 'durationMs', 'deviceAcknowledged', 'operation',
   'name', 'message', 'timeout', 'outcome', 'position', 'intensity', 'reason',
-  'stopped', 'emergencyStopped', 'unexpected'
+  'stopped', 'emergencyStopped', 'unexpected', 'dtr', 'rts'
 ] as const;
 
 let mainWindow: BrowserWindow | undefined;
@@ -116,13 +116,24 @@ function routeHardwareDiagnostic(diagnostic: HardwareDiagnosticEvent) {
     return;
   }
 
-  void diagnosticLogStore.record({
+  const record = {
     timestamp: diagnostic.timestamp,
     level: diagnostic.level,
     source: diagnostic.source,
     event: diagnostic.event,
     data: sanitizeDiagnosticData(diagnostic.data)
-  });
+  };
+  const operation = primitiveString(diagnostic.data.operation);
+  const isMotionBoundary = diagnostic.event === 'hardware-disconnect-stop'
+    || diagnostic.event === 'hardware-disconnected'
+    || diagnostic.event === 'hardware-port-closed'
+    || diagnostic.event === 'room-exit-stop'
+    || diagnostic.event === 'emergency-latched'
+    || ((diagnostic.event === 'hardware-write-completed' || diagnostic.event === 'hardware-write-failed')
+      && operation === 'stop');
+  void (isMotionBoundary
+    ? diagnosticLogStore.recordBoundary(record)
+    : diagnosticLogStore.record(record));
 }
 
 const hardware = new HardwareController({
@@ -639,14 +650,13 @@ function shutdownApplication() {
 async function flushDiagnosticsForShutdown() {
   if (!diagnosticLogStore) return;
   const flushPromise = (async () => {
-    await diagnosticLogStore?.record({
+    await diagnosticLogStore?.recordBoundary({
       timestamp: Date.now(),
       level: 'info',
       source: 'app',
       event: 'session-ended',
       data: {}
     });
-    await diagnosticLogStore?.flushMotion();
     await diagnosticLogStore?.flush();
   })();
   const flushed = await Promise.race([

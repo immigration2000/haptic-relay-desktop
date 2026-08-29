@@ -29,7 +29,6 @@ export function buildLogExportPayload(input: LogExportInput) {
       schemaVersion: input.diagnostic.schemaVersion,
       sessionId: input.diagnostic.sessionId,
       format: input.diagnostic.format,
-      activeFile: input.diagnostic.activeFile,
       maxFileBytes: input.diagnostic.maxFileBytes,
       maxFiles: input.diagnostic.maxFiles
     } : null

@@ -40,13 +40,12 @@ assert.deepEqual(payload, {
     schemaVersion: 1,
     sessionId: 'session-one',
     format: 'jsonl',
-    activeFile: '/profile/logs/haptic-relay.jsonl',
     maxFileBytes: 2_097_152,
     maxFiles: 5
   }
 });
 
 const serialized = JSON.stringify(payload);
-assert.doesNotMatch(serialized, /must-not-export|password|environment|token/);
+assert.doesNotMatch(serialized, /must-not-export|password|environment|token|profile|activeFile/);
 
 console.log('log export payload tests passed');
