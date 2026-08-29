@@ -213,6 +213,30 @@ class SerialPortFaithfulFake extends FakePort {
   }
 }
 
+if (runRegression('serial-control-signals')) {
+  const port = new FakePort('COM3');
+  const controller = new HardwareController({
+    createPort: () => port,
+    probeTimeoutMs: 0,
+    writeTimeoutMs: 20,
+    lifecycleTimeoutMs: 20
+  });
+
+  await controller.connect('COM3', {
+    baudRate: 115200,
+    linearAxis: 'L0',
+    vibrationAxis: undefined,
+    strokeMin: 0.3,
+    strokeMax: 0.8,
+    stopPosition: 0.5,
+    invertPosition: false
+  });
+
+  assert.deepEqual(port.signalSets, [], 'connection leaves the serial driver control-line defaults unchanged');
+  assert.equal(port.operations[0]?.type, 'write', 'T-Code readiness probe is the first explicit serial operation');
+  await controller.disconnect();
+}
+
 if (runRegression('hardware-readiness')) {
   const profile = {
     baudRate: 115200,
@@ -235,16 +259,13 @@ if (runRegression('hardware-readiness')) {
     lifecycleTimeoutMs: 20
   });
   const readyResult = await readyController.connect('COM3', profile);
-  assert.deepEqual(readyPort.signalSets, [{ dtr: true, rts: true }]);
-  assert.deepEqual(readyPort.operations.slice(0, 2).map(operation => operation.type), ['set', 'write']);
+  assert.deepEqual(readyPort.signalSets, []);
+  assert.equal(readyPort.operations[0]?.type, 'write');
   assert.equal(readyResult.probe.version, 'v0.3');
   assert.deepEqual(readyController.getConnectionStatus(), { connected: true, path: 'COM3' });
   assert.equal(
-    readyDiagnostics.some(event => event.event === 'hardware-control-signals-configured'
-      && event.data.portPath === 'COM3'
-      && event.data.dtr === true
-      && event.data.rts === true),
-    true
+    readyDiagnostics.some(event => event.event.startsWith('hardware-control-signals-')),
+    false
   );
   assert.equal(
     readyDiagnostics.some(event => event.event === 'hardware-ready'
@@ -266,32 +287,6 @@ if (runRegression('hardware-readiness')) {
   assert.equal(restartingPort.probeAttempts, 2, 'probe retries after the control-line reset boot output');
   assert.equal(restartingResult.probe.version, 'v0.3');
   await restartingController.disconnect();
-
-  const setFailurePort = new FakePort('COM4');
-  setFailurePort.failNextSet = true;
-  const setFailureController = new HardwareController({
-    createPort: () => setFailurePort,
-    probeTimeoutMs: 0,
-    writeTimeoutMs: 20,
-    lifecycleTimeoutMs: 20
-  });
-  await assert.rejects(setFailureController.connect('COM4', profile), /serial-set-failed/);
-  await waitFor(() => !setFailurePort.isOpen);
-  assert.deepEqual(setFailureController.getConnectionStatus(), { connected: false });
-
-  const setTimeoutPort = new FakePort('COM6');
-  setTimeoutPort.stallNextSet = true;
-  const setTimeoutController = new HardwareController({
-    createPort: () => setTimeoutPort,
-    probeTimeoutMs: 0,
-    writeTimeoutMs: 20,
-    lifecycleTimeoutMs: 10
-  });
-  await assert.rejects(
-    setTimeoutController.connect('COM6', profile),
-    /hardware-control-signals-timeout/
-  );
-  await waitFor(() => !setTimeoutPort.isOpen);
 
   const noReplyPort = new FakePort('COM5');
   noReplyPort.probeReply = undefined;
