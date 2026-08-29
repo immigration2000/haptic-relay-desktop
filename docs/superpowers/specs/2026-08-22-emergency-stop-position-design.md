@@ -1,5 +1,9 @@
 # Configurable Emergency Stop Position Design
 
+> **Historical record — partially superseded:** The absolute emergency position remains current, but hardware disconnect no longer writes it. See [2026-08-23-room-motion-emergency-latch-design.md](2026-08-23-room-motion-emergency-latch-design.md) for the current lifecycle authority.
+
+> **ARCHIVED — DO NOT EXECUTE.** Preserve this document only as historical implementation evidence. Use [2026-08-23-room-motion-emergency-latch-design.md](2026-08-23-room-motion-emergency-latch-design.md) and the current hardware checklist for all lifecycle and physical-test decisions.
+
 ## Objective
 
 Allow the user to choose the absolute device-axis position used by the T-Code fallback command after `DSTOP`. The same configured position must be used by the global emergency stop and the safe hardware disconnect operation.
@@ -172,6 +176,8 @@ After implementation and automated verification, update the shared `TCODE_GUIDE.
 - serial acceptance does not prove physical stop.
 
 Do not record COM port identifiers as permanent device identity or include credentials/environment secrets.
+
+> **ARCHIVED — DO NOT EXECUTE THIS PHYSICAL SECTION.** Its hardware-disconnect steps are obsolete and must not be followed. Use [the current lifecycle authority](2026-08-23-room-motion-emergency-latch-design.md) and [current hardware session checklist](../../HARDWARE_SESSION_CHECKLIST.md).
 
 ## COM3 Acceptance Test
 

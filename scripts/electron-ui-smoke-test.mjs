@@ -62,7 +62,7 @@ const logs = { server: '', electron: '' };
 
 await mkdir(outputDirectory, { recursive: true });
 
-const server = spawn(process.execPath, ['dist-server/server/src/relay-server.js'], {
+let server = spawn(process.execPath, ['dist-server/server/src/relay-server.js'], {
   cwd: root,
   env: {
     ...process.env,
@@ -198,23 +198,75 @@ try {
   await waitForExpression(cdp, `document.querySelector('.stream-state')?.textContent.includes('전송 대기')`);
   await cdp.call('Emulation.setDeviceMetricsOverride', { width: 1180, height: 780, deviceScaleFactor: 1, mobile: false });
   await clickButton(cdp, '하드웨어');
+  await waitForExpression(cdp, `document.body.innerText.includes('출력 성공') === false`);
   await waitForExpression(cdp, `document.body.innerText.includes('DEVICE CONFIGURATION')`);
   await waitForExpression(cdp, `document.querySelector('[data-hardware-output]')?.textContent.includes('T-Code 출력이 완료되면 표시됩니다.')`);
+  await replaceInputByLabelTyping(cdp, '긴급 정지 위치', '0.35');
+  await cdp.evaluate(`document.activeElement?.blur()`);
+  assert.equal(
+    (await getInputStateByLabel(cdp, '긴급 정지 위치'))?.value,
+    '0.35',
+    'emergency stop position accepts a decimal typed one character at a time'
+  );
   await assertNoDocumentOverflow(cdp, '1180x780 hardware output monitor');
   await captureScreenshot(cdp, path.join(outputDirectory, '07-hardware.png'));
   await cdp.call('Emulation.setDeviceMetricsOverride', { width: 960, height: 640, deviceScaleFactor: 1, mobile: false });
   await assertNoDocumentOverflow(cdp, '960x640 hardware output monitor');
   await captureScreenshot(cdp, path.join(outputDirectory, '08-hardware-output-960x640.png'));
   await cdp.call('Emulation.setDeviceMetricsOverride', { width: 1180, height: 780, deviceScaleFactor: 1, mobile: false });
-  await clickButton(cdp, '보호 설정');
-  await waitForExpression(cdp, `document.body.innerText.includes('MOTION PROTECTION')`);
+  await clickButton(cdp, '현재 세션');
+  await waitForExpression(cdp, `document.body.innerText.includes('HOST SESSION')`);
+  await clickSessionTab(cdp, '보호 설정');
+  await waitForExpression(cdp, `document.body.innerText.includes('시청자 보호') && document.body.innerText.includes('전체 긴급 정지')`);
   await captureScreenshot(cdp, path.join(outputDirectory, '09-safety.png'));
+  await clickButton(cdp, '긴급 정지');
+  await waitForExpression(cdp, `[...document.querySelectorAll('button')].some(button => button.textContent.includes('긴급정지 해제'))`);
+  assert.equal(
+    await cdp.evaluate(`(() => {
+      const label = [...document.querySelectorAll('label')].find(item => item.textContent.includes('수신 일시정지'));
+      return label?.querySelector('input')?.checked;
+    })()`),
+    false,
+    'emergency latch does not enable receive pause'
+  );
+  assert.equal(
+    await cdp.evaluate(`document.body.innerText.includes('릴레이 서버에 연결되어 있지 않습니다')`),
+    false,
+    'host emergency stop uses the active room relay'
+  );
+  await clickButton(cdp, '긴급정지 해제');
+  await waitForExpression(cdp, `document.body.innerText.includes('긴급정지 해제됨')`);
+  await waitForExpression(cdp, `[...document.querySelectorAll('button')].some(button => button.textContent.trim() === '긴급 정지')`);
   await clickButton(cdp, '로그');
   await waitForExpression(cdp, `document.body.innerText.includes('EVENT INSPECTOR')`);
   await captureScreenshot(cdp, path.join(outputDirectory, '10-logs.png'));
   await cdp.call('Emulation.setDeviceMetricsOverride', { width: 960, height: 640, deviceScaleFactor: 1, mobile: false });
   await assertNoDocumentOverflow(cdp, '960x640 logs');
   await captureScreenshot(cdp, path.join(outputDirectory, '11-logs-960x640.png'));
+
+  await clickButton(cdp, '현재 세션');
+  await waitForExpression(cdp, `document.body.innerText.includes('HOST SESSION')`);
+  await clickSessionTab(cdp, '실시간 시연');
+  await clickButton(cdp, '시연 시작');
+  await waitForExpression(cdp, `document.querySelector('.stream-state')?.textContent.includes('30Hz 전송 중')`);
+  await terminateChild(server);
+  server = spawn(process.execPath, ['dist-server/server/src/relay-server.js'], {
+    cwd: root,
+    env: {
+      ...process.env,
+      HAPTIC_RELAY_PORT: String(relayPort),
+      HAPTIC_PUBLIC_RELAY_URL: `http://127.0.0.1:${relayPort}`
+    },
+    stdio: ['ignore', 'pipe', 'pipe']
+  });
+  captureOutput(server, 'server');
+  await waitForHttp(`http://127.0.0.1:${relayPort}/healthz`);
+  await waitForExpression(cdp, `(() => {
+    const sessionButton = [...document.querySelectorAll('button')].find(button => button.textContent.trim() === '현재 세션');
+    return document.body.innerText.includes('방 세션 종료: 방을 찾을 수 없습니다') && sessionButton?.disabled === true;
+  })()`, 20_000);
+  assert.equal(await cdp.evaluate(`document.body.innerText.includes('HOST SESSION')`), false, 'terminal host rejoin removal closes the host workspace');
+  assert.equal(await cdp.evaluate(`document.body.innerText.includes('30Hz 전송 중')`), false, 'terminal host rejoin removal clears demo activity');
 
   cdp.send('Browser.close');
   await waitForExit(electron, 5_000);
@@ -294,6 +346,22 @@ async function typeInputByLabel(client, labelText, value) {
   }
 }
 
+async function replaceInputByLabelTyping(client, labelText, value) {
+  const focused = await client.evaluate(`(() => {
+    const label = [...document.querySelectorAll('label')].find(item => item.textContent.includes(${JSON.stringify(labelText)}));
+    const input = label?.querySelector('input');
+    if (!(input instanceof HTMLInputElement)) return false;
+    input.focus();
+    input.select();
+    return true;
+  })()`);
+  assert.equal(focused, true, `${labelText} input can receive focus`);
+  for (const character of value) {
+    await client.call('Input.insertText', { text: character });
+    await delay(20);
+  }
+}
+
 async function getInputStateByLabel(client, labelText) {
   return client.evaluate(`(() => {
     const label = [...document.querySelectorAll('label')].find(item => item.textContent.includes(${JSON.stringify(labelText)}));
@@ -310,6 +378,15 @@ async function clickButton(client, label) {
     return Boolean(button);
   })()`);
   assert.equal(clicked, true, `${label} button is available`);
+}
+
+async function clickSessionTab(client, label) {
+  const clicked = await client.evaluate(`(() => {
+    const button = [...document.querySelectorAll('.session-tabs button')].find(item => item.textContent.trim() === ${JSON.stringify(label)});
+    button?.click();
+    return Boolean(button);
+  })()`);
+  assert.equal(clicked, true, `${label} session tab is available`);
 }
 
 async function clickRoomCard(client, roomName) {

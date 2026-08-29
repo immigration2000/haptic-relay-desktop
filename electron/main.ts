@@ -1,4 +1,5 @@
 import { app, BrowserWindow, clipboard, dialog, ipcMain, session } from 'electron';
+import { randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -14,8 +15,11 @@ import {
   validateUnitInterval
 } from './app-settings.js';
 import { SettingsFileStore } from './settings-file-store.js';
+import { DiagnosticLogStore } from './diagnostic-log-store.js';
+import { buildLogExportPayload } from './log-export.js';
 import type { AppLogEntry, AppSettings, MotionDemoSnapshot, MotionFrame, MotionMonitorSnapshot, RoomSettings } from './protocol.js';
 import { HardwareController } from './services/hardware-controller.js';
+import type { HardwareDiagnosticEvent } from './services/hardware-controller.js';
 import { validateMotionPatternConfig } from './services/demo-motion-pattern.js';
 import { DemoMotionStream } from './services/demo-motion-stream.js';
 import { validateMotionDelayMs } from './services/motion-delay-buffer.js';
@@ -43,6 +47,15 @@ const DEV_CSP_OVERRIDES: Record<string, string> = {
   "default-src 'self'": "default-src 'self' blob:"
 };
 const MAX_LOG_ENTRIES = 300;
+const DIAGNOSTIC_SHUTDOWN_TIMEOUT_MS = 250;
+const DIAGNOSTIC_DATA_FIELDS = [
+  'portPath', 'baudRate', 'linearAxis', 'vibrationAxis', 'strokeMin', 'strokeMax',
+  'stopPosition', 'invertPosition', 'path', 'vendorId', 'productId', 'serialNumber',
+  'manufacturer', 'pnpId', 'locationId', 'command', 'raw', 'responseReceived',
+  'detected', 'version', 'axes', 'durationMs', 'deviceAcknowledged', 'operation',
+  'name', 'message', 'timeout', 'outcome', 'position', 'intensity', 'reason',
+  'stopped', 'emergencyStopped', 'unexpected', 'dtr', 'rts'
+] as const;
 
 let mainWindow: BrowserWindow | undefined;
 let nextLogId = 1;
@@ -50,6 +63,12 @@ let receivedMotionFrames = 0;
 const logEntries: AppLogEntry[] = [];
 const lastLogByKey = new Map<string, number>();
 let settingsStore: SettingsFileStore | undefined;
+let diagnosticLogStore: DiagnosticLogStore | undefined;
+const diagnosticSessionId = randomUUID();
+let persistentLogFailureReported = false;
+let shutdownPromise: Promise<void> | undefined;
+let shutdownComplete = false;
+let quitAfterShutdown = false;
 
 function addLog(entry: Omit<AppLogEntry, 'id' | 'timestamp'>) {
   const now = Date.now();
@@ -69,8 +88,57 @@ function addLog(entry: Omit<AppLogEntry, 'id' | 'timestamp'>) {
   sendToRenderer(mainWindow, 'app:log', nextEntry);
 }
 
+function reportPersistentLogFailure(error: Error) {
+  if (persistentLogFailureReported) return;
+  persistentLogFailureReported = true;
+  console.error('persistent diagnostic logging disabled', error.message);
+  addLog({
+    level: 'error',
+    source: 'app',
+    message: 'persistent-log-disabled',
+    details: error.message
+  });
+}
+
+function routeHardwareDiagnostic(diagnostic: HardwareDiagnosticEvent) {
+  if (!diagnosticLogStore) return;
+  if (diagnostic.event === 'hardware-motion-sample') {
+    const outcome = diagnostic.data.outcome;
+    if (outcome !== 'completed' && outcome !== 'dropped' && outcome !== 'failed') return;
+    diagnosticLogStore.recordMotion({
+      timestamp: diagnostic.timestamp,
+      outcome,
+      command: primitiveString(diagnostic.data.command),
+      position: primitiveNumber(diagnostic.data.position),
+      intensity: primitiveNumber(diagnostic.data.intensity),
+      reason: primitiveString(diagnostic.data.reason)
+    });
+    return;
+  }
+
+  const record = {
+    timestamp: diagnostic.timestamp,
+    level: diagnostic.level,
+    source: diagnostic.source,
+    event: diagnostic.event,
+    data: sanitizeDiagnosticData(diagnostic.data)
+  };
+  const operation = primitiveString(diagnostic.data.operation);
+  const isMotionBoundary = diagnostic.event === 'hardware-disconnect-stop'
+    || diagnostic.event === 'hardware-disconnected'
+    || diagnostic.event === 'hardware-port-closed'
+    || diagnostic.event === 'room-exit-stop'
+    || diagnostic.event === 'emergency-latched'
+    || ((diagnostic.event === 'hardware-write-completed' || diagnostic.event === 'hardware-write-failed')
+      && operation === 'stop');
+  void (isMotionBoundary
+    ? diagnosticLogStore.recordBoundary(record)
+    : diagnosticLogStore.record(record));
+}
+
 const hardware = new HardwareController({
   onLog: entry => addLog(entry),
+  onDiagnostic: routeHardwareDiagnostic,
   onOutput: snapshot => sendToRenderer(mainWindow, 'hardware:output', snapshot),
   onConnectionStatus: status => sendToRenderer(mainWindow, 'hardware:connection-status', status)
 });
@@ -91,14 +159,25 @@ const relay = new RelayClient(frame => {
   sendToRenderer(mainWindow, 'room:approval-requested', request);
 }, status => {
   addLog({ level: status.status === 'rejected' || status.status === 'removed' ? 'warning' : 'info', source: 'room', message: `viewer-${status.status}`, details: status.reason ?? status.roomName });
+  if (status.status === 'removed') {
+    void hardware.stopForRoomExit().then(stop => {
+      if (!stop.stopped && stop.reason !== 'hardware-not-connected') {
+        addLog({ level: 'error', source: 'hardware', message: 'hardware-room-exit-stop-failed', details: stop.reason });
+      }
+    }).catch(error => {
+      addLog({ level: 'error', source: 'hardware', message: 'hardware-room-exit-stop-failed', details: formatError(error) });
+    });
+  }
   sendToRenderer(mainWindow, 'room:viewer-status', status);
 }, viewers => {
   addLog({ level: 'info', source: 'room', message: 'viewer-list-updated', details: `${viewers.length}` });
   sendToRenderer(mainWindow, 'room:viewers', viewers);
 }, signal => {
-  void hardware.emergencyStop();
-  addLog({ level: 'warning', source: 'relay', message: 'room-stop-received', details: signal.roomName });
-  sendToRenderer(mainWindow, 'room:emergency-stop', signal);
+  void (async () => {
+    const hardwareResult = await hardware.latchEmergencyStop();
+    addLog({ level: 'warning', source: 'relay', message: 'room-stop-received', details: signal.roomName });
+    sendToRenderer(mainWindow, 'room:emergency-stop', { ...signal, hardware: hardwareResult });
+  })();
 }, status => {
   addLog({ level: status.status === 'error' ? 'error' : status.status === 'disconnected' || status.status === 'reconnecting' ? 'warning' : 'info', source: 'relay', message: `relay-${status.status}`, details: status.reason ?? status.roomName });
   sendToRenderer(mainWindow, 'room:connection-status', status);
@@ -177,15 +256,46 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  diagnosticLogStore = new DiagnosticLogStore({
+    directory: path.join(app.getPath('userData'), 'logs'),
+    sessionId: diagnosticSessionId,
+    onError: reportPersistentLogFailure
+  });
+  void diagnosticLogStore.record({
+    timestamp: Date.now(),
+    level: 'info',
+    source: 'app',
+    event: 'session-started',
+    data: {
+      appVersion: app.getVersion(),
+      electronVersion: process.versions.electron,
+      nodeVersion: process.versions.node,
+      platform: process.platform,
+      arch: process.arch,
+      packaged: app.isPackaged
+    }
+  });
   configureSecurityPolicy();
   createWindow();
 });
 
 app.on('window-all-closed', () => {
-  demoMotionStream.stop();
-  void hardware.disconnect();
-  relay.disconnect();
-  if (process.platform !== 'darwin') app.quit();
+  if (process.platform !== 'darwin') {
+    app.quit();
+    return;
+  }
+  void shutdownApplication();
+});
+
+app.on('before-quit', event => {
+  if (shutdownComplete) return;
+  event.preventDefault();
+  if (quitAfterShutdown) return;
+  quitAfterShutdown = true;
+  void shutdownApplication().finally(() => {
+    shutdownComplete = true;
+    app.quit();
+  });
 });
 
 app.on('activate', () => {
@@ -211,11 +321,21 @@ ipcMain.handle('hardware:connect', async (event, pathName: unknown, profile: unk
 });
 ipcMain.handle('hardware:disconnect', event => {
   assertTrustedSender(event);
-  return hardware.disconnectSafely();
+  return hardware.disconnect();
+});
+ipcMain.handle('hardware:emergency-state', event => {
+  assertTrustedSender(event);
+  return hardware.getEmergencyStopState();
 });
 ipcMain.handle('hardware:emergency-stop', event => {
   assertTrustedSender(event);
-  return hardware.emergencyStop();
+  demoMotionStream.stop();
+  relay.clearBufferedMotion();
+  return hardware.latchEmergencyStop();
+});
+ipcMain.handle('hardware:emergency-release', event => {
+  assertTrustedSender(event);
+  return hardware.releaseEmergencyStop();
 });
 ipcMain.handle('hardware:test', event => {
   assertTrustedSender(event);
@@ -309,15 +429,22 @@ ipcMain.handle('room:emergency-stop', async event => {
   assertTrustedSender(event);
   demoMotionStream.stop();
   addLog({ level: 'warning', source: 'room', message: 'emergency-stop-requested' });
-  const hardwareResult = await hardware.emergencyStop();
-  const relayResult = await relay.emergencyStop();
+  const relayStop = relay.emergencyStop().catch(error => {
+    addLog({ level: 'error', source: 'relay', message: 'room-stop-failed', details: formatError(error) });
+    return { sent: false, reason: 'room-stop-failed' };
+  });
+  const hardwareStop = hardware.latchEmergencyStop();
+  const [hardwareResult, relayResult] = await Promise.all([hardwareStop, relayStop]);
   return { hardware: hardwareResult, relay: relayResult };
 });
-ipcMain.handle('room:disconnect', event => {
+ipcMain.handle('room:disconnect', async event => {
   assertTrustedSender(event);
   demoMotionStream.stop();
   addLog({ level: 'info', source: 'relay', message: 'relay-disconnect-requested' });
-  return relay.disconnect();
+  const stopPromise = hardware.stopForRoomExit();
+  const relayResult = relay.disconnect();
+  const stop = await stopPromise;
+  return { ...relayResult, stop };
 });
 ipcMain.handle('app:logs', event => {
   assertTrustedSender(event);
@@ -339,12 +466,13 @@ ipcMain.handle('app:export-logs', async event => {
     return { exported: false, canceled: true, count: logEntries.length };
   }
 
-  const payload = {
-    app: 'Haptic Relay',
+  const payload = buildLogExportPayload({
+    appName: 'Haptic Relay',
     version: app.getVersion(),
     exportedAt: new Date().toISOString(),
-    entries: logEntries
-  };
+    entries: logEntries,
+    diagnostic: diagnosticLogStore?.metadata()
+  });
 
   await fs.writeFile(result.filePath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
   addLog({ level: 'info', source: 'app', message: 'logs-exported', details: `${logEntries.length}` });
@@ -488,6 +616,79 @@ function formatError(error: unknown) {
   if (error instanceof Error) return error.message;
   if (typeof error === 'string') return error;
   return 'unknown-error';
+}
+
+function shutdownApplication() {
+  if (shutdownPromise) return shutdownPromise;
+  shutdownPromise = (async () => {
+    const wasInRoom = relay.hasActiveRoom();
+    demoMotionStream.stop();
+    const stopPromise = wasInRoom
+      ? hardware.stopForRoomExit()
+      : Promise.resolve(undefined);
+    relay.disconnect();
+    try {
+      const stop = await stopPromise;
+      if (stop && !stop.stopped && stop.reason !== 'hardware-not-connected') {
+        addLog({ level: 'error', source: 'hardware', message: 'hardware-room-exit-stop-failed', details: stop.reason });
+      }
+    } catch (error) {
+      addLog({ level: 'error', source: 'hardware', message: 'hardware-room-exit-stop-failed', details: formatError(error) });
+    }
+    try {
+      await hardware.disconnect();
+    } catch (error) {
+      addLog({ level: 'error', source: 'hardware', message: 'hardware-disconnect-failed', details: formatError(error) });
+    }
+    await flushDiagnosticsForShutdown();
+  })().finally(() => {
+    shutdownPromise = undefined;
+  });
+  return shutdownPromise;
+}
+
+async function flushDiagnosticsForShutdown() {
+  if (!diagnosticLogStore) return;
+  const flushPromise = (async () => {
+    await diagnosticLogStore?.recordBoundary({
+      timestamp: Date.now(),
+      level: 'info',
+      source: 'app',
+      event: 'session-ended',
+      data: {}
+    });
+    await diagnosticLogStore?.flush();
+  })();
+  const flushed = await Promise.race([
+    flushPromise.then(() => true),
+    new Promise<false>(resolve => setTimeout(() => resolve(false), DIAGNOSTIC_SHUTDOWN_TIMEOUT_MS))
+  ]);
+  if (!flushed) console.error('persistent diagnostic flush timed out');
+}
+
+function sanitizeDiagnosticData(data: Record<string, unknown>) {
+  const sanitized: Record<string, unknown> = {};
+  for (const field of DIAGNOSTIC_DATA_FIELDS) {
+    const value = data[field];
+    if (isDiagnosticPrimitive(value)) {
+      sanitized[field] = value;
+    } else if (Array.isArray(value)) {
+      sanitized[field] = value.filter(isDiagnosticPrimitive);
+    }
+  }
+  return sanitized;
+}
+
+function isDiagnosticPrimitive(value: unknown): value is string | number | boolean | null {
+  return value === null || typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean';
+}
+
+function primitiveString(value: unknown) {
+  return typeof value === 'string' ? value : undefined;
+}
+
+function primitiveNumber(value: unknown) {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }
 
 function formatFileTimestamp(date: Date) {

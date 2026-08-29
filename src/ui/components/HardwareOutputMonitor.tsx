@@ -16,7 +16,7 @@ export function HardwareOutputMonitor({ connected }: { connected: boolean }) {
         <span><Cable size={15} /> 직렬 출력 진단</span>
         <strong className={output ? 'ok' : ''}>
           {output ? <CircleCheck size={14} /> : null}
-          {output ? '출력 성공' : connected ? '출력 대기' : '장비 미연결'}
+          {output ? '직렬 전송 완료' : connected ? '출력 대기' : '장비 미연결'}
         </strong>
       </div>
       <code data-hardware-output>{output?.command ?? 'T-Code 출력이 완료되면 표시됩니다.'}</code>

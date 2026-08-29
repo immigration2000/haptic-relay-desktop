@@ -287,7 +287,7 @@ function handleEmergencyStop(socket: Socket, ack?: (response: unknown) => void) 
     return;
   }
 
-  socket.to(roomName).volatile.compress(false).emit('room:stop', { roomName, timestamp: Date.now() });
+  socket.to(roomName).compress(false).emit('room:stop', { roomName, timestamp: Date.now() });
   ack?.({ ok: true, roomName });
 }
 

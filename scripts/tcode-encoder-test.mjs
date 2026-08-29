@@ -29,6 +29,19 @@ assert.deepEqual(
   encoder.parseTCodeProbe(['T-Code: v0.3', 'axes L0 R1 V0']),
   { detected: true, raw: ['T-Code: v0.3', 'axes L0 R1 V0'], version: 'v0.3', axes: ['L0', 'R1', 'V0'] }
 );
+const esp32BootLog = [
+  'ets Jul 29 2019 12:21:46',
+  'rst:0x1 (POWERON_RESET),boot:0x13 (SPI_FAST_FLASH_BOOT)',
+  'configsip: 0, SPIWP:0xee',
+  'clk_drv:0x00,q_drv:0x00,d_drv:0x00,cs0_drv:0x00,hd_drv:0x00,wp_drv:0x00',
+  'mode:DIO, clock div:1',
+  'entry 0x400805e4'
+];
+assert.deepEqual(
+  encoder.parseTCodeProbe(esp32BootLog),
+  { detected: false, raw: esp32BootLog, version: undefined, axes: [] },
+  'ESP32 boot diagnostics must not satisfy the T-Code readiness probe'
+);
 assert.throws(
   () => encoder.encodeTCodeMotion(frame(0.5, 0.5), { linearAxis: 'X0' }),
   /invalid-tcode-axis/

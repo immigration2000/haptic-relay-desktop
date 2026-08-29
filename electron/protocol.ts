@@ -76,6 +76,21 @@ export type HardwareProtection = {
   paused: boolean;
 };
 
+export type HardwareStopResult = {
+  stopped: boolean;
+  reason?: string;
+};
+
+export type HardwareEmergencyState = {
+  emergencyStopped: boolean;
+};
+
+export type HardwareLatchedStopResult = HardwareStopResult & HardwareEmergencyState;
+
+export type HardwareProtectionResult = {
+  protection: HardwareProtection;
+};
+
 export type HardwareOutputSnapshot = {
   kind: 'motion' | 'test' | 'stop';
   command: string;
@@ -93,10 +108,10 @@ export type HardwareConnectionStatus = {
 
 export type HardwareDisconnectResult = {
   connected: false;
-  stop: {
-    stopped: boolean;
-    reason?: string;
-  };
+};
+
+export type RoomDisconnectResult = HardwareDisconnectResult & {
+  stop: HardwareStopResult;
 };
 
 export type PlaybackSettings = {

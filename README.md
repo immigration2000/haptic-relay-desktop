@@ -33,12 +33,12 @@
 - 스트리머용 방 입장 정보 표시 및 클립보드 복사
 - 신청입장 승인/거절 대기 큐
 - 스트리머용 접속자 목록, 강퇴, 세션 차단
-- 로컬/방 전체 긴급 정지
+- 로컬/방 전체 긴급 정지와 명시적 로컬 해제 잠금
 - 릴레이 재연결 후 자동 방 재입장
 - SerialPort 기반 하드웨어 포트 검색, 연결, T-Code 프로토콜 송신
 - 하드웨어 연결 시 T-Code `D1`/`D2` capability probe
 - baudrate, T-Code 축, stroke 범위, 절대 긴급 정지 위치, 방향 반전 하드웨어 프로필 설정
-- 정지 명령을 최대 500ms 시도한 뒤 포트를 닫는 안전한 하드웨어 연결 해제
+- 정지 명령을 최대 `500ms` 시도한 뒤 직렬 포트를 닫는 하드웨어 연결 해제
 - 시청자 강도 상한, 위치 범위 제한, 수신 일시정지 보호 옵션
 - 하드웨어 프로필 및 보호 옵션 저장/불러오기
 - relay, room, hardware, protection 최근 이벤트 로그
@@ -265,7 +265,8 @@ Desktop App -> Control API -> signed room token -> Relay Node -> Viewers
 - Relay socket은 token 없이 `room:create` 또는 `viewer:join`을 허용하지 않습니다.
 - 신청입장 방에서는 viewer socket이 승인 대기 상태가 되고, 스트리머 앱의 승인 후에만 방 fanout에 참여합니다.
 - 스트리머는 접속자 목록에서 viewer를 강퇴하거나 표시 이름 기준으로 현재 방 세션에서 차단할 수 있습니다.
-- 스트리머의 긴급 정지는 local hardware stop과 room-wide stop event를 동시에 실행합니다.
+- 스트리머의 긴급 정지는 local hardware stop과 room-wide stop event를 동시에 실행하고, 각 참여자의 하드웨어 출력을 로컬에서 잠급니다.
+- 긴급정지 잠금은 원격에서 해제할 수 없습니다. 각 사용자가 자신의 앱에서 **긴급정지 해제**를 눌러야 하며, 해제 동작 자체는 모션이나 relay release event를 보내지 않습니다.
 - 데스크톱 앱은 relay socket 재연결 후 마지막 host/viewer token으로 방 바인딩을 다시 수행합니다.
 - `GET /healthz`: 서버 생존 확인
 - `GET /metrics`: 방별 연결 수, forwarded/dropped frame 확인
@@ -363,7 +364,7 @@ decode -> sequence filter -> local receipt-time delay queue -> hardware queue
 - 조정 단위: `100ms`
 - 기본값과 기존 설정 마이그레이션 값: `0ms`
 - 지연값 변경과 세션/안전 이벤트는 지연 큐에 남은 프레임을 삭제합니다.
-- 로컬 보간은 다음 독립적인 Phase 1 작업으로 남아 있습니다.
+- 지연이 `100ms` 이상이면 수신 시각 기준으로 `30Hz` 선형 보간합니다. 프레임 간격이 `250ms`를 넘으면 합성하지 않으며 최신 프레임 이후를 예측하거나 외삽하지 않습니다.
 
 ## 하드웨어 출력 프로토콜
 
@@ -377,8 +378,8 @@ L04200I16 V08000
 DSTOP
 ```
 
-- 연결 직후 `D1`/`D2`를 보내 T-Code 장비 정보와 지원 축을 best-effort로 확인합니다.
-- probe 응답이 없어도 연결 실패로 처리하지 않고, UI에 `TCode 응답 없음`으로 표시합니다.
+- 연결 직후 `D1`/`D2`를 보내 T-Code 버전과 지원 축을 확인합니다.
+- 인식 가능한 T-Code 버전 응답이 없으면 준비되지 않은 연결로 처리하고 포트를 닫습니다. 준비 확인 전에는 모션과 테스트 출력을 허용하지 않습니다.
 - `L0`: 기본 linear stroke axis
 - `4200`: 정규화 위치 `0.42`를 0-9999 범위로 변환한 값
 - `I16`: 해당 위치까지 이동할 interval ms
@@ -387,7 +388,6 @@ DSTOP
 - `HAPTIC_TCODE_LINEAR_AXIS`: 기본 `L0`
 - `HAPTIC_TCODE_VIBRATION_AXIS`: 선택값, 예: `V0`
 - `HAPTIC_TCODE_INTERVAL_MS`: 기본 `16`
-- `HAPTIC_HARDWARE_SAFETY_TIMEOUT_MS`: 기본 `1000`, 새 motion frame이 없을 때 자동 정지까지 대기할 시간. `0` 이하로 설정하면 비활성화합니다.
 
 앱 UI에서 연결 시점의 하드웨어 프로필을 조정할 수 있습니다.
 
@@ -395,18 +395,20 @@ DSTOP
 - `Stroke 축`: 기본 `L0`
 - `진동 축`: 선택값, 예: `V0`
 - `최소/최대 위치`: 수신 position `0.0-1.0`을 실제 출력 범위로 매핑
-- `긴급 정지 위치`: `DSTOP` 다음에 출력할 절대 위치. 최소/최대 위치 안에서 지정
+- `긴급 정지 위치`: 방 나가기 또는 긴급정지 때 `DSTOP` 다음에 출력할 절대 위치. 최소/최대 위치 안에서 지정
 - `방향 반전`: position `0.0`과 `1.0` 방향을 반대로 매핑
 
-연결 중에는 main process에 적용된 프로필과 화면 값이 달라지지 않도록 프로필 변경과 설정 불러오기를 잠급니다. 프로필을 바꾸려면 먼저 `연결 해제`를 누릅니다. 연결 해제는 정지 명령을 최대 500ms 시도한 뒤 포트를 닫으며, 정지 명령이 실패하면 장비 전원을 직접 차단하라는 경고를 표시합니다.
+연결 중에는 main process에 적용된 프로필과 화면 값이 달라지지 않도록 프로필 변경과 설정 불러오기를 잠급니다. 프로필을 바꾸려면 먼저 직렬 포트를 닫습니다. UI에서는 이 동작을 `연결 해제`로 표시합니다. 이 버튼은 pending 출력을 차단하고 `DSTOP`과 설정된 절대 정지 위치를 최대 `500ms` 시도한 뒤, 성공 여부와 관계없이 포트를 닫습니다. 기존 emergency latch 상태는 바꾸지 않습니다.
 
-연결 후 `테스트` 버튼은 낮은 강도와 짧은 interval로 `0.2 -> 0.5 -> 0.8 -> 0.5` 위치를 순서대로 출력한 뒤 자동으로 긴급 정지를 실행합니다. 실제 장비 방향, stroke 범위, baudrate, T-Code 축 설정을 빠르게 확인하기 위한 로컬 테스트이며 릴레이 서버에는 motion을 보내지 않습니다.
+연결 후 `테스트` 버튼은 낮은 강도와 짧은 interval로 `0.2 -> 0.5 -> 0.8 -> 0.5` 위치를 순서대로 출력하고 마지막 위치를 유지합니다. 실제 장비 방향, stroke 범위, baudrate, T-Code 축 설정을 빠르게 확인하기 위한 로컬 테스트이며 릴레이 서버에는 motion을 보내지 않습니다.
 
 시청자 보호 옵션은 로컬 하드웨어 출력 전에 적용됩니다.
 
 - `강도 상한`: 수신 intensity를 지정한 상한 이하로 제한
 - `최소/최대 위치`: 수신 position을 시청자가 허용한 범위 안으로 재매핑
-- `수신 일시정지`: 새 motion frame을 하드웨어에 출력하지 않고 즉시 로컬 정지
+- `수신 일시정지`: 새 motion frame을 하드웨어에 출력하지 않음. 긴급정지 잠금과 독립적으로 동작하며 위치 명령을 보내지 않음
+
+같은 스트리머 값이 유지되거나 새 패킷이 잠시 없으면 장비는 마지막 명령 위치를 유지합니다. 자동 inactivity 정지 위치 이동은 없습니다. 절대 정지 위치는 방 나가기, 긴급정지, 명시적 하드웨어 연결 해제에서 사용합니다. 긴급정지는 로컬 잠금이며 사용자가 **긴급정지 해제**를 눌러야 다시 움직입니다. 해제는 해당 앱에만 적용되고 해제 순간에는 모션 명령을 보내지 않으므로, 이후 새로 수신한 유효 프레임부터 출력할 수 있습니다.
 
 하드웨어 프로필, 보호 옵션, 재생 설정은 Electron `userData` 경로의 `settings.json`에 저장합니다. 현재 설정 schema는 v3입니다. v1/v2 설정은 기존 `strokeMin`을 절대 긴급 정지 위치로 사용해 v3로 마이그레이션하며, v1의 모션 지연 마이그레이션 값은 `0ms`입니다.
 
@@ -443,9 +445,11 @@ DSTOP
 - 서버 rate limit은 token bucket으로 처리해 60Hz 근처의 타이머 지터를 과도하게 드롭하지 않습니다.
 - SerialPort 출력은 backpressure를 고려해 최신 프레임만 큐에 남깁니다.
 - SerialPort write가 500ms 안에 완료되지 않거나 포트 `error`가 발생하면 해당 연결을 폐기하고, 명시적으로 재연결하기 전까지 추가 출력을 차단합니다.
-- 하드웨어는 새 motion frame이 일정 시간 없으면 자동으로 `DSTOP`과 설정된 절대 긴급 정지 위치 fallback을 출력합니다.
+- 변경되지 않은 frame과 일시적인 packet inactivity는 마지막 하드웨어 위치를 유지하며 자동 stop payload를 만들지 않습니다.
 - 앱은 최근 300개 이벤트를 main process 메모리 로그로 보관하고 UI에는 최근 80개를 표시합니다.
 - 이벤트 로그는 UI의 `저장` 버튼으로 JSON 파일로 export할 수 있습니다.
+- 구조화된 하드웨어 진단은 Electron `userData/logs` 아래 `haptic-relay.jsonl`과 최대 4개의 회전 파일에 자동 저장됩니다. 파일당 2 MiB, 전체 약 10 MiB로 제한됩니다.
+- 30Hz motion은 프레임마다 기록하지 않고 1초 단위 성공·누락·실패 요약으로 저장합니다.
 
 ## 이벤트 로그
 
@@ -457,25 +461,32 @@ DSTOP
 - relay 연결, 끊김, 재연결, 오류
 - 방 생성/입장 요청, 승인 요청, 접속자 목록 갱신
 - room-wide stop 수신
-- safety timeout, protection pause, protection update
+- emergency latch/release, protection pause, protection update
 - 클립보드 복사
 - 로그 저장
 
-로그 저장 파일은 사용자가 선택한 경로에 JSON으로 저장합니다.
+로그 저장 파일은 사용자가 선택한 경로에 JSON으로 저장합니다. 기존 메모리 `entries`와 함께 현재 세션 ID 및 자동 JSONL 보존 한도 메타데이터가 들어갑니다. 공유 파일에는 Windows 사용자 이름이 포함될 수 있는 자동 로그의 절대 경로를 넣지 않습니다. 자동 진단과 수동 저장 파일은 로컬에만 남고 비밀번호, 토큰, 인증 헤더 및 URL query는 기록하지 않습니다.
+
+UI의 `직렬 전송 완료`는 운영체제가 SerialPort write callback을 완료했다는 뜻입니다. 컨트롤러의 명령 해석, device acknowledgement 또는 장비의 실제 동작을 증명하지 않습니다. 장비가 움직이지 않으면 먼저 자동 JSONL의 연결 프로필, `hardware-probe-completed` 응답 유무, write duration, port error를 실제 위치·전원·케이블 상태와 함께 확인합니다.
 
 ```json
 {
+  "schemaVersion": 1,
+  "sessionId": "session-id",
   "app": "Haptic Relay",
-  "version": "0.1.0",
+  "version": "0.1.1-demo.10",
   "exportedAt": "2026-07-31T00:00:00.000Z",
-  "entries": []
+  "entries": [],
+  "diagnosticLog": {
+    "format": "jsonl",
+    "maxFileBytes": 2097152,
+    "maxFiles": 5
+  }
 }
 ```
 
 ## 다음 구현 순서
 
-1. 시청자 로컬 모션 보간
-2. 앱용 공용 릴레이 서버 배포
-3. 영구 차단/세션 로그 저장소
-4. 하드웨어별 어댑터 분리
-5. 속도 제한, 연령/동의 확인
+1. 영구 차단 저장소
+2. 하드웨어별 어댑터 분리
+3. 속도 제한, 연령/동의 확인

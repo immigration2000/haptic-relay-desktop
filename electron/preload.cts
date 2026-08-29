@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { AppLogEntry, AppSettings, ApprovalRequest, HardwareConnectionStatus, HardwareOutputSnapshot, HardwareProfile, HardwareProtection, MotionDemoSnapshot, MotionMonitorSnapshot, MotionPatternConfig, RoomSettings, ViewerSession } from './protocol.js';
+import type { AppLogEntry, AppSettings, ApprovalRequest, HardwareConnectionStatus, HardwareEmergencyState, HardwareLatchedStopResult, HardwareOutputSnapshot, HardwareProfile, HardwareProtection, MotionDemoSnapshot, MotionMonitorSnapshot, MotionPatternConfig, RoomDisconnectResult, RoomSettings, ViewerSession } from './protocol.js';
 
 type ViewerStatus = {
   roomName: string;
@@ -10,6 +10,7 @@ type ViewerStatus = {
 type StopSignal = {
   roomName: string;
   timestamp: number;
+  hardware: HardwareLatchedStopResult;
 };
 
 type RelayConnectionStatus = {
@@ -24,7 +25,9 @@ contextBridge.exposeInMainWorld('hapticRelay', {
   connectHardware: (pathName: string, profile: HardwareProfile) => ipcRenderer.invoke('hardware:connect', pathName, profile),
   disconnectHardware: () => ipcRenderer.invoke('hardware:disconnect'),
   getHardwareStatus: () => ipcRenderer.invoke('hardware:status'),
-  stopHardware: () => ipcRenderer.invoke('hardware:emergency-stop'),
+  getHardwareEmergencyState: (): Promise<HardwareEmergencyState> => ipcRenderer.invoke('hardware:emergency-state'),
+  stopHardware: (): Promise<HardwareLatchedStopResult> => ipcRenderer.invoke('hardware:emergency-stop'),
+  releaseHardwareStop: (): Promise<HardwareEmergencyState> => ipcRenderer.invoke('hardware:emergency-release'),
   testHardware: () => ipcRenderer.invoke('hardware:test'),
   sendMotion: (intensity: number, position: number) => ipcRenderer.invoke('hardware:send', intensity, position),
   startMotionDemo: (intensity: number, position: number) => ipcRenderer.invoke('motion-demo:start', intensity, position),
@@ -97,5 +100,5 @@ contextBridge.exposeInMainWorld('hapticRelay', {
     ipcRenderer.on('app:log', handler);
     return () => ipcRenderer.removeListener('app:log', handler);
   },
-  disconnectRoom: () => ipcRenderer.invoke('room:disconnect')
+  disconnectRoom: (): Promise<RoomDisconnectResult> => ipcRenderer.invoke('room:disconnect')
 });

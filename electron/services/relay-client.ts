@@ -132,6 +132,8 @@ export class RelayClient {
   private readonly incomingMotionDelayBuffer = new MotionDelayBuffer();
   private incomingMotionTimer: NodeJS.Timeout | undefined;
   private outgoingSequence = 0;
+  private lifecycleGeneration = 0;
+  private readonly lifecycleCancellationHandlers = new Set<() => void>();
 
   constructor(
     private readonly onMotion?: (frame: MotionFrame) => void,
@@ -143,31 +145,41 @@ export class RelayClient {
   ) {}
 
   async connect(relayUrl: string) {
-    if (this.socket?.connected && this.relayUrl === relayUrl) return;
-    this.disconnect();
+    const generation = this.beginLifecycle();
+    await this.connectForLifecycle(relayUrl, generation);
+  }
+
+  private async connectForLifecycle(relayUrl: string, generation: number) {
+    this.assertLifecycleOwner(generation);
 
     this.relayUrl = relayUrl;
-    this.socket = io(relayUrl, {
+    const socket = io(relayUrl, {
       transports: ['websocket'],
       upgrade: false,
       reconnection: true,
       timeout: 5000
     });
-    this.socket.on('connect', () => {
+    this.socket = socket;
+    socket.on('connect', () => {
+      if (this.socket !== socket) return;
       this.onConnectionStatus?.({ status: 'connected', role: this.session?.role, roomName: this.session?.roomName });
       if (this.session) void this.rejoinSession();
     });
-    this.socket.io.on('reconnect_attempt', () => {
+    socket.io.on('reconnect_attempt', () => {
+      if (this.socket !== socket) return;
       this.onConnectionStatus?.({ status: 'reconnecting', role: this.session?.role, roomName: this.session?.roomName });
     });
-    this.socket.on('disconnect', reason => {
+    socket.on('disconnect', reason => {
+      if (this.socket !== socket) return;
       this.clearDelayedMotion();
       this.onConnectionStatus?.({ status: 'disconnected', role: this.session?.role, roomName: this.session?.roomName, reason });
     });
-    this.socket.on('connect_error', error => {
+    socket.on('connect_error', error => {
+      if (this.socket !== socket) return;
       this.onConnectionStatus?.({ status: 'error', role: this.session?.role, roomName: this.session?.roomName, reason: error.message });
     });
-    this.socket.on('m', payload => {
+    socket.on('m', payload => {
+      if (this.socket !== socket) return;
       try {
         const frame = decodeMotionPacket(payload);
         if (!this.incomingSequenceTracker.accept(frame)) return;
@@ -179,49 +191,58 @@ export class RelayClient {
         console.error('invalid relay motion packet', error);
       }
     });
-    this.socket.on('viewer:approval-requested', request => {
+    socket.on('viewer:approval-requested', request => {
+      if (this.socket !== socket) return;
       this.onApprovalRequest?.(request);
     });
-    this.socket.on('viewer:approved', response => {
+    socket.on('viewer:approved', response => {
+      if (this.socket !== socket) return;
       if (this.session?.role === 'viewer') this.session.waitingForApproval = false;
       this.onViewerStatus?.({ roomName: response.roomName, status: 'approved' });
     });
-    this.socket.on('viewer:rejected', response => {
+    socket.on('viewer:rejected', response => {
+      if (this.socket !== socket) return;
       this.clearDelayedMotion();
       this.session = undefined;
       this.roomName = '';
       this.incomingSequenceTracker.reset();
       this.onViewerStatus?.({ roomName: response.roomName, status: 'rejected', reason: response.reason });
     });
-    this.socket.on('viewer:removed', response => {
+    socket.on('viewer:removed', response => {
+      if (this.socket !== socket) return;
       this.clearDelayedMotion();
       this.roomName = '';
       this.session = undefined;
       this.incomingSequenceTracker.reset();
       this.onViewerStatus?.({ roomName: response.roomName, status: 'removed', reason: response.reason });
     });
-    this.socket.on('room:viewers', viewers => {
+    socket.on('room:viewers', viewers => {
+      if (this.socket !== socket) return;
       this.onViewerList?.(viewers);
     });
-    this.socket.on('room:stop', signal => {
-      this.clearDelayedMotion();
-      this.latestFrame = undefined;
+    socket.on('room:stop', signal => {
+      if (this.socket !== socket) return;
+      this.clearBufferedMotion();
       this.incomingSequenceTracker.reset();
       this.outgoingSequence = 0;
       this.onEmergencyStop?.(signal);
     });
 
-    await new Promise<void>((resolve, reject) => {
-      this.socket?.once('connect', resolve);
-      this.socket?.once('connect_error', reject);
-    });
+    await this.awaitLifecycle(new Promise<void>((resolve, reject) => {
+      socket.once('connect', resolve);
+      socket.once('connect_error', reject);
+    }), generation);
   }
 
   async createRoom(relayUrl: string, settings: RoomSettings) {
-    const room = await postJson<{ ok: true; roomName: string; relayUrl: string; hostToken: string; entryMode: string }>(`${relayUrl}/api/rooms`, settings);
-    await this.connect(room.relayUrl);
+    const generation = this.beginLifecycle();
+    const room = await this.awaitLifecycle(
+      postJson<{ ok: true; roomName: string; relayUrl: string; hostToken: string; entryMode: string }>(`${relayUrl}/api/rooms`, settings),
+      generation
+    );
+    await this.connectForLifecycle(room.relayUrl, generation);
 
-    const response = await this.emitWithAck('room:create', { token: room.hostToken });
+    const response = await this.awaitLifecycle(this.emitWithAck('room:create', { token: room.hostToken }), generation);
     if (!response.ok) {
       throw new Error(response.reason ?? 'room-create-failed');
     }
@@ -236,7 +257,7 @@ export class RelayClient {
       roomName: room.roomName,
       token: room.hostToken
     };
-    void this.refreshViewers();
+    void this.refreshViewers().catch(() => undefined);
     return {
       roomName: room.roomName,
       entryMode: room.entryMode,
@@ -256,14 +277,18 @@ export class RelayClient {
   }
 
   async joinRoom(relayUrl: string, request: { displayName: string; roomName: string; password?: string }) {
+    const generation = this.beginLifecycle();
     const encodedRoomName = encodeURIComponent(request.roomName);
-    const join = await postJson<{ ok: true; roomName: string; relayUrl: string; viewerToken: string }>(`${relayUrl}/api/rooms/${encodedRoomName}/join`, request);
-    await this.connect(join.relayUrl);
+    const join = await this.awaitLifecycle(
+      postJson<{ ok: true; roomName: string; relayUrl: string; viewerToken: string }>(`${relayUrl}/api/rooms/${encodedRoomName}/join`, request),
+      generation
+    );
+    await this.connectForLifecycle(join.relayUrl, generation);
 
-    const response = await this.emitWithAck('viewer:join', {
+    const response = await this.awaitLifecycle(this.emitWithAck('viewer:join', {
       displayName: request.displayName,
       token: join.viewerToken
-    });
+    }), generation);
     if (!response.ok && response.reason !== 'approval-required') {
       throw new Error(response.reason ?? 'room-join-failed');
     }
@@ -313,13 +338,16 @@ export class RelayClient {
       return { sent: false, reason: 'relay-not-connected' };
     }
 
+    this.clearBufferedMotion();
     const response = await this.emitWithAck('room:stop', {});
     if (!response.ok) {
       return { sent: false, reason: response.reason ?? 'room-stop-failed' };
     }
-    this.clearDelayedMotion();
-    this.latestFrame = undefined;
     return { sent: true, roomName: response.roomName };
+  }
+
+  hasActiveRoom() {
+    return Boolean(this.session && this.roomName);
   }
 
   publishMotion(frame: MotionFrame) {
@@ -347,62 +375,132 @@ export class RelayClient {
     return this.incomingMotionDelayBuffer.stats();
   }
 
-  disconnect() {
+  clearBufferedMotion() {
     if (this.flushTimer) {
       clearTimeout(this.flushTimer);
       this.flushTimer = undefined;
     }
     this.clearDelayedMotion();
-    this.socket?.disconnect();
-    this.socket = undefined;
-    this.roomName = '';
-    this.relayUrl = '';
-    this.hostToken = '';
-    this.session = undefined;
-    this.rejoining = false;
     this.latestFrame = undefined;
-    this.incomingSequenceTracker.reset();
-    this.outgoingSequence = 0;
+  }
+
+  disconnect() {
+    this.invalidateLifecycle();
+    this.resetConnectionState();
     return { connected: false };
   }
 
   private async rejoinSession() {
     if (!this.socket?.connected || !this.session || this.rejoining) return;
 
+    const socket = this.socket;
+    const session = this.session;
+    const generation = this.lifecycleGeneration;
     this.rejoining = true;
     try {
-      if (this.session.role === 'host') {
-        const response = await this.emitWithAck('room:create', { token: this.session.token });
-        if (!response.ok) throw new Error(response.reason ?? 'room-rejoin-failed');
+      if (session.role === 'host') {
+        const response = await this.emitWithAck('room:create', { token: session.token });
+        if (!this.ownsSession(generation, socket, session)) return;
+        if (!response.ok) {
+          this.endActiveRoom(session.roomName, response.reason ?? 'room-rejoin-failed');
+          return;
+        }
 
         this.clearDelayedMotion();
-        this.roomName = this.session.roomName;
-        this.hostToken = this.session.token;
-        void this.refreshViewers();
-        this.onConnectionStatus?.({ status: 'rejoined', role: 'host', roomName: this.session.roomName });
+        this.roomName = session.roomName;
+        this.hostToken = session.token;
+        void this.refreshViewers().catch(() => undefined);
+        this.onConnectionStatus?.({ status: 'rejoined', role: 'host', roomName: session.roomName });
         return;
       }
 
       const response = await this.emitWithAck('viewer:join', {
-        displayName: this.session.displayName,
-        token: this.session.token
+        displayName: session.displayName,
+        token: session.token
       });
-      if (!response.ok && response.reason !== 'approval-required') throw new Error(response.reason ?? 'room-rejoin-failed');
+      if (!this.ownsSession(generation, socket, session)) return;
+      if (!response.ok && response.reason !== 'approval-required') {
+        this.endActiveRoom(session.roomName, response.reason ?? 'room-rejoin-failed');
+        return;
+      }
 
       this.clearDelayedMotion();
-      this.roomName = this.session.roomName;
-      this.session.waitingForApproval = response.reason === 'approval-required';
-      this.onConnectionStatus?.({ status: 'rejoined', role: 'viewer', roomName: this.session.roomName, reason: response.reason });
+      this.roomName = session.roomName;
+      session.waitingForApproval = response.reason === 'approval-required';
+      this.onConnectionStatus?.({ status: 'rejoined', role: 'viewer', roomName: session.roomName, reason: response.reason });
     } catch (error) {
+      if (!this.ownsSession(generation, socket, session)) return;
       this.onConnectionStatus?.({
         status: 'error',
-        role: this.session.role,
-        roomName: this.session.roomName,
+        role: session.role,
+        roomName: session.roomName,
         reason: error instanceof Error ? error.message : 'room-rejoin-failed'
       });
     } finally {
-      this.rejoining = false;
+      if (generation === this.lifecycleGeneration && this.socket === socket) this.rejoining = false;
     }
+  }
+
+  private beginLifecycle() {
+    this.invalidateLifecycle();
+    this.resetConnectionState();
+    return this.lifecycleGeneration;
+  }
+
+  private invalidateLifecycle() {
+    this.lifecycleGeneration += 1;
+    for (const cancel of this.lifecycleCancellationHandlers) cancel();
+    this.lifecycleCancellationHandlers.clear();
+  }
+
+  private async awaitLifecycle<T>(operation: Promise<T>, generation: number) {
+    this.assertLifecycleOwner(generation);
+    let cancel: () => void = () => undefined;
+    const cancellation = new Promise<never>((_resolve, reject) => {
+      cancel = () => reject(new Error('relay-lifecycle-cancelled'));
+      this.lifecycleCancellationHandlers.add(cancel);
+    });
+    try {
+      const result = await Promise.race([operation, cancellation]);
+      this.assertLifecycleOwner(generation);
+      return result;
+    } catch (error) {
+      this.assertLifecycleOwner(generation);
+      throw error;
+    } finally {
+      this.lifecycleCancellationHandlers.delete(cancel);
+    }
+  }
+
+  private assertLifecycleOwner(generation: number) {
+    if (generation !== this.lifecycleGeneration) throw new Error('relay-lifecycle-cancelled');
+  }
+
+  private ownsSession(generation: number, socket: Socket, session: RelaySession) {
+    return generation === this.lifecycleGeneration && this.socket === socket && this.session === session;
+  }
+
+  private endActiveRoom(roomName: string, reason: string) {
+    this.clearActiveRoomState();
+    this.onViewerStatus?.({ roomName, status: 'removed', reason });
+  }
+
+  private clearActiveRoomState() {
+    this.clearBufferedMotion();
+    this.roomName = '';
+    this.hostToken = '';
+    this.session = undefined;
+    this.incomingSequenceTracker.reset();
+    this.outgoingSequence = 0;
+  }
+
+  private resetConnectionState() {
+    const socket = this.socket;
+    this.socket = undefined;
+    socket?.disconnect();
+    this.clearActiveRoomState();
+    this.relayUrl = '';
+    this.rejoining = false;
   }
 
   private scheduleFlush() {
@@ -416,15 +514,14 @@ export class RelayClient {
 
   private scheduleDelayedMotion() {
     if (this.incomingMotionTimer) return;
-    const waitMs = this.incomingMotionDelayBuffer.nextWaitMs(performance.now());
+    const waitMs = this.incomingMotionDelayBuffer.nextSampleWaitMs(performance.now());
     if (waitMs === undefined) return;
 
     const timer = setTimeout(() => {
       if (this.incomingMotionTimer !== timer) return;
       this.incomingMotionTimer = undefined;
-      for (const dueFrame of this.incomingMotionDelayBuffer.drain(performance.now())) {
-        this.onMotion?.(dueFrame);
-      }
+      const frame = this.incomingMotionDelayBuffer.sample(performance.now());
+      if (frame) this.onMotion?.(frame);
       this.scheduleDelayedMotion();
     }, waitMs);
     this.incomingMotionTimer = timer;

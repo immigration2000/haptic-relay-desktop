@@ -275,7 +275,7 @@ Viewer:
   이미 승인된 표시 이름은 현재 방 세션 안에서 재연결 시 재승인을 요구하지 않음
   host가 viewer:moderate { socketId, action } 송신 가능
   kick은 즉시 room에서 제거, block은 제거 후 같은 표시 이름의 현재 방 재입장을 차단
-  room:stop 수신 시 motion queue 삭제 후 하드웨어에 0 T-Code 출력
+  room:stop 수신 시 motion queue 삭제 후 로컬 긴급정지 잠금과 절대 정지 위치 적용
   motion packet receive: "m"
   decode -> sequence filter -> local receipt-time delay queue -> hardware queue
   T-Code serial output
@@ -456,7 +456,7 @@ decode -> sequence filter -> local receipt-time delay queue -> hardware queue
 - 기본값과 `schemaVersion`이 없거나 v1인 설정의 마이그레이션 값은 `0ms`입니다.
 - 지연값 변경과 연결 해제, 방 입장/재입장, 시청자 제거 같은 세션 이벤트는 queued frame을 삭제합니다.
 - 방 전체 정지와 긴급 정지 같은 안전 이벤트도 queued frame을 삭제합니다.
-- 로컬 보간은 다음 독립적인 Phase 1 작업으로 남아 있습니다.
+- 지연이 `100ms` 이상이면 수신 시각 기준으로 `30Hz` 선형 보간합니다. 인접 실프레임 간격이 `250ms`를 넘으면 합성하지 않으며 최신 실프레임 이후를 예측하거나 외삽하지 않습니다.
 
 ## 11. 하드웨어 출력 프로토콜
 
@@ -474,9 +474,11 @@ Hardware protocol:
 T-Code ASCII over SerialPort
 ```
 
-연결 직후 앱은 `D1`/`D2`를 보내 장비의 T-Code 버전과 지원 axis를 best-effort로 확인합니다. OSR/SR6 펌웨어별 응답 형식이 다를 수 있으므로 probe 응답이 없어도 연결은 유지하고, UI에는 응답 없음 상태를 표시합니다.
+연결 직후 앱은 `D1`/`D2`를 보내 장비의 T-Code 버전과 지원 axis를 확인합니다. 인식 가능한 버전 응답이 없으면 `hardware-tcode-not-ready`로 연결을 거부하고 포트를 닫습니다. 정확히 그 포트가 준비 상태를 통과하기 전에는 motion과 로컬 테스트를 출력하지 않습니다.
 
 긴급 정지는 일반 motion queue와 진행 중인 하드웨어 테스트보다 우선합니다. 앱은 pending frame을 삭제하고 테스트의 후속 출력을 취소한 뒤 `DSTOP`과 프로필에 저장된 절대 정지 위치 fallback T-Code를 씁니다.
+
+같은 스트리머 값이 유지되거나 새 패킷이 잠시 없으면 장비는 마지막 명령 위치를 유지합니다. 자동 inactivity 정지 위치 이동은 없습니다. 프로필의 절대 정지 위치는 방 나가기와 긴급정지에서만 사용합니다.
 
 기본 출력:
 
@@ -506,11 +508,9 @@ DSTOP = TCode device stop command
 HAPTIC_TCODE_LINEAR_AXIS=L0
 HAPTIC_TCODE_VIBRATION_AXIS=V0
 HAPTIC_TCODE_INTERVAL_MS=16
-HAPTIC_HARDWARE_SAFETY_TIMEOUT_MS=1000
 ```
 
 `HAPTIC_TCODE_VIBRATION_AXIS`는 선택값입니다. 장비가 지원할 때만 켭니다.
-`HAPTIC_HARDWARE_SAFETY_TIMEOUT_MS`는 새 motion frame이 들어오지 않을 때 자동 정지를 실행하기까지의 시간입니다. `0` 이하로 설정하면 safety timeout을 비활성화합니다.
 
 앱 UI의 하드웨어 프로필은 연결 시점에 main process로 전달되고 IPC에서 검증됩니다.
 
@@ -523,7 +523,7 @@ HAPTIC_HARDWARE_SAFETY_TIMEOUT_MS=1000
 - absolute emergency stop position within the stroke range
 - invert position
 
-연결 중에는 renderer의 프로필 입력과 설정 불러오기를 잠가 연결 시 main process에 전달한 활성 프로필과 화면 표시가 일치하도록 합니다. 연결 해제는 같은 긴급 정지 payload를 최대 500ms 시도한 뒤 포트를 닫습니다.
+연결 중에는 renderer의 프로필 입력과 설정 불러오기를 잠가 연결 시 main process에 전달한 활성 프로필과 화면 표시가 일치하도록 합니다. 하드웨어 연결 해제는 pending 출력을 차단하고 `DSTOP`과 설정된 절대 정지 위치를 최대 `500ms` 시도한 뒤 직렬 포트를 닫으며, 기존 긴급정지 잠금 상태는 유지합니다.
 
 수신 motion frame은 네트워크 프로토콜에서는 항상 `0.0-1.0` 정규화 값을 유지합니다. 하드웨어 프로필은 SerialPort 출력 직전에만 적용합니다.
 
@@ -535,7 +535,9 @@ HAPTIC_HARDWARE_SAFETY_TIMEOUT_MS=1000
 - position min/max range
 - receive pause
 
-`receive pause`가 켜지면 앱은 즉시 로컬 `DSTOP`을 실행하고, 이후 수신 motion frame을 하드웨어 queue에 넣지 않습니다. relay room 참여 상태는 유지되므로 시청자는 일시정지를 해제한 뒤 다시 수신할 수 있습니다.
+`receive pause`가 켜지면 이후 수신 motion frame을 하드웨어 queue에 넣지 않습니다. 위치 명령은 보내지 않으며, relay room 참여 상태는 유지되므로 시청자는 일시정지를 해제한 뒤 다시 수신할 수 있습니다. `receive pause`와 긴급정지 잠금은 독립적이어서 어느 한쪽을 바꿔도 다른 상태는 바뀌지 않습니다.
+
+긴급정지는 `emergencyStopped`를 먼저 설정한 뒤 stop payload를 시도하는 로컬 잠금입니다. 사용자가 자신의 앱에서 **긴급정지 해제**를 눌러야 잠금이 풀립니다. 해제는 `emergencyStopped`만 지우고 serial motion이나 relay release event를 보내지 않으므로, 다음 새 유효 frame부터 출력할 수 있습니다. 방 나가기/재입장과 하드웨어 포트 닫기/재연결도 잠금을 해제하지 않으며, 완전한 앱 재시작만 초기 해제 상태로 시작합니다.
 
 ## 11.1 실제 하드웨어 테스트
 
@@ -548,8 +550,6 @@ position 0.2
 position 0.5
 position 0.8
 position 0.5
-DSTOP
-fallback stop position
 ```
 
 동작 원칙:
@@ -558,7 +558,8 @@ fallback stop position
 - `receive pause`가 켜져 있으면 `protection-paused`로 실패
 - 하드웨어 프로필의 stroke min/max, invert, axis 설정을 적용
 - 시청자 보호 옵션의 intensity limit, position min/max를 적용
-- 테스트 종료 또는 실패 후 항상 긴급 정지를 실행
+- 테스트가 정상 종료되면 마지막 `0.5` 위치를 유지하고 별도 stop payload를 쓰지 않음
+- 긴급정지가 발생하면 진행 중인 테스트와 후속 출력을 취소
 - relay room에는 테스트 motion을 publish하지 않음
 
 실제 장비 연결 확인 순서:
@@ -629,7 +630,7 @@ main process는 최근 300개 이벤트를 메모리 버퍼로 보관합니다. 
 - approval request/status
 - viewer list update
 - room-wide stop received
-- hardware safety timeout
+- hardware emergency latch/release
 - protection update/pause/motion dropped while paused
 - clipboard copy
 - logs exported
@@ -660,7 +661,7 @@ export JSON:
 - V2 20바이트 binary packet
 - token bucket rate limit
 - SerialPort backpressure 처리
-- 하드웨어 safety timeout
+- 마지막 위치 유지와 명시적 room-exit/emergency stop lifecycle
 - 시청자 로컬 보호 옵션
 
 핵심 판단:

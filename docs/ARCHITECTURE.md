@@ -52,7 +52,24 @@ The viewer receive path is:
 decode -> sequence filter -> local receipt-time delay queue -> hardware queue
 ```
 
-The local delay accepts `0-10000ms` in `100ms` steps. Its default is `0ms`, and unversioned or schema-v1 settings migrate to `0ms`. A configured delay change and session or safety events clear queued frames so stale motion cannot cross those boundaries. Local interpolation remains the next independent Phase 1 task.
+The local delay accepts `0-10000ms` in `100ms` steps. Its default is `0ms`, and unversioned or schema-v1 settings migrate to `0ms`. A configured delay change and session or safety events clear queued frames so stale motion cannot cross those boundaries. Delays of at least `100ms` use receipt-time-based `30Hz` linear interpolation for source gaps up to `250ms`; the viewer does not synthesize motion across larger gaps or extrapolate beyond the newest real frame.
+
+## Hardware Motion Lifecycle
+
+Normal room motion is stateful: an unchanged streamer value or temporary packet inactivity leaves the device at its last commanded position. There is no inactivity-triggered stop-position command. Receive pause independently blocks new frames without moving the device.
+
+The configured absolute stop position is reserved for room exit and emergency stop:
+
+```text
+valid room frame -> emergency-latch gate -> receive-pause gate -> hardware queue
+
+room leave / in-room app exit -> stopForRoomExit() -> DSTOP + absolute position
+local or room-wide emergency -> latchEmergencyStop() -> DSTOP + absolute position + local latch
+local explicit release -> releaseEmergencyStop() -> no serial output, no relay release
+hardware disconnect -> block pending output -> bounded DSTOP + absolute position attempt -> close serial port
+```
+
+The emergency latch is runtime-local and independent from receive pause. Production motion admission checks the emergency latch before applying receive protection; changing either state never changes the other. A room-wide stop latches each connected participant, but the relay protocol has no release event: each participant must press **긴급정지 해제** locally. Releasing the latch sends no motion, so only a later valid streamer frame may move the device. Hardware disconnect/reconnect and room leave/rejoin do not release the latch; a full application restart initializes it as released.
 
 ## Control Plane
 
@@ -226,9 +243,17 @@ The relay protocol and hardware protocol are intentionally different.
 - Optional output axis: `V0` can map normalized intensity to vibration when a connected device supports it.
 - Example: position `0.42` with a 16ms interval becomes `L04200I16\n`.
 
+## Local Diagnostic Storage
+
+The main process automatically writes sanitized JSONL diagnostics beneath Electron `userData/logs`. The active `haptic-relay.jsonl` file and four rotations are limited to 2 MiB each, retaining approximately 10 MiB total. Production 30 Hz motion is aggregated into at most one summary per second; profile, probe, test, stop, disconnect, and serial-error boundaries remain individual records.
+
+The renderer's `직렬 전송 완료` state means only that the operating system completed the serial write callback. It is not device acknowledgement and does not prove controller parsing or physical hardware motion. Diagnosis starts with the profile, probe response/no-response, write duration, and port error records, then compares them with the separately observed device position, power, cable, and firmware.
+
+The existing **저장** action exports the bounded in-memory `entries` plus current session and diagnostic-file metadata. Persistent files and exports remain local-only. Event construction uses field allowlists and excludes credentials, tokens, authorization data, cookies, and URL query strings. Diagnostic file failure disables persistence for that session without blocking motion or safety sequencing.
+
 ## Access Modes
 
-- `open`: the Demo 9 desktop UI does not use a password and disables the password field. The server retains open-room password compatibility for older/API clients.
+- `open`: the Demo 10 desktop UI does not use a password and disables the password field. The server retains open-room password compatibility for older/API clients.
 - `request`: viewer join requests remain connected in approval wait state until the host approves or rejects them.
 - Host moderation can kick active viewers or block the same display name for the current room session.
 
@@ -237,6 +262,9 @@ The relay protocol and hardware protocol are intentionally different.
 - Require explicit room join before receiving motion.
 - Provide host and viewer emergency stop controls.
 - Treat emergency stop as a distinct control event, not as an ordinary zero-value motion frame.
+- Keep emergency stop latched locally until explicit local release; never fan out a release event.
+- Use the absolute stop position for room exit, emergency stop, and explicit hardware disconnect. Disconnect attempts the stop payload for at most `500ms`, then closes the port even if the write fails or stalls.
+- Keep receive pause independent from the emergency latch.
 - Clamp all incoming motion values to valid ranges.
 - Rate-limit motion frames to protect devices and relay infrastructure.
 - Keep `.env` and relay secrets out of git.

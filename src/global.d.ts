@@ -1,4 +1,4 @@
-import type { AppLogEntry, AppSettings, ApprovalRequest, HardwareConnectionStatus, HardwareDisconnectResult, HardwareOutputSnapshot, HardwareProfile, HardwareProtection, MotionDemoSnapshot, MotionMonitorSnapshot, MotionPatternConfig, PortInfo, RoomDirectoryEntry, RoomSettings, ViewerSession } from './shared/protocol';
+import type { AppLogEntry, AppSettings, ApprovalRequest, HardwareConnectionStatus, HardwareDisconnectResult, HardwareEmergencyState, HardwareLatchedStopResult, HardwareOutputSnapshot, HardwareProfile, HardwareProtection, HardwareProtectionResult, MotionDemoSnapshot, MotionMonitorSnapshot, MotionPatternConfig, PortInfo, RoomDirectoryEntry, RoomDisconnectResult, RoomSettings, ViewerSession } from './shared/protocol';
 
 type ViewerStatus = {
   roomName: string;
@@ -9,6 +9,7 @@ type ViewerStatus = {
 type StopSignal = {
   roomName: string;
   timestamp: number;
+  hardware: HardwareLatchedStopResult;
 };
 
 type RelayConnectionStatus = {
@@ -46,7 +47,9 @@ declare global {
       connectHardware: (pathName: string, profile: HardwareProfile) => Promise<HardwareConnectResult>;
       disconnectHardware: () => Promise<HardwareDisconnectResult>;
       getHardwareStatus: () => Promise<HardwareConnectionStatus>;
-      stopHardware: () => Promise<unknown>;
+      getHardwareEmergencyState: () => Promise<HardwareEmergencyState>;
+      stopHardware: () => Promise<HardwareLatchedStopResult>;
+      releaseHardwareStop: () => Promise<HardwareEmergencyState>;
       testHardware: () => Promise<{ tested: boolean; steps?: number; reason?: string }>;
       sendMotion: (intensity: number, position: number) => Promise<unknown>;
       startMotionDemo: (intensity: number, position: number) => Promise<{ streaming: boolean; intervalMs: number }>;
@@ -54,7 +57,7 @@ declare global {
       startMotionPattern: (config: MotionPatternConfig) => Promise<{ streaming: boolean; mode: 'pattern'; intervalMs: number }>;
       updateMotionPattern: (config: MotionPatternConfig) => void;
       stopMotionDemo: () => Promise<{ streaming: boolean }>;
-      setHardwareProtection: (protection: HardwareProtection) => Promise<{ protection: HardwareProtection }>;
+      setHardwareProtection: (protection: HardwareProtection) => Promise<HardwareProtectionResult>;
       startHostRoom: (relayUrl: string, settings: RoomSettings) => Promise<{ roomName: string; entryMode: string; relayUrl: string }>;
       listRooms: (relayUrl: string) => Promise<RoomDirectoryEntry[]>;
       checkServer: (relayUrl: string) => Promise<{ online: true; latencyMs: number }>;
@@ -62,7 +65,7 @@ declare global {
       approveViewer: (socketId: string, approved: boolean) => Promise<unknown>;
       moderateViewer: (socketId: string, action: 'kick' | 'block') => Promise<unknown>;
       listViewers: () => Promise<ViewerSession[]>;
-      emergencyStop: () => Promise<unknown>;
+      emergencyStop: () => Promise<{ hardware: HardwareLatchedStopResult; relay: { sent?: boolean; reason?: string } }>;
       onApprovalRequest: (listener: (request: ApprovalRequest) => void) => () => void;
       onViewerStatus: (listener: (status: ViewerStatus) => void) => () => void;
       onViewerList: (listener: (viewers: ViewerSession[]) => void) => () => void;
@@ -79,7 +82,7 @@ declare global {
       saveSettings: (settings: AppSettings) => Promise<{ settings: AppSettings }>;
       setMotionDelay: (delayMs: number) => Promise<{ settings: AppSettings; buffer: MotionDelayBuffer }>;
       onLog: (listener: (entry: AppLogEntry) => void) => () => void;
-      disconnectRoom: () => Promise<unknown>;
+      disconnectRoom: () => Promise<RoomDisconnectResult>;
     };
   }
 }

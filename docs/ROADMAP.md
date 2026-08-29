@@ -20,9 +20,9 @@
 - [x] Viewer local receipt-time motion delay
 - [x] Hardware-free automatic motion patterns (sine, triangle, pulse, sawtooth)
 - [x] Serial write timeout, fail-closed disconnect, and bounded emergency-stop failure (P0)
-- [x] Safe disconnect button: attempt the configured absolute stop for up to 500ms, then close the port
-- [ ] Physical OSR/T-Code end-to-end acceptance (deferred: port discovery, D1/D2, limited motion, stop/restart, emergency stop, cable disconnect/reconnect)
-- [ ] Viewer local motion interpolation (next Phase 1 task)
+- [x] runtime emergency latch, local release, room-exit stop, and bounded stop-before-close hardware disconnect.
+- [ ] Physical COM3 OSR/T-Code end-to-end acceptance (deferred: last-position hold, local/room-wide emergency latch and release, bounded disconnect stop, room-exit stop)
+- [x] Viewer local motion interpolation (`100ms+` delay, `30Hz`, max `250ms` source gap, no extrapolation)
 - [ ] Motion pattern recording and playback
 - [ ] Network diagnostics dashboard
 - Manual emergency stop
