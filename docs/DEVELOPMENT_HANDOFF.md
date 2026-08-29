@@ -4,10 +4,10 @@
 
 ## 1. 현재 기준점
 
-- 작성 기준: 2026-08-24 KST
+- 작성 기준: 2026-08-29 KST
 - 앱 저장소: `https://github.com/immigration2000/haptic-relay-desktop.git`
 - 원격 정본 브랜치: `main`
-- 릴리스 기준 태그: `v0.1.1-demo.9` (태그가 가리키는 원격 커밋을 정본으로 사용)
+- 릴리스 기준 태그: `v0.1.1-demo.10` (태그가 가리키는 원격 커밋을 정본으로 사용)
 - 현재 노트북 최신 worktree: `C:\Users\user\Documents\Claude\Projects\haptic-relay-desktop\.worktrees\viewer-motion-delay-pr`
 - 위 worktree 브랜치: `feature/viewer-motion-delay-pr`; 작업 전 `git status -sb`와 원격 태그를 확인
 - 메인 공개 릴레이: `https://aws-relay.syncra.uk`
@@ -33,11 +33,11 @@ PandaTV 같은 외부 방송 플랫폼에서도 플랫폼 영상 시스템과 �
 
 ### Windows 앱
 
-- 최신 릴리스: `v0.1.1-demo.9`
-- 릴리스 페이지: `https://github.com/immigration2000/haptic-relay-desktop/releases/tag/v0.1.1-demo.9`
-- EXE: `Haptic.Relay-0.1.1-demo.9-win-x64.exe`
-- 크기: `107,289,654` bytes
-- SHA-256: `43af2c271eef04f9eb80190a811584eb759e38109d6d7d707661c4fbe8b12bc8`
+- 최신 릴리스: `v0.1.1-demo.10`
+- 릴리스 페이지: `https://github.com/immigration2000/haptic-relay-desktop/releases/tag/v0.1.1-demo.10`
+- EXE: `Haptic Relay-0.1.1-demo.10-win-x64.exe`
+- 크기: `107,297,690` bytes
+- SHA-256: `394d79369e1a6395312e3b08e2cd2930b5072ba14e060c782027b78688d7c664`
 - NSIS 생성, ASAR, SerialPort 네이티브 모듈 패키징 검증 완료
 
 ### 외부 릴레이
@@ -46,7 +46,7 @@ PandaTV 같은 외부 방송 플랫폼에서도 플랫폼 영상 시스템과 �
 
 - `https://aws-relay.syncra.uk/healthz`: 정상
 - `https://aws-relay.syncra.uk/api/rooms`: 정상
-- Demo 9 앱 기본 서버와 서버 목록 첫 항목은 `https://aws-relay.syncra.uk`
+- Demo 10 앱 기본 서버와 서버 목록 첫 항목은 `https://aws-relay.syncra.uk`
 - `https://relay.syncra.uk`는 서버 목록의 휴대폰 예비 릴레이이며 사용자가 수동으로 선택합니다.
 
 - Ubuntu EC2의 relay는 `haptic-relay.service`로 등록되어 부팅 시 자동 실행됩니다.
@@ -54,7 +54,7 @@ PandaTV 같은 외부 방송 플랫폼에서도 플랫폼 영상 시스템과 �
 - AWS 보안 그룹의 공개 TCP `4174` 인바운드는 제거했습니다. SSH `22`는 관리용으로 유지합니다.
 - 외부 TLS, `/healthz`, `/api/rooms`, Socket.IO WebSocket을 검증했고 Elastic IP의 `4174` 직접 접속은 차단됨을 확인했습니다.
 - 서버의 production 환경파일과 tunnel token은 서버 내부 비밀이며 출력·복사·커밋하지 않습니다.
-- `relay.syncra.uk` DNS 자체는 기존 휴대폰 relay를 계속 가리킵니다. 이름을 AWS로 옮기는 DNS 전환과 앱 기본값 전환은 별개이며, Demo 9은 별도 AWS 호스트명을 기본값으로 사용합니다.
+- `relay.syncra.uk` DNS 자체는 기존 휴대폰 relay를 계속 가리킵니다. 이름을 AWS로 옮기는 DNS 전환과 앱 기본값 전환은 별개이며, Demo 10은 별도 AWS 호스트명을 기본값으로 사용합니다.
 
 휴대폰 Termux 서버의 마지막 배포 기록은 `~/haptic-relay-server-demo7`입니다. 재부팅 후에는 해당 디렉터리의 전용 `start.sh`와 `start-haptic-named-tunnel.sh`를 사용합니다. PID는 실행 때마다 달라지므로 이전 기록을 그대로 믿지 말고 스크립트와 `/healthz`로 확인합니다.
 
@@ -78,7 +78,7 @@ Termux 프로필은 30Hz, 방당 50명 제한의 데모 설정입니다. 500명 
 - 네트워크 단절/창 비정상 종료는 재접속을 위해 약 15초 유예
 - 릴레이 재연결 후 host/viewer token으로 자동 재입장
 
-Demo 9 UI 계약:
+Demo 10 UI 계약:
 
 - 자유입장 방은 데스크톱 UI에서 비밀번호를 사용하지 않습니다.
 - 자유입장 선택 시 비밀번호를 지우고 입력창을 비활성화하며 create/join 요청에도 보내지 않습니다.
@@ -189,12 +189,12 @@ position 0.5, interval 17ms -> L05000I17\n
 
 공유 노트는 `scripts/hardware-write-stall-repro.mjs`가 로컬 `study/annotated` 브랜치에 있었다고 기록하지만, 2026-08-21 현재 이 checkout과 전체 Projects 검색에서는 해당 파일을 찾지 못했습니다. 새 채팅은 파일이 있다고 가정하지 말고 다른 clone/worktree를 찾거나 테스트를 재작성해야 합니다.
 
-### P0. 실기기 종단 합격 미완료
+### 실기기 기본 종단 합격, 장시간 내구성 미완료
 
-- 실제 OSR/T-Code 장비에서 Demo 9 전체 흐름을 공식 합격 처리하지 못했습니다.
-- 최초 테스트는 baud `115200`, `L0`, stroke `0.20-0.80`으로 제한합니다.
-- write 성공 UI는 OS가 write를 수락했다는 의미일 뿐 실제 장비 동작 증거가 아닙니다.
-- `D1` 응답 유무, 실제 위치, 앱 수신값, 출력 T-Code를 함께 기록합니다.
+- 2026-08-29 COM3 실기기에서 AWS `studio-main` 방, viewer delay `500ms`, stroke `0.30-0.80`, stop `0.50`, triangle 패턴 약 35초를 확인했습니다.
+- 사용자가 실제 움직임과 작은 범위/강한 범위 출력, 마지막 보간 동작을 확인했고 최종 보간은 `부드러웠어`로 판정했습니다.
+- 정상 구간은 초당 28-29회 write, 주로 `I33-I41`이었으며 failed/dropped/port close는 0건이었습니다. `250ms` 초과 입력 공백에는 합성 출력을 하지 않았습니다.
+- write 성공 UI는 OS가 write를 수락했다는 의미일 뿐 장비 acknowledgement는 아닙니다. 이후 장시간 테스트도 실제 위치, 앱 수신값, 출력 T-Code와 함께 판정합니다.
 
 ### 기능 미완료
 
@@ -209,22 +209,29 @@ position 0.5, interval 17ms -> L05000I17\n
 
 ## 7. 검증 상태
 
-Demo 9 릴리스 준비에서 통과한 항목:
+Demo 10 릴리스 준비에서 통과한 항목:
 
+- `npm run lint`
+- `npm run test:motion`
 - `npm run test:electron`
-- `npm run test:smoke`: 24/24
+- `npm run test:smoke`: 30/30
 - `npm run test:ui`
+- `npm run test:security`
+- `npm run test:termux`
+- `npm run test:termux-package`
+- `npm run build`
 - `npm run electron:build`
 - `npm run release:check`
 - packaged two-client 로컬 릴레이 종단 테스트
 - packaged two-client `https://aws-relay.syncra.uk` 종단 테스트
+- COM3 실기기 AWS 방 모션·보간 테스트
 - `npm audit`: 취약점 0건
 
 UI 테스트는 로그인, 실제 방 목록, 방 생성, 자유입장 비밀번호 비활성화, 입력 포커스 유지, 서버 health 초록 점, 수동 시연, 자동 패턴, 하드웨어 출력 모니터, 보호 설정, 로그, 960x640/1180x780 overflow를 확인합니다.
 
 미검증:
 
-- 실제 OSR 장비에서 Demo 9 장시간 반복 및 절대 정지 위치 육안 확인
+- 실제 OSR 장비에서 Demo 10 장시간 반복 및 절대 정지 위치 육안 확인
 - 휴대폰 릴레이 500명 실부하
 - 외부 모바일망 장시간 reconnect/화면 꺼짐/재부팅 내구성
 
@@ -237,7 +244,7 @@ git status -sb
 git log -1 --oneline --decorate
 ```
 
-기대 기준은 `v0.1.1-demo.9` 태그이며, 이후 원격에 새 커밋이 있으면 `origin/main`을 먼저 확인합니다. 로컬 `main`이 아니라 원격 최신성을 기준으로 판단합니다.
+기대 기준은 `v0.1.1-demo.10` 태그이며, 이후 원격에 새 커밋이 있으면 `origin/main`을 먼저 확인합니다. 로컬 `main`이 아니라 원격 최신성을 기준으로 판단합니다.
 
 공유 노트 확인:
 
@@ -273,7 +280,7 @@ npm.cmd run release:check
 ## 9. 권장 다음 작업 순서
 
 1. 실제 OSR 장비로 마지막 위치 유지, 로컬/방 전체 긴급정지 잠금과 개별 해제, bounded stop-before-close 하드웨어 연결 해제, 방 나가기 절대 위치 이동 확인
-2. PC와 노트북에서 Demo 9 설치본으로 `https://aws-relay.syncra.uk` 외부 방 생성/입장/방 종료 재확인
+2. PC와 노트북에서 Demo 10 설치본으로 `https://aws-relay.syncra.uk` 외부 방 생성/입장/방 종료 재확인
 3. 사용자 제작 스크립트 모델과 안전 제한 설계
 4. 동작 녹화/재생
 5. 진단 패키지 기반 버그 리포트 기능
@@ -286,7 +293,7 @@ npm.cmd run release:check
 - `README.md`: 설치, 실행, API, 테스트 전체 개요
 - `docs/ARCHITECTURE.md`: 현재 Node 구조와 미래 Go relay 설계
 - `docs/IMPLEMENTATION_GUIDE.md`: 프로토콜, fanout, 부하 테스트 기록
-- `docs/WINDOWS_INSTALL_GUIDE.md`: Demo 9 설치/삭제
+- `docs/WINDOWS_INSTALL_GUIDE.md`: Demo 10 설치/삭제
 - `docs/DESKTOP_DEMO_TEST_GUIDE.md`: 하드웨어 없는 2클라이언트 테스트
 - `docs/HARDWARE_SESSION_CHECKLIST.md`: 실제 장비 합격 절차
 - `docs/DEPLOYMENT.md`: hosted/Termux 배포
