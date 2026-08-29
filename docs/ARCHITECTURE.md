@@ -52,7 +52,7 @@ The viewer receive path is:
 decode -> sequence filter -> local receipt-time delay queue -> hardware queue
 ```
 
-The local delay accepts `0-10000ms` in `100ms` steps. Its default is `0ms`, and unversioned or schema-v1 settings migrate to `0ms`. A configured delay change and session or safety events clear queued frames so stale motion cannot cross those boundaries. Local interpolation remains the next independent Phase 1 task.
+The local delay accepts `0-10000ms` in `100ms` steps. Its default is `0ms`, and unversioned or schema-v1 settings migrate to `0ms`. A configured delay change and session or safety events clear queued frames so stale motion cannot cross those boundaries. Delays of at least `100ms` use receipt-time-based `30Hz` linear interpolation for source gaps up to `250ms`; the viewer does not synthesize motion across larger gaps or extrapolate beyond the newest real frame.
 
 ## Hardware Motion Lifecycle
 
@@ -66,7 +66,7 @@ valid room frame -> emergency-latch gate -> receive-pause gate -> hardware queue
 room leave / in-room app exit -> stopForRoomExit() -> DSTOP + absolute position
 local or room-wide emergency -> latchEmergencyStop() -> DSTOP + absolute position + local latch
 local explicit release -> releaseEmergencyStop() -> no serial output, no relay release
-hardware disconnect -> clear pending output -> close serial port only
+hardware disconnect -> block pending output -> bounded DSTOP + absolute position attempt -> close serial port
 ```
 
 The emergency latch is runtime-local and independent from receive pause. Production motion admission checks the emergency latch before applying receive protection; changing either state never changes the other. A room-wide stop latches each connected participant, but the relay protocol has no release event: each participant must press **긴급정지 해제** locally. Releasing the latch sends no motion, so only a later valid streamer frame may move the device. Hardware disconnect/reconnect and room leave/rejoin do not release the latch; a full application restart initializes it as released.
@@ -263,7 +263,7 @@ The existing **저장** action exports the bounded in-memory `entries` plus curr
 - Provide host and viewer emergency stop controls.
 - Treat emergency stop as a distinct control event, not as an ordinary zero-value motion frame.
 - Keep emergency stop latched locally until explicit local release; never fan out a release event.
-- Use the absolute stop position only for room exit and emergency stop. Hardware disconnect closes the port without a position command.
+- Use the absolute stop position for room exit, emergency stop, and explicit hardware disconnect. Disconnect attempts the stop payload for at most `500ms`, then closes the port even if the write fails or stalls.
 - Keep receive pause independent from the emergency latch.
 - Clamp all incoming motion values to valid ranges.
 - Rate-limit motion frames to protect devices and relay infrastructure.

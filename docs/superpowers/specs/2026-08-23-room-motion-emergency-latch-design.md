@@ -5,6 +5,10 @@
 Approved product design. This document supersedes the behavior described in
 `2026-08-23-stop-safety-hardening-design.md` wherever the two documents conflict.
 
+The explicit disconnect rule in this historical design was superseded on
+2026-08-29: disconnect now attempts `DSTOP` plus the configured absolute stop
+position for at most `500ms`, then closes the port regardless of write success.
+
 ## Goal
 
 Keep hardware motion faithful to the streamer for the full room session while

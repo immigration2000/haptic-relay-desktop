@@ -96,7 +96,7 @@ Demo 9 UI 계약:
 - latest-value coalescing, volatile fanout, token bucket 속도 제한
 - 시청자 로컬 수신 지연 `0-10000ms`, `100ms` 단위
 - 시청자 관리자 수신 모니터와 최근 프레임 10개
-- 지연 구간 선형 보간은 아직 구현되지 않음
+- 지연이 `100ms` 이상이면 수신 시각 기준 `30Hz` 선형 보간. `250ms` 초과 공백은 합성하지 않고 최신 실프레임 이후를 외삽하지 않음
 
 ### 하드웨어 출력
 
@@ -112,7 +112,7 @@ Demo 9 UI 계약:
 - 로컬 장비 테스트는 마지막 `0.5` 위치에서 끝나며 별도 stop payload를 보내지 않음
 - 같은 값이나 일시적인 packet inactivity에서는 마지막 명령 위치 유지
 - 절대 긴급 정지 위치는 방 나가기와 긴급정지에만 적용
-- 하드웨어 포트 닫기는 위치 명령 없이 serial port만 닫음
+- 하드웨어 연결 해제는 pending 출력을 차단하고 정지 payload를 최대 `500ms` 시도한 뒤 serial port를 닫음
 - 긴급정지는 명시적 로컬 해제 전까지 relay, demo, test motion을 막는 runtime latch
 - 로컬 해제는 motion이나 relay release event를 보내지 않으며 다른 참여자를 해제하지 않음
 - 수신 일시정지와 긴급정지 잠금은 서로 독립적으로 동작
@@ -157,7 +157,7 @@ position 0.5, interval 17ms -> L05000I17\n
 - 절대 긴급 정지 위치 및 settings schema v3 마이그레이션
 - callback/동기 write 실패와 stalled write를 fail-closed 처리하고 명시적 재연결 전 출력을 차단
 - packet inactivity 자동 정지를 제거하고 마지막 위치 유지로 통일
-- room leave/in-room app exit stop, close-only hardware disconnect, explicit local emergency release 분리
+- room leave/in-room app exit stop, bounded stop-before-close hardware disconnect, explicit local emergency release 분리
 - AWS 릴레이를 앱 기본값으로, 휴대폰 릴레이를 수동 예비 항목으로 전환
 - Electron 43.4.1과 감사 가능한 간접 의존성으로 갱신하여 `npm audit` 0건 확인
 
@@ -201,7 +201,6 @@ position 0.5, interval 17ms -> L05000I17\n
 - 스트리머 물리 장비 움직임 입력/캡처
 - 사용자 제작 스크립트 작성 및 재생
 - 동작 녹화 후 재생
-- viewer 지연 구간 선형 보간
 - 자동 업데이트
 - 실제 계정 인증/과금/영구 제재
 - 버그 리포트 자동 전송 또는 진단 패키지 저장
@@ -273,7 +272,7 @@ npm.cmd run release:check
 
 ## 9. 권장 다음 작업 순서
 
-1. 실제 OSR 장비로 마지막 위치 유지, 로컬/방 전체 긴급정지 잠금과 개별 해제, close-only 하드웨어 포트 닫기, 방 나가기 절대 위치 이동 확인
+1. 실제 OSR 장비로 마지막 위치 유지, 로컬/방 전체 긴급정지 잠금과 개별 해제, bounded stop-before-close 하드웨어 연결 해제, 방 나가기 절대 위치 이동 확인
 2. PC와 노트북에서 Demo 9 설치본으로 `https://aws-relay.syncra.uk` 외부 방 생성/입장/방 종료 재확인
 3. 사용자 제작 스크립트 모델과 안전 제한 설계
 4. 동작 녹화/재생

@@ -1,5 +1,7 @@
 # Persistent JSON Diagnostics Implementation Plan
 
+> **Post-plan release correction (2026-08-29):** Explicit hardware disconnect now attempts `DSTOP` plus the configured absolute stop position for at most `500ms` before closing the port. Portable JSON export omits `diagnosticLog.activeFile` so a shared support file cannot expose the Windows account path. Final motion aggregation is persisted before lifecycle-boundary records. These corrections supersede close-only, active-file export, and shutdown-order steps below; the historical task text is retained for traceability.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Persist bounded JSONL diagnostics that distinguish serial write completion from device movement, retain the existing manual JSON export, and publish the verified Windows Demo 10 release.

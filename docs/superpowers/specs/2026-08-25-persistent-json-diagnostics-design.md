@@ -4,6 +4,8 @@
 
 **Date:** 2026-08-25
 
+**Release correction (2026-08-29):** Portable exports omit `diagnosticLog.activeFile` because an absolute `userData` path can disclose the Windows account name. Lifecycle boundary records atomically flush the pending motion summary first.
+
 ## Context
 
 During the COM3 acceptance session, Haptic Relay successfully opened the serial port and completed four T-Code writes, while the physical device initially did not move and later recovered. The existing UI labeled a completed operating-system write as `출력 성공`, but that result does not prove that the controller parsed the command or that the mechanism moved. The exported log retained connection and test lifecycle events, but omitted the transmitted commands, probe response, applied hardware profile, write latency, and USB identity needed to distinguish an application defect from firmware, power, cable, or controller behavior.
@@ -108,7 +110,6 @@ It adds:
 - `schemaVersion`
 - `sessionId`
 - `diagnosticLog.format` (`jsonl`)
-- `diagnosticLog.activeFile`
 - `diagnosticLog.maxFileBytes`
 - `diagnosticLog.maxFiles`
 

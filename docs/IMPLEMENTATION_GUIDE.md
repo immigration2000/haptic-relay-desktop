@@ -456,7 +456,7 @@ decode -> sequence filter -> local receipt-time delay queue -> hardware queue
 - 기본값과 `schemaVersion`이 없거나 v1인 설정의 마이그레이션 값은 `0ms`입니다.
 - 지연값 변경과 연결 해제, 방 입장/재입장, 시청자 제거 같은 세션 이벤트는 queued frame을 삭제합니다.
 - 방 전체 정지와 긴급 정지 같은 안전 이벤트도 queued frame을 삭제합니다.
-- 로컬 보간은 다음 독립적인 Phase 1 작업으로 남아 있습니다.
+- 지연이 `100ms` 이상이면 수신 시각 기준으로 `30Hz` 선형 보간합니다. 인접 실프레임 간격이 `250ms`를 넘으면 합성하지 않으며 최신 실프레임 이후를 예측하거나 외삽하지 않습니다.
 
 ## 11. 하드웨어 출력 프로토콜
 
@@ -474,7 +474,7 @@ Hardware protocol:
 T-Code ASCII over SerialPort
 ```
 
-연결 직후 앱은 `D1`/`D2`를 보내 장비의 T-Code 버전과 지원 axis를 best-effort로 확인합니다. OSR/SR6 펌웨어별 응답 형식이 다를 수 있으므로 probe 응답이 없어도 연결은 유지하고, UI에는 응답 없음 상태를 표시합니다.
+연결 직후 앱은 `D1`/`D2`를 보내 장비의 T-Code 버전과 지원 axis를 확인합니다. 인식 가능한 버전 응답이 없으면 `hardware-tcode-not-ready`로 연결을 거부하고 포트를 닫습니다. 정확히 그 포트가 준비 상태를 통과하기 전에는 motion과 로컬 테스트를 출력하지 않습니다.
 
 긴급 정지는 일반 motion queue와 진행 중인 하드웨어 테스트보다 우선합니다. 앱은 pending frame을 삭제하고 테스트의 후속 출력을 취소한 뒤 `DSTOP`과 프로필에 저장된 절대 정지 위치 fallback T-Code를 씁니다.
 
@@ -523,7 +523,7 @@ HAPTIC_TCODE_INTERVAL_MS=16
 - absolute emergency stop position within the stroke range
 - invert position
 
-연결 중에는 renderer의 프로필 입력과 설정 불러오기를 잠가 연결 시 main process에 전달한 활성 프로필과 화면 표시가 일치하도록 합니다. 하드웨어 포트 닫기는 pending 출력을 지운 뒤 `DSTOP`이나 위치 명령 없이 직렬 포트만 닫고, 기존 긴급정지 잠금 상태를 유지합니다.
+연결 중에는 renderer의 프로필 입력과 설정 불러오기를 잠가 연결 시 main process에 전달한 활성 프로필과 화면 표시가 일치하도록 합니다. 하드웨어 연결 해제는 pending 출력을 차단하고 `DSTOP`과 설정된 절대 정지 위치를 최대 `500ms` 시도한 뒤 직렬 포트를 닫으며, 기존 긴급정지 잠금 상태는 유지합니다.
 
 수신 motion frame은 네트워크 프로토콜에서는 항상 `0.0-1.0` 정규화 값을 유지합니다. 하드웨어 프로필은 SerialPort 출력 직전에만 적용합니다.
 
