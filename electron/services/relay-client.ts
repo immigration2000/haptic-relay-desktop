@@ -514,15 +514,14 @@ export class RelayClient {
 
   private scheduleDelayedMotion() {
     if (this.incomingMotionTimer) return;
-    const waitMs = this.incomingMotionDelayBuffer.nextWaitMs(performance.now());
+    const waitMs = this.incomingMotionDelayBuffer.nextSampleWaitMs(performance.now());
     if (waitMs === undefined) return;
 
     const timer = setTimeout(() => {
       if (this.incomingMotionTimer !== timer) return;
       this.incomingMotionTimer = undefined;
-      for (const dueFrame of this.incomingMotionDelayBuffer.drain(performance.now())) {
-        this.onMotion?.(dueFrame);
-      }
+      const frame = this.incomingMotionDelayBuffer.sample(performance.now());
+      if (frame) this.onMotion?.(frame);
       this.scheduleDelayedMotion();
     }, waitMs);
     this.incomingMotionTimer = timer;

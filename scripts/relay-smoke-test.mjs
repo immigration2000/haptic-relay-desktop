@@ -329,10 +329,38 @@ async function runSmokeTest() {
   assert.ok(delayedOutput.receivedAtMs - delayedStartMs >= 250, 'delayed RelayClient motion arrived too early');
   record('RelayClient delays viewer motion', true, `elapsed=${delayedOutput.receivedAtMs - delayedStartMs}`);
 
-  delayedViewer.setMotionDelay(500);
   host.volatile.compress(false).emit('m', encodeMotionPacket({
     protocolVersion: 2,
     sequence: 79,
+    sourceTimeMs: Date.now(),
+    timestamp: Date.now(),
+    durationMs: 33,
+    position: 0.2,
+    intensity: 0.2
+  }));
+  await delay(120);
+  host.volatile.compress(false).emit('m', encodeMotionPacket({
+    protocolVersion: 2,
+    sequence: 80,
+    sourceTimeMs: Date.now(),
+    timestamp: Date.now(),
+    durationMs: 33,
+    position: 0.8,
+    intensity: 0.8
+  }));
+  const interpolatedOutput = await waitFor(
+    () => delayedMotion.find(item => item.frame.sequence === 80
+      && item.frame.position > 0.25
+      && item.frame.position < 0.75),
+    1_000,
+    'delayed RelayClient did not interpolate sparse motion'
+  );
+  record('RelayClient interpolates delayed viewer motion', true, JSON.stringify(interpolatedOutput.frame));
+
+  delayedViewer.setMotionDelay(500);
+  host.volatile.compress(false).emit('m', encodeMotionPacket({
+    protocolVersion: 2,
+    sequence: 81,
     sourceTimeMs: Date.now(),
     timestamp: Date.now(),
     durationMs: 45,
@@ -360,7 +388,7 @@ async function runSmokeTest() {
   const stopSignal = await stopPromise;
   record('room emergency stop relay', stopResponse.ok === true && stopSignal.roomName === roomName, JSON.stringify(stopSignal));
   await delay(550);
-  assert.equal(delayedMotion.filter(item => item.frame.sequence === 79).length, 0, 'cleared delayed RelayClient motion was delivered');
+  assert.equal(delayedMotion.filter(item => item.frame.sequence === 81).length, 0, 'cleared delayed RelayClient motion was delivered');
   record('RelayClient clears delayed motion on room stop', true);
   mixedProtocolViewer.disconnect();
   assert.equal(mixedProtocolViewer.hasActiveRoom(), false, 'disconnect clears active room state');
