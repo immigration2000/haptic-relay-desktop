@@ -371,6 +371,19 @@ assert.equal(
   'L04200I17',
   'source metadata cannot request motion faster than the hardware output limit'
 );
+cadenceController.queueMotion({
+  position: 0.43,
+  intensity: 0.1,
+  timestamp: 27_101,
+  sourceTimeMs: 27_101,
+  durationMs: 1000 / 30
+});
+await waitFor(() => cadenceOutputs.length === 4);
+assert.equal(
+  cadenceOutputs[3].command,
+  'L04300I2000',
+  'a stale source-time gap cannot become an unbounded hardware interpolation interval'
+);
 await cadenceController.disconnect();
 
 const outputs = [];

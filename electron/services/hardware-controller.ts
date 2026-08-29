@@ -21,6 +21,7 @@ const TCODE_PROBE_TIMEOUT_MS = 1_500;
 const TCODE_PROBE_RETRY_DELAY_MS = 500;
 const HARDWARE_WRITE_TIMEOUT_MS = 500;
 const HARDWARE_LIFECYCLE_TIMEOUT_MS = 500;
+const TCODE_MAX_LIVE_INTERVAL_MS = 2_000;
 const HARDWARE_TEST_STEP_DELAY_MS = 180;
 const HARDWARE_TEST_POSITIONS = [0.2, 0.5, 0.8, 0.5];
 const DEFAULT_HARDWARE_PROFILE: HardwareProfile = {
@@ -1329,7 +1330,7 @@ function resolveMotionIntervalMs(frame: MotionFrame, previousFrame: MotionFrame 
   ) {
     intervals.push(Math.round(currentSourceTime - previousSourceTime));
   }
-  return Math.max(...intervals);
+  return Math.min(TCODE_MAX_LIVE_INTERVAL_MS, Math.max(...intervals));
 }
 
 function resolveMotionSourceTime(frame: MotionFrame) {
