@@ -68,7 +68,7 @@ type PortIdentity = {
 
 type WriteOperation = 'probe' | 'test' | 'stop' | 'motion';
 
-type HardwarePort = Pick<SerialPort, 'path' | 'isOpen' | 'open' | 'close' | 'write' | 'once' | 'on' | 'off'>;
+type HardwarePort = Pick<SerialPort, 'path' | 'isOpen' | 'open' | 'close' | 'write' | 'set' | 'once' | 'on' | 'off'>;
 
 type HardwareControllerOptions = {
   onLog?: (entry: HardwareLog) => void;
@@ -230,6 +230,23 @@ export class HardwareController {
     } catch (error) {
       const normalizedError = error instanceof Error ? error : new Error('hardware-open-failed');
       this.failPort(port, normalizedError, 'hardware-open-failed');
+      throw normalizedError;
+    }
+
+    try {
+      await this.configureControlSignals(port);
+      this.emitDiagnostic('info', 'hardware', 'hardware-control-signals-configured', {
+        portPath: port.path,
+        dtr: true,
+        rts: true
+      });
+    } catch (error) {
+      const normalizedError = error instanceof Error ? error : new Error('hardware-control-signals-failed');
+      this.emitDiagnostic('error', 'hardware', 'hardware-control-signals-failed', {
+        portPath: port.path,
+        ...normalizedErrorData(normalizedError)
+      });
+      this.failPort(port, normalizedError, 'hardware-control-signals-failed');
       throw normalizedError;
     }
 
@@ -1006,6 +1023,30 @@ export class HardwareController {
         settled = true;
         clearTimeout(timeout);
         reject(error instanceof Error ? error : new Error('hardware-open-failed'));
+      }
+    });
+  }
+
+  private configureControlSignals(port: HardwarePort) {
+    return new Promise<void>((resolve, reject) => {
+      let settled = false;
+      let timeout: NodeJS.Timeout | undefined;
+      const finish = (error?: Error | null) => {
+        if (settled) return;
+        settled = true;
+        if (timeout) clearTimeout(timeout);
+        if (error) reject(error);
+        else resolve();
+      };
+      timeout = setTimeout(
+        () => finish(new Error('hardware-control-signals-timeout')),
+        this.lifecycleTimeoutMs
+      );
+
+      try {
+        port.set({ dtr: true, rts: true }, finish);
+      } catch (error) {
+        finish(error instanceof Error ? error : new Error('hardware-control-signals-failed'));
       }
     });
   }
