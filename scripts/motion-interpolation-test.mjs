@@ -59,4 +59,31 @@ assert.deepEqual(longGapTimeline.sample(2_500), start);
 assert.equal(longGapTimeline.sample(2_625), undefined, 'a long gap does not keep stale motion alive');
 assert.deepEqual(longGapTimeline.sample(2_751), longGapEnd);
 
+const scheduleTimeline = new motionModule.MotionDelayBuffer();
+scheduleTimeline.setDelayMs(500);
+scheduleTimeline.enqueue(start, 3_000);
+scheduleTimeline.enqueue(end, 3_100);
+assert.equal(scheduleTimeline.nextSampleWaitMs(3_400), 100, 'playback waits until the delayed origin');
+assert.equal(scheduleTimeline.nextSampleWaitMs(3_500), 33, 'playback requests the fixed 30Hz cadence between real frames');
+assert.deepEqual(scheduleTimeline.sample(3_500), start);
+assert.equal(scheduleTimeline.sample(3_500), undefined, 'the same playback target is emitted at most once');
+assert.equal(scheduleTimeline.nextSampleWaitMs(3_600), 0, 'the newest due real frame is scheduled without an extra cadence delay');
+assert.deepEqual(scheduleTimeline.sample(3_600), end);
+assert.equal(scheduleTimeline.nextSampleWaitMs(3_600), undefined, 'playback stops instead of extrapolating the newest frame');
+scheduleTimeline.clear();
+assert.equal(scheduleTimeline.nextSampleWaitMs(4_000), undefined, 'clearing a session or safety boundary cancels pending playback work');
+
+const equalReceiptTimeline = new motionModule.MotionDelayBuffer();
+equalReceiptTimeline.setDelayMs(100);
+const equalReceiptStart = frame(4, 0, 0.25);
+const equalReceiptEnd = frame(5, 0, 0.75);
+equalReceiptTimeline.enqueue(equalReceiptStart, 5_000);
+equalReceiptTimeline.enqueue(equalReceiptEnd, 5_000);
+assert.deepEqual(equalReceiptTimeline.sample(5_100), equalReceiptStart);
+assert.deepEqual(
+  equalReceiptTimeline.sample(5_101),
+  equalReceiptEnd,
+  'frames sharing a monotonic receipt timestamp retain newest-frame delivery'
+);
+
 console.log('motion interpolation tests passed');

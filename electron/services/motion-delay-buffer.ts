@@ -27,7 +27,7 @@ export class MotionDelayBuffer {
   private overflowFrames = 0;
   private lastReceivedAtMs: number | undefined;
   private lastSampleTargetMs: number | undefined;
-  private lastEmittedRealReceiptMs: number | undefined;
+  private lastEmittedRealEntry: DelayedFrame | undefined;
 
   constructor(private readonly maxFrames = DEFAULT_MAX_DELAYED_FRAMES) {
     if (!Number.isInteger(maxFrames) || maxFrames < 1) throw new Error('invalid-motion-buffer-capacity');
@@ -84,7 +84,7 @@ export class MotionDelayBuffer {
       return first.receivedAtMs - targetReceivedAtMs;
     }
     if (targetReceivedAtMs < newest.receivedAtMs) return MOTION_PLAYBACK_INTERVAL_MS;
-    if (this.lastEmittedRealReceiptMs !== newest.receivedAtMs) return 0;
+    if (this.lastEmittedRealEntry !== newest) return 0;
     return undefined;
   }
 
@@ -116,8 +116,8 @@ export class MotionDelayBuffer {
     if (!before) return undefined;
     if (beforeIndex > 0) this.entries.splice(0, beforeIndex);
     if (!after || before.receivedAtMs === after.receivedAtMs) {
-      if (this.lastEmittedRealReceiptMs === before.receivedAtMs) return undefined;
-      this.lastEmittedRealReceiptMs = before.receivedAtMs;
+      if (this.lastEmittedRealEntry === before) return undefined;
+      this.lastEmittedRealEntry = before;
       return before.frame;
     }
 
@@ -134,7 +134,7 @@ export class MotionDelayBuffer {
     this.entries = [];
     this.lastReceivedAtMs = undefined;
     this.lastSampleTargetMs = undefined;
-    this.lastEmittedRealReceiptMs = undefined;
+    this.lastEmittedRealEntry = undefined;
   }
 
   stats(): MotionDelayStats {
