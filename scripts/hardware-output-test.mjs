@@ -912,17 +912,17 @@ closeFailureController.queueMotion({ position: 0.5, intensity: 0.25, timestamp: 
 await waitFor(() => closeFailurePort.writes.some(payload => payload.trim() === 'L05000I17'));
 await closeFailureController.disconnect();
 
-const closeOnlyDisconnectOutputs = [];
-const closeOnlyDisconnectStatuses = [];
-const closeOnlyDisconnectPort = new FakePort('COM13');
-const closeOnlyDisconnectController = new HardwareController({
-  createPort: () => closeOnlyDisconnectPort,
-  onOutput: output => closeOnlyDisconnectOutputs.push(output),
-  onConnectionStatus: status => closeOnlyDisconnectStatuses.push(status),
+const safeDisconnectOutputs = [];
+const safeDisconnectStatuses = [];
+const safeDisconnectPort = new FakePort('COM13');
+const safeDisconnectController = new HardwareController({
+  createPort: () => safeDisconnectPort,
+  onOutput: output => safeDisconnectOutputs.push(output),
+  onConnectionStatus: status => safeDisconnectStatuses.push(status),
   probeTimeoutMs: 0,
   writeTimeoutMs: 20
 });
-await closeOnlyDisconnectController.connect('COM13', {
+await safeDisconnectController.connect('COM13', {
   baudRate: 115200,
   linearAxis: 'L0',
   strokeMin: 0,
@@ -930,27 +930,50 @@ await closeOnlyDisconnectController.connect('COM13', {
   stopPosition: 0.6,
   invertPosition: false
 });
-assert.deepEqual(closeOnlyDisconnectController.getConnectionStatus(), { connected: true, path: 'COM13' });
-closeOnlyDisconnectPort.stallNextClose = true;
-const writesBeforeCloseOnlyDisconnect = closeOnlyDisconnectPort.writes.length;
-const outputsBeforeCloseOnlyDisconnect = closeOnlyDisconnectOutputs.length;
-const closeOnlyDisconnectPromise = closeOnlyDisconnectController.disconnect();
+assert.deepEqual(safeDisconnectController.getConnectionStatus(), { connected: true, path: 'COM13' });
+safeDisconnectPort.stallNextClose = true;
+const writesBeforeSafeDisconnect = safeDisconnectPort.writes.length;
+const outputsBeforeSafeDisconnect = safeDisconnectOutputs.length;
+const safeDisconnectPromise = safeDisconnectController.disconnect();
 assert.deepEqual(
-  closeOnlyDisconnectController.queueMotion({ position: 0.8, intensity: 0.25, timestamp: Date.now() }),
+  safeDisconnectController.queueMotion({ position: 0.8, intensity: 0.25, timestamp: Date.now() }),
   { queued: false, reason: 'hardware-disconnecting' },
-  'raw disconnect rejects motion while the serial close is pending'
+  'safe disconnect rejects motion while the stop and serial close are pending'
 );
-assert.equal(closeOnlyDisconnectPort.writes.length, writesBeforeCloseOnlyDisconnect, 'disconnect emits no serial write');
-assert.equal(closeOnlyDisconnectOutputs.length, outputsBeforeCloseOnlyDisconnect, 'disconnect emits no stop output');
-await waitFor(() => closeOnlyDisconnectPort.pendingClose !== undefined);
-closeOnlyDisconnectPort.completeClose();
-assert.deepEqual(await closeOnlyDisconnectPromise, { connected: false });
-assert.equal(closeOnlyDisconnectPort.writes.length, writesBeforeCloseOnlyDisconnect, 'completed disconnect emits no serial write');
-assert.equal(closeOnlyDisconnectOutputs.length, outputsBeforeCloseOnlyDisconnect, 'completed disconnect emits no stop output');
-assert.deepEqual(closeOnlyDisconnectStatuses, [
+await waitFor(() => safeDisconnectPort.writes.length === writesBeforeSafeDisconnect + 1);
+assert.equal(safeDisconnectPort.writes.at(-1).trim(), 'DSTOP\nL06000I1');
+assert.equal(safeDisconnectOutputs.length, outputsBeforeSafeDisconnect + 1);
+assert.equal(safeDisconnectOutputs.at(-1).kind, 'stop');
+await waitFor(() => safeDisconnectPort.pendingClose !== undefined);
+safeDisconnectPort.completeClose();
+assert.deepEqual(await safeDisconnectPromise, { connected: false });
+assert.deepEqual(safeDisconnectStatuses, [
   { connected: true, path: 'COM13' },
   { connected: false, reason: 'hardware-disconnected', unexpected: false }
 ]);
+
+const boundedDisconnectPort = new FakePort('COM60');
+const boundedDisconnectController = new HardwareController({
+  createPort: () => boundedDisconnectPort,
+  probeTimeoutMs: 0,
+  writeTimeoutMs: 20
+});
+await boundedDisconnectController.connect('COM60', {
+  baudRate: 115200,
+  linearAxis: 'L0',
+  strokeMin: 0.3,
+  strokeMax: 0.8,
+  stopPosition: 0.5,
+  invertPosition: false
+});
+boundedDisconnectPort.stallNextWrite = true;
+const boundedDisconnectStartedAt = Date.now();
+const boundedDisconnectPromise = boundedDisconnectController.disconnect();
+await waitFor(() => boundedDisconnectPort.writes.at(-1)?.includes('DSTOP'));
+assert.equal(boundedDisconnectPort.isOpen, true, 'the port remains open while the bounded stop write is pending');
+assert.deepEqual(await boundedDisconnectPromise, { connected: false });
+assert.equal(boundedDisconnectPort.isOpen, false, 'the port closes after the stop write timeout');
+assert.equal(Date.now() - boundedDisconnectStartedAt < 500, true, 'a stalled stop cannot block disconnect beyond 500ms');
 
 if (runRegression('simultaneous-connect')) {
   const simultaneousConnectPorts = [];

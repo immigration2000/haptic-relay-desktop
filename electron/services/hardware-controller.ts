@@ -21,6 +21,7 @@ const TCODE_PROBE_TIMEOUT_MS = 1_500;
 const TCODE_PROBE_RETRY_DELAY_MS = 500;
 const HARDWARE_WRITE_TIMEOUT_MS = 500;
 const HARDWARE_LIFECYCLE_TIMEOUT_MS = 500;
+const HARDWARE_DISCONNECT_STOP_TIMEOUT_MS = 500;
 const TCODE_MAX_LIVE_INTERVAL_MS = 2_000;
 const HARDWARE_TEST_STEP_DELAY_MS = 180;
 const HARDWARE_TEST_POSITIONS = [0.2, 0.5, 0.8, 0.5];
@@ -358,6 +359,11 @@ export class HardwareController {
       this.latestFrame = undefined;
       this.lastMotionOutputFrame = undefined;
 
+      if (this.port?.isOpen) {
+        const stop = await this.writeStopPayload(Math.min(this.writeTimeoutMs, HARDWARE_DISCONNECT_STOP_TIMEOUT_MS));
+        this.emitDiagnostic(stop.stopped ? 'info' : 'error', 'hardware', 'hardware-disconnect-stop', { ...stop });
+      }
+
       const port = this.port;
       if (!port?.isOpen) {
         if (port) {
@@ -507,7 +513,7 @@ export class HardwareController {
     return { emergencyStopped: false };
   }
 
-  private async writeStopPayload() {
+  private async writeStopPayload(timeoutMs = this.writeTimeoutMs) {
     this.operationGeneration += 1;
     if (this.flushTimer) {
       clearTimeout(this.flushTimer);
@@ -526,7 +532,7 @@ export class HardwareController {
       stopPosition: this.profile.stopPosition
     });
 
-    const writeError = await this.writePayload(payload, 'stop').then(() => {
+    const writeError = await this.writePayload(payload, 'stop', undefined, timeoutMs).then(() => {
       this.reportOutput('stop', payload);
       return undefined;
     }).catch(error => {
@@ -733,7 +739,8 @@ export class HardwareController {
   private writePayload(
     payload: string,
     operation: WriteOperation,
-    frame?: Pick<MotionFrame, 'position' | 'intensity'>
+    frame?: Pick<MotionFrame, 'position' | 'intensity'>,
+    timeoutMs = this.writeTimeoutMs
   ) {
     return new Promise<void>((resolve, reject) => {
       const port = this.port;
@@ -763,7 +770,7 @@ export class HardwareController {
 
       activeWrite = { port, fail: finish };
       this.activeWrites.add(activeWrite);
-      timeout = setTimeout(() => this.failPort(port, new Error('hardware-write-timeout'), 'hardware-write-timeout'), this.writeTimeoutMs);
+      timeout = setTimeout(() => this.failPort(port, new Error('hardware-write-timeout'), 'hardware-write-timeout'), timeoutMs);
       try {
         port.write(payload, finish);
       } catch (error) {
