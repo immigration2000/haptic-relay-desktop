@@ -98,7 +98,7 @@ Place a dual-handle `동작 범위` slider above `강도 상한`.
 - UI domain: integer 0–100%.
 - Model mapping: divide by 100 to update `hardwareProfile.strokeMin` and `strokeMax`.
 - Default for settings without saved values: 30–80%.
-- The lower handle cannot cross the upper handle, and the upper handle cannot cross the lower handle.
+- The handles maintain at least a 1% gap, matching the existing main-process requirement that minimum be strictly less than maximum.
 - Changing the range clamps `stopPosition` into the new inclusive range.
 - The horizontal control and vertical visualization update from the same model state.
 - The control is disabled while connected or while a hardware lifecycle action is busy.
