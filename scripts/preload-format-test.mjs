@@ -113,6 +113,11 @@ assert.match(disconnectHardwareSource, /하드웨어 연결 해제 중[\s\S]*?wi
 assert.doesNotMatch(disconnectHardwareSource, /정지 명령|stop\./);
 assert.match(appSource, /window\.hapticRelay\.getHardwareStatus\(\)/);
 assert.match(appSource, /window\.hapticRelay\.onHardwareConnectionStatus\(nextStatus\s*=>/);
+assert.match(
+  appSource,
+  /applyHardwareStatus[\s\S]*?nextStatus\.emergencyStopped !== undefined[\s\S]*?applyEmergencyState\(\{ emergencyStopped: nextStatus\.emergencyStopped \}\)/,
+  'unexpected hardware disconnect state synchronizes the local emergency latch in the UI'
+);
 assert.match(appSource, /removeHardwareConnectionStatus\(\)/);
 assert.match(appSource, /const actionGenerationRef = useRef\(0\)/);
 assert.match(runActionSource, /const actionGeneration = \+\+actionGenerationRef\.current/);

@@ -470,11 +470,6 @@ export class HardwareController {
       this.reportDroppedMotion(frame, lifecycleBlockReason);
       return { queued: false, reason: lifecycleBlockReason };
     }
-    if (this.emergencyStopped) {
-      this.reportDroppedMotion(frame, 'hardware-emergency-stopped');
-      return { queued: false, reason: 'hardware-emergency-stopped' };
-    }
-
     if (!this.port?.isOpen) {
       this.reportDroppedMotion(frame, 'hardware-not-connected');
       return { queued: false, reason: 'hardware-not-connected' };
@@ -482,6 +477,10 @@ export class HardwareController {
     if (!this.isPortReady()) {
       this.reportDroppedMotion(frame, 'hardware-not-ready');
       return { queued: false, reason: 'hardware-not-ready' };
+    }
+    if (this.emergencyStopped) {
+      this.reportDroppedMotion(frame, 'hardware-emergency-stopped');
+      return { queued: false, reason: 'hardware-emergency-stopped' };
     }
 
     const protectedFrame = applyProtection(frame, this.protection);
@@ -928,6 +927,7 @@ export class HardwareController {
       this.failActiveWrites(port, error);
       return;
     }
+    const unexpectedReadyLoss = this.readyPort === port && this.lifecycleTransition === undefined;
     if (this.readyPort === port) this.readyPort = undefined;
     this.port = undefined;
     this.operationGeneration += 1;
@@ -939,10 +939,18 @@ export class HardwareController {
     this.lastMotionOutputFrame = undefined;
     this.failActiveWrites(port, error);
     const expectedTransition = this.lifecycleTransition !== undefined;
+    if (unexpectedReadyLoss) {
+      this.emergencyStopped = true;
+      this.emitDiagnostic('warning', 'hardware', 'emergency-latched', {
+        emergencyStopped: true,
+        reason
+      });
+    }
     this.reportConnectionStatus({
       connected: false,
       reason: this.lifecycleTransition === 'room-exit' ? 'hardware-room-exit-stop-failed' : reason,
-      unexpected: !expectedTransition
+      unexpected: !expectedTransition,
+      ...(unexpectedReadyLoss ? { emergencyStopped: true } : {})
     });
 
     const errorHandler = this.portErrorHandlers.get(port);

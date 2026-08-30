@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 
 const { DemoMotionStream, DEMO_MOTION_INTERVAL_MS } = await import('../dist-electron/services/demo-motion-stream.js');
+const MANUAL_MAX_POSITION_STEP = 2 * DEMO_MOTION_INTERVAL_MS / 1000;
 
 function createHarness(onPublish) {
   const published = [];
@@ -59,10 +60,10 @@ assert.deepEqual(manual.stream.start({ intensity: 0.4, position: 0.2 }), {
 });
 assert.deepEqual(manual.published, [{
   intensity: 0.4,
-  position: 0.2,
+  position: 0.5 - MANUAL_MAX_POSITION_STEP,
   timestamp: 1_000,
   durationMs: DEMO_MOTION_INTERVAL_MS
-}], 'manual start sends the latest controls immediately');
+}], 'manual start limits the first position change');
 assert.equal(manual.intervals.length, 1, 'manual start creates one interval');
 assert.equal(manual.intervals[0].intervalMs, DEMO_MOTION_INTERVAL_MS);
 
@@ -75,10 +76,25 @@ manual.setTime(1_033, 33);
 manual.intervals[0].callback();
 assert.deepEqual(manual.published.at(-1), {
   intensity: 0.8,
-  position: 0.7,
+  position: 0.5,
   timestamp: 1_033,
   durationMs: DEMO_MOTION_INTERVAL_MS
-}, 'manual tick sends the latest controls');
+}, 'manual tick advances toward the latest controls at the safe slew rate');
+
+const rapidManual = createHarness();
+rapidManual.stream.start({ intensity: 0.5, position: 1 });
+for (let tick = 1; tick <= 8; tick += 1) {
+  rapidManual.stream.update({ intensity: 0.5, position: tick % 2 === 0 ? 1 : 0 });
+  rapidManual.setTime(2_000 + tick * DEMO_MOTION_INTERVAL_MS, tick * DEMO_MOTION_INTERVAL_MS);
+  rapidManual.intervals[0].callback();
+}
+for (let index = 1; index < rapidManual.published.length; index += 1) {
+  const delta = Math.abs(rapidManual.published[index].position - rapidManual.published[index - 1].position);
+  assert.ok(
+    delta <= MANUAL_MAX_POSITION_STEP + Number.EPSILON,
+    `rapid manual reversal limits adjacent position delta, got ${delta}`
+  );
+}
 
 manual.stream.start({ intensity: 0.6, position: 0.5 });
 assert.equal(manual.intervals.length, 1, 'manual restart reuses the interval');
@@ -225,10 +241,10 @@ backToManual.setTime(1_184, 184);
 backToManual.intervals[1].callback();
 assert.deepEqual(backToManual.published.at(-1), {
   intensity: 0.5,
-  position: 0.8,
+  position: Math.min(0.8, patternPosition + MANUAL_MAX_POSITION_STEP),
   timestamp: 1_184,
   durationMs: DEMO_MOTION_INTERVAL_MS
-}, 'manual controls publish on the next regular tick after the safe transition');
+}, 'manual controls slew from the live pattern position after the safe transition');
 
 const invalidClock = createHarness();
 invalidClock.stream.startPattern(pattern);

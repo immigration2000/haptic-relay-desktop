@@ -248,10 +248,13 @@ export default function App() {
     let hardwareStatusEventSeen = false;
     const applyHardwareStatus = (nextStatus: HardwareConnectionStatus) => {
       setHardwareConnected(nextStatus.connected);
+      if (nextStatus.emergencyStopped !== undefined) {
+        applyEmergencyState({ emergencyStopped: nextStatus.emergencyStopped });
+      }
       if (!nextStatus.connected && nextStatus.unexpected) {
         setStatusMessage(
           'error',
-          `하드웨어 연결이 끊겼습니다: ${formatReason(nextStatus.reason ?? 'hardware-not-connected')}. 다시 연결하세요.`
+          `하드웨어 연결이 끊겨 안전 잠금이 활성화됐습니다: ${formatReason(nextStatus.reason ?? 'hardware-not-connected')}. 장비를 확인하고 다시 연결한 뒤 긴급정지 해제를 누르세요.`
         );
       }
     };

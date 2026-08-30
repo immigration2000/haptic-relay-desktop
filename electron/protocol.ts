@@ -104,6 +104,7 @@ export type HardwareConnectionStatus = {
   path?: string;
   reason?: string;
   unexpected?: boolean;
+  emergencyStopped?: boolean;
 };
 
 export type HardwareDisconnectResult = {
