@@ -32,7 +32,7 @@ export class HardwareOutputSessionStore {
   }
 
   append(snapshot: HardwareOutputSnapshot) {
-    const row: HardwareOutputLogRow = { id: this.nextRowId++, ...snapshot };
+    const row: HardwareOutputLogRow = { ...snapshot, id: this.nextRowId++ };
     this.rows.push(row);
     if (this.rows.length > this.maxRows) {
       const excess = this.rows.length - this.maxRows;
