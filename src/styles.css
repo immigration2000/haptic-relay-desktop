@@ -187,6 +187,19 @@ button:disabled { cursor: not-allowed; opacity: .46; }
 .hardware-output-monitor dl > div { min-width: 0; }
 .hardware-output-monitor dt { color: var(--muted); font-size: 8px; }
 .hardware-output-monitor dd { margin: 2px 0 0; overflow: hidden; text-overflow: ellipsis; font-size: 9px; font-weight: 800; white-space: nowrap; }
+.hardware-output-log-view { display: grid; grid-template-rows: auto auto auto minmax(0, 1fr); gap: 10px; height: 100vh; padding: 18px; background: var(--bg); color: var(--text); }
+.hardware-output-log-header { display: flex; align-items: end; justify-content: space-between; gap: 16px; }
+.hardware-output-log-header h1 { margin: 2px 0 0; font-size: 22px; }
+.hardware-output-log-header span, .hardware-output-log-header p, .hardware-output-log-toolbar span { color: var(--muted); font-size: 10px; }
+.hardware-output-log-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.hardware-output-log-table-wrap { min-height: 0; overflow: auto; border: 1px solid var(--divider); background: var(--surface); }
+.hardware-output-log-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+.hardware-output-log-table th { position: sticky; top: 0; z-index: 1; padding: 8px; text-align: left; background: var(--surface-muted); }
+.hardware-output-log-table td { padding: 7px 8px; border-top: 1px solid var(--divider); vertical-align: top; }
+.hardware-output-log-table code { color: #274a64; font-size: 11px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.hardware-output-log-omitted { margin: 0; color: var(--warning); font-size: 10px; }
+.hardware-output-log-state { color: var(--muted); text-align: center; }
+.hardware-output-log-follow { position: fixed; right: 24px; bottom: 24px; box-shadow: var(--shadow); }
 .button-row { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 11px; }
 .log-actions { margin: 0; }
 .field-value { color: var(--accent-strong); font-size: 11px; font-weight: 800; }
