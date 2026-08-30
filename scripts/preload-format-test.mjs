@@ -77,10 +77,27 @@ assert.match(hardwareOutputLogPreloadSource, /exposeInMainWorld\(['"]hapticOutpu
 assert.match(hardwareOutputLogPreloadSource, /ipcRenderer\.invoke\(['"]hardware-output-log:get['"]\)/);
 assert.match(hardwareOutputLogPreloadSource, /ipcRenderer\.on\(['"]hardware-output-log:reset['"],\s*handler\)/);
 assert.match(hardwareOutputLogPreloadSource, /ipcRenderer\.on\(['"]hardware-output-log:append['"],\s*handler\)/);
-for (const forbiddenChannel of ['hardware:connect', 'hardware:disconnect', 'hardware:test', 'hardware:send', 'app:copy-text']) {
-  assert.doesNotMatch(hardwareOutputLogPreloadSource, new RegExp(forbiddenChannel.replace(':', '\\:')));
-}
+const outputLogCapabilities = [...hardwareOutputLogPreloadSource.matchAll(/^    (\w+):/gm)].map(([, name]) => name);
+assert.deepEqual(outputLogCapabilities, ['getSession', 'onReset', 'onAppend']);
+assert.deepEqual(
+  [...hardwareOutputLogPreloadSource.matchAll(/ipcRenderer\.invoke\(['"]([^'"]+)['"]/g)].map(([, channel]) => channel),
+  ['hardware-output-log:get']
+);
+assert.deepEqual(
+  [...hardwareOutputLogPreloadSource.matchAll(/ipcRenderer\.on\(['"]([^'"]+)['"]/g)].map(([, channel]) => channel),
+  ['hardware-output-log:reset', 'hardware-output-log:append']
+);
 assert.match(preloadSource, /openHardwareOutputLog:\s*\(\)\s*=>\s*(?:electron_1\.)?ipcRenderer\.invoke\(['"]hardware-output-log:open['"]\)/);
+assert.match(mainSource, /ipcMain\.handle\(['"]hardware-output-log:open['"][\s\S]*?assertTrustedSender\(event\)[\s\S]*?outputLogWindowManager\.open\(\)/);
+assert.match(mainSource, /ipcMain\.handle\(['"]hardware-output-log:get['"][\s\S]*?assertTrustedHardwareOutputLogSender\(event\)[\s\S]*?outputSessionStore\.snapshot\(\)/);
+assert.match(mainSource, /function assertTrustedSender\(event[\s\S]*?event\.sender !== mainWindow\?\.webContents/);
+assert.doesNotMatch(mainSource, /function assertTrustedSender\(event[\s\S]*?hardwareOutputLogWindow\?\.webContents/);
+assert.match(mainSource, /function assertTrustedHardwareOutputLogSender\(event[\s\S]*?outputLogWindowManager\.isCurrentWebContents\(event\.sender\)/);
+assert.match(mainSource, /function createHardwareOutputLogWindow\(\)[\s\S]*?width:\s*900,[\s\S]*?height:\s*640,[\s\S]*?minWidth:\s*720,[\s\S]*?minHeight:\s*480,[\s\S]*?title:\s*['"]Haptic Relay · 전체 출력 로그['"][\s\S]*?preload:\s*path\.join\(__dirname, ['"]hardware-output-log-preload\.cjs['"]\)[\s\S]*?contextIsolation:\s*true,[\s\S]*?nodeIntegration:\s*false,[\s\S]*?sandbox:\s*true,[\s\S]*?webSecurity:\s*true,[\s\S]*?allowRunningInsecureContent:\s*false,[\s\S]*?webviewTag:\s*false/);
+assert.match(mainSource, /url\.searchParams\.set\(['"]view['"], ['"]hardware-output-log['"]\)/);
+assert.match(mainSource, /loadFile\(path\.join\(__dirname, ['"]\.\.\/dist\/index\.html['"]\), \{ query: \{ view: ['"]hardware-output-log['"] \} \}\)/);
+assert.match(mainSource, /window\.on\(['"]closed['"], \(\) => \{\s*if \(mainWindow === window\) \{\s*mainWindow = undefined;\s*outputLogWindowManager\.close\(\);\s*\}\s*\}\)/);
+assert.match(mainSource, /app\.on\(['"]activate['"], \(\) => \{[\s\S]*?if \(!mainWindow \|\| mainWindow\.isDestroyed\(\)\)\s*createWindow\(\);/);
 assert.match(preloadSource, /setMotionDelay:\s*\(delayMs/);
 assert.match(preloadSource, /ipcRenderer\.invoke\(['"]viewer:set-motion-delay['"],\s*delayMs\)/);
 assert.match(preloadSource, /listRooms:\s*\(relayUrl\).*?ipcRenderer\.invoke\(['"]room:list['"],\s*relayUrl\)/);

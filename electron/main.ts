@@ -60,7 +60,6 @@ const DIAGNOSTIC_DATA_FIELDS = [
 ] as const;
 
 let mainWindow: BrowserWindow | undefined;
-let hardwareOutputLogWindow: BrowserWindow | undefined;
 let nextLogId = 1;
 let receivedMotionFrames = 0;
 const logEntries: AppLogEntry[] = [];
@@ -259,7 +258,10 @@ function createWindow() {
   });
   mainWindow = window;
   window.on('closed', () => {
-    if (mainWindow === window) mainWindow = undefined;
+    if (mainWindow === window) {
+      mainWindow = undefined;
+      outputLogWindowManager.close();
+    }
   });
 
   const devServerUrl = getDevServerUrl();
@@ -287,11 +289,6 @@ function createHardwareOutputLogWindow() {
       webviewTag: false
     }
   });
-  hardwareOutputLogWindow = window;
-  window.on('closed', () => {
-    if (hardwareOutputLogWindow === window) hardwareOutputLogWindow = undefined;
-  });
-
   const devServerUrl = getDevServerUrl();
   if (devServerUrl) {
     const url = new URL(devServerUrl);
@@ -347,7 +344,7 @@ app.on('before-quit', event => {
 });
 
 app.on('activate', () => {
-  if (BrowserWindow.getAllWindows().length === 0) createWindow();
+  if (!mainWindow || mainWindow.isDestroyed()) createWindow();
 });
 
 ipcMain.handle('hardware:list', event => {
@@ -377,7 +374,7 @@ ipcMain.handle('hardware-output-log:open', event => {
   return { opened: true };
 });
 ipcMain.handle('hardware-output-log:get', event => {
-  assertTrustedSender(event);
+  assertTrustedHardwareOutputLogSender(event);
   return outputSessionStore.snapshot();
 });
 ipcMain.handle('hardware:emergency-state', event => {
@@ -586,7 +583,13 @@ function getDevServerUrl() {
 }
 
 function assertTrustedSender(event: IpcMainInvokeEvent | IpcMainEvent) {
-  if (event.sender !== mainWindow?.webContents && event.sender !== hardwareOutputLogWindow?.webContents) {
+  if (event.sender !== mainWindow?.webContents) {
+    throw new Error('untrusted-ipc-sender');
+  }
+}
+
+function assertTrustedHardwareOutputLogSender(event: IpcMainInvokeEvent | IpcMainEvent) {
+  if (!outputLogWindowManager.isCurrentWebContents(event.sender)) {
     throw new Error('untrusted-ipc-sender');
   }
 }
