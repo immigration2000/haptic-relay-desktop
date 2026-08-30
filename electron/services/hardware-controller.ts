@@ -780,7 +780,11 @@ export class HardwareController {
 
   private async reportPortIdentity(pathName: string) {
     try {
-      const ports = await this.listPorts();
+      const ports = await settleWithin(
+        this.listPorts(),
+        this.lifecycleTimeoutMs,
+        'hardware-port-identification-timeout'
+      );
       const identity = ports.find(port => port.path.toLowerCase() === pathName.toLowerCase());
       if (!identity) return;
 
@@ -1328,6 +1332,32 @@ function normalizeLifecycleTimeoutMs(value: number | undefined) {
   if (value === undefined) return HARDWARE_LIFECYCLE_TIMEOUT_MS;
   if (!Number.isFinite(value) || value <= 0) throw new Error('invalid-hardware-lifecycle-timeout');
   return value;
+}
+
+function settleWithin<T>(operation: PromiseLike<T>, timeoutMs: number, timeoutReason: string) {
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    const timeout = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      reject(new Error(timeoutReason));
+    }, timeoutMs);
+
+    Promise.resolve(operation).then(
+      value => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        resolve(value);
+      },
+      error => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        reject(error);
+      }
+    );
+  });
 }
 
 function resolveMotionIntervalMs(frame: MotionFrame, previousFrame: MotionFrame | undefined) {

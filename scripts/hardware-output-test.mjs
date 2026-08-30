@@ -1465,6 +1465,36 @@ if (runRegression('open-timeout-late-success')) {
   await openTimeoutController.disconnect();
 }
 
+if (runRegression('port-identification-timeout')) {
+  const diagnostics = [];
+  const controller = new HardwareController({
+    createPort: options => new FakePort(options.path),
+    listPorts: () => new Promise(() => undefined),
+    onDiagnostic: event => diagnostics.push(event),
+    probeTimeoutMs: 0,
+    writeTimeoutMs: 100,
+    lifecycleTimeoutMs: 30
+  });
+
+  const connectResult = await Promise.race([
+    controller.connect('COM62', {
+      baudRate: 115200,
+      linearAxis: 'L0',
+      strokeMin: 0,
+      strokeMax: 1,
+      invertPosition: false
+    }),
+    delay(150).then(() => assert.fail('diagnostic port enumeration blocked hardware connect'))
+  ]);
+
+  assert.equal(connectResult.path, 'COM62');
+  assert.equal(
+    diagnostics.find(event => event.event === 'hardware-port-identification-failed')?.data.message,
+    'hardware-port-identification-timeout'
+  );
+  await controller.disconnect();
+}
+
 if (runRegression('close-timeout-late-completion')) {
   const closeTimeoutPorts = [];
   const closeTimeoutController = new HardwareController({
