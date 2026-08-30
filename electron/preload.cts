@@ -30,6 +30,7 @@ contextBridge.exposeInMainWorld('hapticRelay', {
   releaseHardwareStop: (): Promise<HardwareEmergencyState> => ipcRenderer.invoke('hardware:emergency-release'),
   testHardware: () => ipcRenderer.invoke('hardware:test'),
   sendMotion: (intensity: number, position: number) => ipcRenderer.invoke('hardware:send', intensity, position),
+  openHardwareOutputLog: (): Promise<{ opened: true }> => ipcRenderer.invoke('hardware-output-log:open'),
   startMotionDemo: (intensity: number, position: number) => ipcRenderer.invoke('motion-demo:start', intensity, position),
   updateMotionDemo: (intensity: number, position: number) => ipcRenderer.send('motion-demo:update', intensity, position),
   startMotionPattern: (config: MotionPatternConfig) => ipcRenderer.invoke('motion-demo:start-pattern', config),

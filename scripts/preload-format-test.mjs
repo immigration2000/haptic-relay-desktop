@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-const [mainSource, preloadSource, appSource, motionDemoPanelSource, roomSessionSource, demoDataSource, stylesSource, relayClientSource, relayServerSource, hardwareOutputMonitorSource] = await Promise.all([
+const [mainSource, preloadSource, hardwareOutputLogPreloadSource, appSource, motionDemoPanelSource, roomSessionSource, demoDataSource, stylesSource, relayClientSource, relayServerSource, hardwareOutputMonitorSource] = await Promise.all([
   readFile(new URL('../dist-electron/main.js', import.meta.url), 'utf8'),
   readFile(new URL('../dist-electron/preload.cjs', import.meta.url), 'utf8'),
+  readFile(new URL('../dist-electron/hardware-output-log-preload.cjs', import.meta.url), 'utf8'),
   readFile(new URL('../src/App.tsx', import.meta.url), 'utf8'),
   readFile(new URL('../src/ui/components/MotionDemoPanel.tsx', import.meta.url), 'utf8'),
   readFile(new URL('../src/ui/views/RoomSessionView.tsx', import.meta.url), 'utf8'),
@@ -70,6 +71,16 @@ const shouldApplyReceivedEmergencyState = evaluateSourceFunction(appSource, 'fun
 assert.match(mainSource, /preload:\s*path\.join\(__dirname, ['"]preload\.cjs['"]\)/);
 assert.match(preloadSource, /require\(['"]electron['"]\)/);
 assert.doesNotMatch(preloadSource, /^\s*import\s/m);
+assert.match(hardwareOutputLogPreloadSource, /require\(['"]electron['"]\)/);
+assert.doesNotMatch(hardwareOutputLogPreloadSource, /^\s*import\s/m);
+assert.match(hardwareOutputLogPreloadSource, /exposeInMainWorld\(['"]hapticOutputLog['"]/);
+assert.match(hardwareOutputLogPreloadSource, /ipcRenderer\.invoke\(['"]hardware-output-log:get['"]\)/);
+assert.match(hardwareOutputLogPreloadSource, /ipcRenderer\.on\(['"]hardware-output-log:reset['"],\s*handler\)/);
+assert.match(hardwareOutputLogPreloadSource, /ipcRenderer\.on\(['"]hardware-output-log:append['"],\s*handler\)/);
+for (const forbiddenChannel of ['hardware:connect', 'hardware:disconnect', 'hardware:test', 'hardware:send', 'app:copy-text']) {
+  assert.doesNotMatch(hardwareOutputLogPreloadSource, new RegExp(forbiddenChannel.replace(':', '\\:')));
+}
+assert.match(preloadSource, /openHardwareOutputLog:\s*\(\)\s*=>\s*(?:electron_1\.)?ipcRenderer\.invoke\(['"]hardware-output-log:open['"]\)/);
 assert.match(preloadSource, /setMotionDelay:\s*\(delayMs/);
 assert.match(preloadSource, /ipcRenderer\.invoke\(['"]viewer:set-motion-delay['"],\s*delayMs\)/);
 assert.match(preloadSource, /listRooms:\s*\(relayUrl\).*?ipcRenderer\.invoke\(['"]room:list['"],\s*relayUrl\)/);
@@ -95,11 +106,11 @@ assert.match(preloadSource, /removeListener\(['"]motion:received['"],\s*handler\
 assert.match(preloadSource, /onHardwareOutput:\s*\(listener/);
 assert.match(preloadSource, /ipcRenderer\.on\(['"]hardware:output['"],\s*handler\)/);
 assert.match(preloadSource, /removeListener\(['"]hardware:output['"],\s*handler\)/);
-assert.match(mainSource, /new HardwareController\(\{[\s\S]*?onOutput:[\s\S]*?hardware:output/);
+assert.match(mainSource, /new HardwareController\(\{[\s\S]*?onOutput:[\s\S]*?outputSessionStore\.append\(snapshot\)[\s\S]*?outputLogWindowManager\.send\(['"]hardware-output-log:append['"], appended\)[\s\S]*?sendToRenderer\(mainWindow, ['"]hardware:output['"], snapshot\)/);
 assert.match(hardwareOutputMonitorSource, /output \? ['"]직렬 전송 완료['"]/);
 assert.doesNotMatch(hardwareOutputMonitorSource, /출력 성공/);
 assert.match(mainSource, /new HardwareController\(\{[\s\S]*?onDiagnostic:\s*routeHardwareDiagnostic/);
-assert.match(mainSource, /onConnectionStatus:\s*status\s*=>\s*sendToRenderer\(mainWindow, ['"]hardware:connection-status['"], status\)/);
+assert.match(mainSource, /onConnectionStatus:\s*status\s*=>\s*\{[\s\S]*?status\.connected && status\.path[\s\S]*?outputSessionStore\.reset\(status\.path\)[\s\S]*?outputLogWindowManager\.send\(['"]hardware-output-log:reset['"], session\)[\s\S]*?sendToRenderer\(mainWindow, ['"]hardware:connection-status['"], status\)/);
 assert.match(mainSource, /ipcMain\.handle\(['"]hardware:status['"][\s\S]*?assertTrustedSender\(event\)[\s\S]*?hardware\.getConnectionStatus\(\)/);
 assert.match(mainSource, /ipcMain\.handle\(['"]hardware:disconnect['"][\s\S]*?assertTrustedSender\(event\)[\s\S]*?hardware\.disconnect\(\)/);
 assert.match(preloadSource, /getHardwareStatus:\s*\(\)\s*=>[^\n]*?ipcRenderer\.invoke\(['"]hardware:status['"]\)/);

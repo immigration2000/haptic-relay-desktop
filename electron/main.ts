@@ -22,6 +22,8 @@ import { HardwareController } from './services/hardware-controller.js';
 import type { HardwareDiagnosticEvent } from './services/hardware-controller.js';
 import { validateMotionPatternConfig } from './services/demo-motion-pattern.js';
 import { DemoMotionStream } from './services/demo-motion-stream.js';
+import { HardwareOutputSessionStore } from './services/hardware-output-session-store.js';
+import { HardwareOutputWindowManager } from './services/hardware-output-window-manager.js';
 import { validateMotionDelayMs } from './services/motion-delay-buffer.js';
 import { RelayClient } from './services/relay-client.js';
 import { sendToRenderer } from './window-messenger.js';
@@ -58,6 +60,7 @@ const DIAGNOSTIC_DATA_FIELDS = [
 ] as const;
 
 let mainWindow: BrowserWindow | undefined;
+let hardwareOutputLogWindow: BrowserWindow | undefined;
 let nextLogId = 1;
 let receivedMotionFrames = 0;
 const logEntries: AppLogEntry[] = [];
@@ -136,11 +139,23 @@ function routeHardwareDiagnostic(diagnostic: HardwareDiagnosticEvent) {
     : diagnosticLogStore.record(record));
 }
 
+const outputSessionStore = new HardwareOutputSessionStore();
+const outputLogWindowManager = new HardwareOutputWindowManager(createHardwareOutputLogWindow);
 const hardware = new HardwareController({
   onLog: entry => addLog(entry),
   onDiagnostic: routeHardwareDiagnostic,
-  onOutput: snapshot => sendToRenderer(mainWindow, 'hardware:output', snapshot),
-  onConnectionStatus: status => sendToRenderer(mainWindow, 'hardware:connection-status', status)
+  onOutput: snapshot => {
+    const appended = outputSessionStore.append(snapshot);
+    outputLogWindowManager.send('hardware-output-log:append', appended);
+    sendToRenderer(mainWindow, 'hardware:output', snapshot);
+  },
+  onConnectionStatus: status => {
+    if (status.connected && status.path) {
+      const session = outputSessionStore.reset(status.path);
+      outputLogWindowManager.send('hardware-output-log:reset', session);
+    }
+    sendToRenderer(mainWindow, 'hardware:connection-status', status);
+  }
 });
 const relay = new RelayClient(frame => {
   const result = hardware.queueMotion(frame);
@@ -255,6 +270,39 @@ function createWindow() {
   }
 }
 
+function createHardwareOutputLogWindow() {
+  const window = new BrowserWindow({
+    width: 900,
+    height: 640,
+    minWidth: 720,
+    minHeight: 480,
+    title: 'Haptic Relay · 전체 출력 로그',
+    webPreferences: {
+      preload: path.join(__dirname, 'hardware-output-log-preload.cjs'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      webSecurity: true,
+      allowRunningInsecureContent: false,
+      webviewTag: false
+    }
+  });
+  hardwareOutputLogWindow = window;
+  window.on('closed', () => {
+    if (hardwareOutputLogWindow === window) hardwareOutputLogWindow = undefined;
+  });
+
+  const devServerUrl = getDevServerUrl();
+  if (devServerUrl) {
+    const url = new URL(devServerUrl);
+    url.searchParams.set('view', 'hardware-output-log');
+    void window.loadURL(url.toString());
+  } else {
+    void window.loadFile(path.join(__dirname, '../dist/index.html'), { query: { view: 'hardware-output-log' } });
+  }
+  return window;
+}
+
 app.whenReady().then(() => {
   diagnosticLogStore = new DiagnosticLogStore({
     directory: path.join(app.getPath('userData'), 'logs'),
@@ -322,6 +370,15 @@ ipcMain.handle('hardware:connect', async (event, pathName: unknown, profile: unk
 ipcMain.handle('hardware:disconnect', event => {
   assertTrustedSender(event);
   return hardware.disconnect();
+});
+ipcMain.handle('hardware-output-log:open', event => {
+  assertTrustedSender(event);
+  outputLogWindowManager.open();
+  return { opened: true };
+});
+ipcMain.handle('hardware-output-log:get', event => {
+  assertTrustedSender(event);
+  return outputSessionStore.snapshot();
 });
 ipcMain.handle('hardware:emergency-state', event => {
   assertTrustedSender(event);
@@ -529,7 +586,7 @@ function getDevServerUrl() {
 }
 
 function assertTrustedSender(event: IpcMainInvokeEvent | IpcMainEvent) {
-  if (event.sender !== mainWindow?.webContents) {
+  if (event.sender !== mainWindow?.webContents && event.sender !== hardwareOutputLogWindow?.webContents) {
     throw new Error('untrusted-ipc-sender');
   }
 }
