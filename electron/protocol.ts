@@ -99,6 +99,18 @@ export type HardwareOutputSnapshot = {
   baudRate: number;
 };
 
+export type HardwareOutputLogRow = HardwareOutputSnapshot & {
+  id: number;
+};
+
+export type HardwareOutputLogSession = {
+  sessionId: number;
+  startedAt?: number;
+  portPath?: string;
+  rows: HardwareOutputLogRow[];
+  omittedRows: number;
+};
+
 export type HardwareConnectionStatus = {
   connected: boolean;
   path?: string;
