@@ -187,7 +187,17 @@ for (const manualMaxPositionSpeed of [0.5, 0.75, 2, 4]) {
   assert.equal(motionSafetyModule.validateManualMaxPositionSpeed(manualMaxPositionSpeed), manualMaxPositionSpeed);
 }
 
-for (const manualMaxPositionSpeed of [0.49, 4.01, 0.6, Number.NaN, Infinity, '2']) {
+for (const manualMaxPositionSpeed of [
+  0.49,
+  4.01,
+  0.6,
+  0.5000000000000001,
+  1.9999999999999998,
+  2.0000000000000004,
+  Number.NaN,
+  Infinity,
+  '2'
+]) {
   assert.throws(
     () => motionSafetyModule.validateManualMaxPositionSpeed(manualMaxPositionSpeed),
     /invalid-manual-motion-speed/
