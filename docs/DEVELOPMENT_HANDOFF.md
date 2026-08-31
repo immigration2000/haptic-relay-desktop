@@ -175,8 +175,8 @@ position 0.5, interval 17ms -> L05000I17\n
 
 ### 로컬 영구 진단 로그
 
-- 앱 시작 시 Electron `userData/logs/haptic-relay.jsonl`에 구조화 진단을 자동 기록하며 `.1`부터 `.4`까지 회전합니다. 파일당 2 MiB, 총 약 10 MiB입니다.
-- 30Hz motion은 프레임별 disk write 대신 1초 단위 summary로 집계합니다. 프로필, probe 응답/no-response, test/stop 명령, write duration, 예상/비예상 port close는 개별 이벤트입니다.
+- Release 11은 앱 시작부터 Electron `userData/logs/haptic-relay.jsonl`에 정제된 진단을 항상 기록하며 `.1`부터 `.15`까지 회전합니다. 30Hz 하드웨어 motion 샘플도 프레임별로 남기고, 파일당 16 MiB·최대 256 MiB로 제한합니다.
+- 프로필, probe 응답/no-response, test/stop 명령, write duration, 예상/비예상 port close와 앱·릴레이·보호 이벤트는 개별 이벤트로 기록합니다. 전체 사고 재구성에는 활성/회전 JSONL 파일을 함께 수집하고, UI의 **저장** JSON은 간결한 메모리 로그와 메타데이터 요약으로 사용합니다.
 - UI의 `직렬 전송 완료`는 OS write callback만 뜻하며 device acknowledgement 또는 장비의 실제 동작을 보장하지 않습니다. 물리 위치는 별도 관찰값으로 판정해야 합니다.
 - **저장**은 기존 in-memory `entries`를 유지하면서 session ID와 JSONL 메타데이터를 추가합니다. 자동/수동 로그는 로컬 전용이며 allowlist 밖의 비밀번호, 토큰, 인증값, URL query를 기록하지 않습니다.
 - 진단 저장 실패는 해당 세션의 영구 기록만 중단하고 motion, 긴급정지, 방 나가기, 하드웨어 연결 해제 순서를 막지 않습니다.
