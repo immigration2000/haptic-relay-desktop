@@ -218,9 +218,9 @@ button:disabled { cursor: not-allowed; opacity: .46; }
 .stroke-rail { position: relative; width: 54px; height: 220px; border: 1px solid var(--divider); border-radius: 27px; background: var(--surface-strong); }
 .stroke-rail-fill { position: absolute; right: 7px; bottom: var(--stroke-min); left: 7px; height: calc(var(--stroke-max) - var(--stroke-min)); min-height: 2px; border-radius: 20px; background: linear-gradient(to top, #e7297d, #722cff); }
 .stroke-rail-stop { position: absolute; z-index: 1; right: 2px; left: 2px; bottom: calc(var(--stroke-stop) - 1px); height: 2px; background: var(--text); box-shadow: 0 0 0 1px var(--surface); }
-.stroke-rail-mark { position: absolute; left: 66px; color: var(--muted); font-size: 9px; font-weight: 800; }
-.stroke-rail-mark-top { top: -4px; }
-.stroke-rail-mark-bottom { bottom: -4px; }
+.stroke-rail-mark { position: absolute; color: var(--muted); font-size: 9px; font-weight: 800; }
+.stroke-rail-mark-top { top: -4px; right: 66px; text-align: right; }
+.stroke-rail-mark-bottom { bottom: -4px; left: 66px; }
 .stroke-rail-label { position: absolute; left: 66px; color: var(--accent-strong); font-size: 9px; font-weight: 800; white-space: nowrap; }
 .stroke-rail-label-max { bottom: calc(var(--stroke-max) - 6px); }
 .stroke-rail-label-min { right: 66px; bottom: calc(var(--stroke-min) - 6px); left: auto; text-align: right; }

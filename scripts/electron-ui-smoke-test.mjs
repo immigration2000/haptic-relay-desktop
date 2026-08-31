@@ -250,6 +250,7 @@ try {
     const max = document.querySelector('#hardware-stroke-max');
     return min?.value === '0' && max?.value === '100';
   })()`);
+  await assertRailEndpointLabelsSeparate(cdp, '1180x780 hardware endpoints');
   assert.equal(
     await cdp.evaluate(`(() => {
       const ids = ['hardware-stop-position', 'hardware-stroke-min', 'hardware-stroke-max', 'hardware-stroke-min-range', 'hardware-stroke-max-range', 'hardware-intensity-limit'];
@@ -266,6 +267,10 @@ try {
   await cdp.call('Emulation.setDeviceMetricsOverride', { width: 960, height: 640, deviceScaleFactor: 1, mobile: false });
   await assertNoDocumentOverflow(cdp, '960x640 hardware output monitor');
   await captureScreenshot(cdp, path.join(outputDirectory, '08-hardware-output-960x640.png'));
+  await cdp.call('Emulation.setDeviceMetricsOverride', { width: 720, height: 640, deviceScaleFactor: 1, mobile: false });
+  await assertRailEndpointLabelsSeparate(cdp, '720x640 hardware endpoints');
+  await assertNoDocumentOverflow(cdp, '720x640 hardware output monitor');
+  await captureScreenshot(cdp, path.join(outputDirectory, '09-hardware-output-720x640.png'));
   await cdp.call('Emulation.setDeviceMetricsOverride', { width: 1180, height: 780, deviceScaleFactor: 1, mobile: false });
   await clickButton(cdp, '현재 세션');
   await waitForExpression(cdp, `document.body.innerText.includes('HOST SESSION')`);
@@ -337,6 +342,7 @@ try {
       path.join(outputDirectory, '06-automatic-pattern-960x640.png'),
       path.join(outputDirectory, '07-hardware.png'),
       path.join(outputDirectory, '08-hardware-output-960x640.png'),
+      path.join(outputDirectory, '09-hardware-output-720x640.png'),
       path.join(outputDirectory, '09-safety.png'),
       path.join(outputDirectory, '10-logs.png'),
       path.join(outputDirectory, '11-logs-960x640.png')
@@ -506,6 +512,21 @@ async function assertNoDocumentOverflow(client, label) {
   })`);
   assert.equal(overflow.horizontal, false, `${label} has no horizontal document overflow`);
   assert.equal(overflow.vertical, false, `${label} has no vertical document overflow`);
+}
+
+async function assertRailEndpointLabelsSeparate(client, label) {
+  const separated = await client.evaluate(`(() => {
+    const rect = selector => document.querySelector(selector)?.getBoundingClientRect();
+    const intersects = (first, second) => first && second
+      && first.left < second.right && first.right > second.left
+      && first.top < second.bottom && first.bottom > second.top;
+    const topTick = rect('.stroke-rail-mark-top');
+    const maxLabel = rect('.stroke-rail-label-max');
+    const bottomTick = rect('.stroke-rail-mark-bottom');
+    const minLabel = rect('.stroke-rail-label-min');
+    return !intersects(topTick, maxLabel) && !intersects(bottomTick, minLabel);
+  })()`);
+  assert.equal(separated, true, `${label} keeps fixed tick labels separate from endpoint labels`);
 }
 
 async function waitForExpression(client, expression, timeoutMs = 8_000) {
