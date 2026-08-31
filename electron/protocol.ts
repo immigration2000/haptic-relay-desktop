@@ -137,6 +137,10 @@ export type PlaybackSettings = {
   motionDelayMs: number;
 };
 
+export type MotionSafetySettings = {
+  manualMaxPositionSpeed: number;
+};
+
 export type AppLogEntry = {
   id: number;
   timestamp: number;
@@ -147,10 +151,11 @@ export type AppLogEntry = {
 };
 
 export type AppSettings = {
-  schemaVersion: 3;
+  schemaVersion: 4;
   hardwareProfile: HardwareProfile;
   hardwareProtection: HardwareProtection;
   playback: PlaybackSettings;
+  motionSafety: MotionSafetySettings;
 };
 
 export type ApprovalRequest = {

@@ -562,7 +562,8 @@ ipcMain.handle('viewer:set-motion-delay', async (event, delayMs: unknown) => {
       schemaVersion: CURRENT_SETTINGS_SCHEMA_VERSION,
       hardwareProfile: currentSettings.hardwareProfile,
       hardwareProtection: currentSettings.hardwareProtection,
-      playback: { motionDelayMs }
+      playback: { motionDelayMs },
+      motionSafety: currentSettings.motionSafety
     };
     await writeAtomically(settings);
     const buffer = relay.setMotionDelay(motionDelayMs);

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { OctagonX } from 'lucide-react';
-import type { AppLogEntry, AppSettings, ApprovalRequest, EntryMode, HardwareConnectionStatus, HardwareEmergencyState, HardwareProfile, HardwareProtection, MotionDemoMode, MotionMonitorSnapshot, MotionPatternConfig, PortInfo, RoomDirectoryEntry, ViewerSession } from './shared/protocol';
+import type { AppLogEntry, AppSettings, ApprovalRequest, EntryMode, HardwareConnectionStatus, HardwareEmergencyState, HardwareProfile, HardwareProtection, MotionDemoMode, MotionMonitorSnapshot, MotionPatternConfig, MotionSafetySettings, PortInfo, RoomDirectoryEntry, ViewerSession } from './shared/protocol';
 import { createQrMatrix } from './qr-code';
 import { AppShell } from './ui/components/AppShell';
 import { HardwareOutputMonitor } from './ui/components/HardwareOutputMonitor';
@@ -59,7 +59,8 @@ const DEFAULT_HARDWARE_PROTECTION: HardwareProtection = {
   positionMax: 1,
   paused: false
 };
-const CURRENT_SETTINGS_SCHEMA_VERSION = 3;
+const DEFAULT_MOTION_SAFETY: MotionSafetySettings = { manualMaxPositionSpeed: 2 };
+const CURRENT_SETTINGS_SCHEMA_VERSION = 4;
 
 export default function App() {
   const [savedSession] = useState(readDemoSession);
@@ -96,6 +97,7 @@ export default function App() {
   const [selectedPort, setSelectedPort] = useState('');
   const [hardwareProfile, setHardwareProfile] = useState<HardwareProfile>(DEFAULT_HARDWARE_PROFILE);
   const [hardwareProtection, setHardwareProtection] = useState<HardwareProtection>(DEFAULT_HARDWARE_PROTECTION);
+  const [motionSafety, setMotionSafety] = useState<MotionSafetySettings>(DEFAULT_MOTION_SAFETY);
   const [emergencyStopped, setEmergencyStopped] = useState(false);
   const [status, setStatus] = useState<AppStatus>({ tone: 'idle', message: '대기 중' });
   const [busyAction, setBusyAction] = useState<BusyAction>();
@@ -449,6 +451,7 @@ export default function App() {
       if (requestId !== settingsLoadRequestId.current) return;
       setHardwareProfile(settings.hardwareProfile);
       setHardwareProtection(protectionResult.protection);
+      setMotionSafety(settings.motionSafety);
       setMotionDelayMs(settings.playback.motionDelayMs);
       setAppliedMotionDelayMs(settings.playback.motionDelayMs);
       setSavedSettings(settings);
@@ -471,10 +474,12 @@ export default function App() {
         schemaVersion: CURRENT_SETTINGS_SCHEMA_VERSION,
         hardwareProfile,
         hardwareProtection,
-        playback: { motionDelayMs: appliedMotionDelayMs }
+        playback: { motionDelayMs: appliedMotionDelayMs },
+        motionSafety
       });
       setHardwareProfile(result.settings.hardwareProfile);
       setHardwareProtection(result.settings.hardwareProtection);
+      setMotionSafety(result.settings.motionSafety);
       setAppliedMotionDelayMs(result.settings.playback.motionDelayMs);
       setSavedSettings(result.settings);
       setActionStatus('ok', '하드웨어/보호 설정 저장됨');
