@@ -19,7 +19,20 @@ export function updateMotionRange(
   requested: number
 ): MotionRangePercent {
   const value = clampPercent(requested);
-  const min = handle === 'min' ? Math.min(value, current.max - 1) : current.min;
-  const max = handle === 'max' ? Math.max(value, current.min + 1) : current.max;
-  return { min, max, stop: Math.max(min, Math.min(max, current.stop)) };
+  let min = clampPercent(current.min);
+  let max = clampPercent(current.max);
+  const stop = clampPercent(current.stop);
+
+  if (min >= max) {
+    if (min === 100) {
+      min = 99;
+      max = 100;
+    } else {
+      max = min + 1;
+    }
+  }
+
+  min = handle === 'min' ? Math.min(value, max - 1) : min;
+  max = handle === 'max' ? Math.max(value, min + 1) : max;
+  return { min, max, stop: Math.max(min, Math.min(max, stop)) };
 }
