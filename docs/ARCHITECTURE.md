@@ -267,5 +267,6 @@ The existing **저장** action exports the bounded in-memory `entries` plus curr
 - Keep receive pause independent from the emergency latch.
 - Clamp all incoming motion values to valid ranges.
 - Rate-limit motion frames to protect devices and relay infrastructure.
+- Limit manual demo position slew with the persisted 50–400%/s safety setting; automatic patterns and received motion keep their existing paths.
 - Keep `.env` and relay secrets out of git.
 - Treat all hardware protocol input as untrusted.

@@ -154,7 +154,8 @@ position 0.5, interval 17ms -> L05000I17\n
 - 관련 Electron IPC, UI, 포커스, 자유입장 회귀 테스트 추가
 - 버그 리포트 버튼은 사용자 요청으로 보류
 - 하드웨어 연결 해제 버튼과 비정상 단절 상태 동기화
-- 절대 긴급 정지 위치 및 settings schema v3 마이그레이션
+- 절대 긴급 정지 위치 및 settings schema v4 마이그레이션
+- 수동 데모 속도 제한 50–400%/초 슬라이더(기본 200%/초)와 메인 프로세스 검증
 - callback/동기 write 실패와 stalled write를 fail-closed 처리하고 명시적 재연결 전 출력을 차단
 - packet inactivity 자동 정지를 제거하고 마지막 위치 유지로 통일
 - room leave/in-room app exit stop, bounded stop-before-close hardware disconnect, explicit local emergency release 분리
