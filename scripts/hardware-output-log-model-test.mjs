@@ -16,8 +16,10 @@ const {
   createFrameBatcher,
   createOutputLogModel,
   expandHistory,
+  getVisibleRows,
   getVirtualWindow,
-  reduceOutputLogEvent
+  reduceOutputLogEvent,
+  setOutputLogFollowing
 } = model;
 
 function row(id, command = `L0${id}`) {
@@ -60,6 +62,38 @@ assert.equal(state.session.sessionId, 3, 'newer append starts the newer session'
 assert.deepEqual(state.session.rows.map(entry => entry.command), ['new-session']);
 assert.equal(state.session.omittedRows, 7);
 
+assert.equal(typeof setOutputLogFollowing, 'function', 'paused follow needs a stable selected-range anchor');
+let paused = setOutputLogFollowing({
+  ...createOutputLogModel(),
+  session: session(4, Array.from({ length: 500 }, (_, index) => row(index + 1))),
+  visibleCount: 500
+}, false);
+paused = reduceOutputLogEvent(paused, { type: 'append', payload: { sessionId: 4, row: row(501), omittedRows: 0 } });
+assert.equal(getVisibleRows(paused)[0].id, 1, 'paused follow keeps the first selected row after an append');
+assert.equal(getVisibleRows(paused).at(-1).id, 500, 'paused follow does not roll the selected range to the newest tail');
+paused = setOutputLogFollowing(paused, true);
+assert.equal(paused.anchorRowId, undefined, 'returning to latest clears the paused anchor');
+assert.equal(getVisibleRows(paused)[0].id, 2, 'returning to latest selects the newest tail');
+
+let pausedAtRetention = setOutputLogFollowing({
+  ...createOutputLogModel(),
+  session: session(5, Array.from({ length: 10_000 }, (_, index) => row(index + 1))),
+  visibleCount: 10_000
+}, false);
+pausedAtRetention = reduceOutputLogEvent(pausedAtRetention, { type: 'append', payload: { sessionId: 5, row: row(10_001), omittedRows: 1 } });
+assert.equal(pausedAtRetention.anchorRowId, 2, 'retention moves an evicted anchor to the oldest retained row');
+assert.equal(getVisibleRows(pausedAtRetention)[0].id, 2);
+assert.equal(getVisibleRows(pausedAtRetention).at(-1).id, 10_001);
+
+const sameSessionBatch = [
+  { type: 'reset', session: session(6, [row(1, 'reset-first')]) },
+  { type: 'append', payload: { sessionId: 6, row: row(2, 'append-second'), omittedRows: 0 } }
+].reduce(reduceOutputLogEvent, {
+  ...createOutputLogModel(),
+  session: session(6, [row(1, 'old')])
+});
+assert.deepEqual(sameSessionBatch.session.rows.map(entry => entry.command), ['reset-first', 'append-second'], 'same-session reset and append retain their batch order');
+
 const historical = {
   ...createOutputLogModel(),
   session: session(3, Array.from({ length: 1_000 }, (_, index) => row(index + 1))),
@@ -69,6 +103,7 @@ const historical = {
 const expansion = expandHistory(historical, 120, 24);
 assert.equal(expansion.model.visibleCount, 1_000);
 assert.equal(expansion.model.following, false, 'opening history suspends follow');
+assert.equal(expansion.model.anchorRowId, 1, 'history expansion anchors the extended selected range');
 assert.equal(expansion.scrollTop, 12_120, 'opening history keeps the previously visible row anchored');
 
 const retained = reduceOutputLogEvent({

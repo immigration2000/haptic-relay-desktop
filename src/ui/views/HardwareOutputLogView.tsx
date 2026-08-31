@@ -2,12 +2,14 @@ import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 're
 import type { HardwareOutputLogRow } from '../../shared/protocol';
 import {
   applyInitialSnapshot,
+  canExpandHistory,
   createFrameBatcher,
   createOutputLogModel,
   expandHistory,
   getVirtualWindow,
   getVisibleRows,
-  reduceOutputLogEvent
+  reduceOutputLogEvent,
+  setOutputLogFollowing
 } from '../output-log-model.mjs';
 import type { OutputLogEvent, OutputLogModel } from '../output-log-model.mjs';
 import '../../styles.css';
@@ -32,6 +34,7 @@ export default function HardwareOutputLogView() {
     () => visibleRows.slice(virtualWindow.start, virtualWindow.end),
     [visibleRows, virtualWindow.end, virtualWindow.start]
   );
+  const hasRows = visibleRows.length > 0;
 
   function commitModel(nextModel: OutputLogModel) {
     if (nextModel === modelRef.current) return;
@@ -123,7 +126,7 @@ export default function HardwareOutputLogView() {
     if (!container) return;
     syncViewport(container);
     const following = container.scrollHeight - container.scrollTop - container.clientHeight <= FOLLOW_THRESHOLD_PX;
-    if (following !== modelRef.current.following) commitModel({ ...modelRef.current, following });
+    if (following !== modelRef.current.following) commitModel(setOutputLogFollowing(modelRef.current, following));
   }
 
   function moveToLatest() {
@@ -132,7 +135,7 @@ export default function HardwareOutputLogView() {
       container.scrollTop = container.scrollHeight;
       syncViewport(container);
     }
-    if (!modelRef.current.following) commitModel({ ...modelRef.current, following: true });
+    commitModel(setOutputLogFollowing(modelRef.current, true));
   }
 
   function showEarlierLogs() {
@@ -154,23 +157,24 @@ export default function HardwareOutputLogView() {
         <p>포트: {port} · 보관됨 {retainedRows}개</p>
       </header>
       <div className="hardware-output-log-toolbar">
-        <button className="btn btn-secondary" disabled={model.visibleCount >= session.rows.length} onClick={showEarlierLogs}>이전 로그 더 보기</button>
+        <button className="btn btn-secondary" disabled={!canExpandHistory(model)} onClick={showEarlierLogs}>이전 로그 더 보기</button>
         <span>{visibleRows.length.toLocaleString('ko-KR')}개 표시</span>
       </div>
       <div className="hardware-output-log-notice" aria-live="polite">
         {session.omittedRows > 0 ? <p className="hardware-output-log-omitted">이전 {session.omittedRows.toLocaleString('ko-KR')}개 생략됨</p> : null}
+        {error && hasRows ? <p className="hardware-output-log-error" role="status">{error}</p> : null}
       </div>
       <div className="hardware-output-log-table-wrap" ref={scrollRef} onScroll={updateFollowing} aria-busy={loading}>
-        <table className="hardware-output-log-table">
+        <table className="hardware-output-log-table" aria-rowcount={visibleRows.length + 1}>
           <caption className="hardware-output-log-caption">하드웨어 출력 명령의 완료 기록</caption>
           <thead><tr><th scope="col">완료 시각</th><th scope="col">종류</th><th scope="col">명령</th><th scope="col">포트</th><th scope="col">Baudrate</th></tr></thead>
           <tbody>
             {loading ? <tr><td colSpan={5} className="hardware-output-log-state" role="status" aria-live="polite">출력 로그를 불러오는 중입니다.</td></tr>
-              : error ? <tr><td colSpan={5} className="hardware-output-log-state" role="alert">{error}</td></tr>
-                : visibleRows.length === 0 ? <tr><td colSpan={5} className="hardware-output-log-state" role="status">아직 출력 로그가 없습니다.</td></tr>
+              : error && !hasRows ? <tr><td colSpan={5} className="hardware-output-log-state" role="alert">{error}</td></tr>
+                : !hasRows ? <tr><td colSpan={5} className="hardware-output-log-state" role="status">아직 출력 로그가 없습니다.</td></tr>
                   : <>
                     {virtualWindow.topSpacerPx > 0 ? <SpacerRow height={virtualWindow.topSpacerPx} /> : null}
-                    {renderedRows.map(row => <OutputLogRow key={`${session.sessionId}:${row.id}`} row={row} />)}
+                    {renderedRows.map((row, index) => <OutputLogRow key={`${session.sessionId}:${row.id}`} row={row} rowIndex={virtualWindow.start + index + 2} />)}
                     {virtualWindow.bottomSpacerPx > 0 ? <SpacerRow height={virtualWindow.bottomSpacerPx} /> : null}
                   </>}
           </tbody>
@@ -181,8 +185,8 @@ export default function HardwareOutputLogView() {
   );
 }
 
-const OutputLogRow = React.memo(function OutputLogRow({ row }: { row: HardwareOutputLogRow }) {
-  return <tr><td>{formatCompletedAt(row.completedAt)}</td><td>{row.kind}</td><td><code>{row.command}</code></td><td>{row.portPath}</td><td>{row.baudRate.toLocaleString('ko-KR')}</td></tr>;
+const OutputLogRow = React.memo(function OutputLogRow({ row, rowIndex }: { row: HardwareOutputLogRow; rowIndex: number }) {
+  return <tr aria-rowindex={rowIndex}><td>{formatCompletedAt(row.completedAt)}</td><td>{row.kind}</td><td><code>{row.command}</code></td><td>{row.portPath}</td><td>{row.baudRate.toLocaleString('ko-KR')}</td></tr>;
 });
 
 function SpacerRow({ height }: { height: number }) {

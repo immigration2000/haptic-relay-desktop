@@ -6,7 +6,7 @@ const VIRTUAL_OVERSCAN_ROWS = 8;
 const EMPTY_SESSION = { sessionId: 0, rows: [], omittedRows: 0 };
 
 export function createOutputLogModel() {
-  return { session: EMPTY_SESSION, visibleCount: PAGE_SIZE, following: true, revision: 0 };
+  return { session: EMPTY_SESSION, visibleCount: PAGE_SIZE, following: true, anchorRowId: undefined, revision: 0 };
 }
 
 export function applyInitialSnapshot(model, snapshot, queuedEvents) {
@@ -14,6 +14,8 @@ export function applyInitialSnapshot(model, snapshot, queuedEvents) {
     ...model,
     session: retainSession(snapshot),
     visibleCount: PAGE_SIZE,
+    following: true,
+    anchorRowId: undefined,
     revision: model.revision + 1
   };
   return queuedEvents.reduce(reduceOutputLogEvent, initial);
@@ -27,6 +29,7 @@ export function reduceOutputLogEvent(model, event) {
       session: retainSession(event.session),
       visibleCount: PAGE_SIZE,
       following: true,
+      anchorRowId: undefined,
       revision: model.revision + 1
     };
   }
@@ -39,34 +42,65 @@ export function reduceOutputLogEvent(model, event) {
       session: { sessionId: payload.sessionId, rows: [payload.row], omittedRows: payload.omittedRows },
       visibleCount: PAGE_SIZE,
       following: true,
+      anchorRowId: undefined,
       revision: model.revision + 1
     };
   }
   if (model.session.rows.some(row => row.id === payload.row.id)) return model;
 
+  const rows = [...model.session.rows, payload.row].slice(-MAX_ROWS);
   return {
     ...model,
     session: {
       ...model.session,
-      rows: [...model.session.rows, payload.row].slice(-MAX_ROWS),
+      rows,
       omittedRows: payload.omittedRows
     },
+    anchorRowId: model.following ? undefined : resolveAnchorRowId(model.anchorRowId, rows),
     revision: model.revision + 1
   };
 }
 
 export function getVisibleRows(model) {
-  return model.session.rows.slice(Math.max(0, model.session.rows.length - model.visibleCount));
+  const { rows } = model.session;
+  if (model.following) return rows.slice(Math.max(0, rows.length - model.visibleCount));
+  const anchorIndex = getAnchorIndex(model, rows);
+  return rows.slice(anchorIndex, anchorIndex + model.visibleCount);
+}
+
+export function setOutputLogFollowing(model, following) {
+  if (following) {
+    if (model.following && model.anchorRowId === undefined) return model;
+    return { ...model, following: true, anchorRowId: undefined };
+  }
+  const anchorRowId = getVisibleRows(model)[0]?.id;
+  if (!model.following && model.anchorRowId === anchorRowId) return model;
+  return { ...model, following: false, anchorRowId };
 }
 
 export function expandHistory(model, scrollTop, rowHeight) {
-  const visibleCount = Math.min(model.session.rows.length, model.visibleCount + PAGE_SIZE);
-  const addedRows = visibleCount - model.visibleCount;
+  const selectedRows = getVisibleRows(model);
+  const anchorIndex = model.following
+    ? Math.max(0, model.session.rows.length - selectedRows.length)
+    : getAnchorIndex(model, model.session.rows);
+  const addedRows = Math.min(PAGE_SIZE, anchorIndex);
   if (addedRows <= 0) return { model, scrollTop };
+  const nextAnchorRowId = model.session.rows[anchorIndex - addedRows]?.id;
   return {
-    model: { ...model, visibleCount, following: false },
+    model: {
+      ...model,
+      visibleCount: selectedRows.length + addedRows,
+      following: false,
+      anchorRowId: nextAnchorRowId
+    },
     scrollTop: scrollTop + addedRows * rowHeight
   };
+}
+
+export function canExpandHistory(model) {
+  if (model.session.rows.length === 0) return false;
+  if (model.following) return model.session.rows.length > getVisibleRows(model).length;
+  return getAnchorIndex(model, model.session.rows) > 0;
 }
 
 export function getVirtualWindow(totalRows, scrollTop, clientHeight, rowHeight) {
@@ -113,4 +147,15 @@ export function createFrameBatcher(process, requestFrame, cancelFrame) {
 
 function retainSession(session) {
   return { ...session, rows: session.rows.slice(-MAX_ROWS) };
+}
+
+function getAnchorIndex(model, rows) {
+  if (rows.length === 0) return 0;
+  const index = model.anchorRowId === undefined ? -1 : rows.findIndex(row => row.id === model.anchorRowId);
+  return index >= 0 ? index : 0;
+}
+
+function resolveAnchorRowId(anchorRowId, rows) {
+  if (anchorRowId !== undefined && rows.some(row => row.id === anchorRowId)) return anchorRowId;
+  return rows[0]?.id;
 }
