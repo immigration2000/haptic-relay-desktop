@@ -33,7 +33,7 @@ export function HardwareStrokeControl({
     '--stroke-stop': `${stop}%`
   } as CSSProperties;
 
-  function changeMotionRange(handle: 'min' | 'max', requested: number) {
+  function changeRange(handle: 'min' | 'max', requested: number) {
     const next = updateMotionRange({ min, max, stop }, handle, requested);
     onProfileChange({
       strokeMin: percentToNormalized(next.min),
@@ -56,9 +56,10 @@ export function HardwareStrokeControl({
             <span className="stroke-rail-mark stroke-rail-mark-bottom">0</span>
           </div>
         </div>
-        <label className="vertical-stop-control">
+        <label className="vertical-stop-control" htmlFor="hardware-stop-position">
           <span>긴급 정지 위치</span>
           <input
+            id="hardware-stop-position"
             type="range"
             min={min}
             max={max}
@@ -67,26 +68,36 @@ export function HardwareStrokeControl({
             disabled={profileDisabled}
             onChange={event => onProfileChange({ stopPosition: percentToNormalized(Number(event.target.value)) })}
           />
-          <output>{stop}%</output>
+          <output id="hardware-stop-position-output" htmlFor="hardware-stop-position">{stop}%</output>
         </label>
       </div>
       <p className="stroke-summary">실제 {min}~{max}% · 중심 {stop}% · 원본 대비 {((max - min) / 100).toFixed(2)}배{profile.invertPosition ? ' · 방향 반전' : ''}</p>
 
       <fieldset className="motion-range-fieldset" disabled={profileDisabled}>
         <legend>동작 범위</legend>
-        <div className="motion-range-heading"><output>{min}%~{max}%</output></div>
+        <div className="motion-range-heading"><output id="hardware-motion-range-output" htmlFor="hardware-stroke-min hardware-stroke-max hardware-stroke-min-range hardware-stroke-max-range">{min}%~{max}%</output></div>
+        <div className="motion-range-steppers">
+          <label htmlFor="hardware-stroke-min">
+            최소 위치 (%)
+            <input id="hardware-stroke-min" type="number" min="0" max="99" step="1" value={min} onChange={event => changeRange('min', Number(event.target.value))} />
+          </label>
+          <label htmlFor="hardware-stroke-max">
+            최대 위치 (%)
+            <input id="hardware-stroke-max" type="number" min="1" max="100" step="1" value={max} onChange={event => changeRange('max', Number(event.target.value))} />
+          </label>
+        </div>
         <div className="dual-range-slider">
-          <input aria-label="동작 범위 최소" type="range" min="0" max="99" step="1" value={min} onChange={event => changeMotionRange('min', Number(event.target.value))} />
-          <input aria-label="동작 범위 최대" type="range" min="1" max="100" step="1" value={max} onChange={event => changeMotionRange('max', Number(event.target.value))} />
+          <input id="hardware-stroke-min-range" aria-label="동작 범위 최소" type="range" min="0" max="99" step="1" value={min} onChange={event => changeRange('min', Number(event.target.value))} />
+          <input id="hardware-stroke-max-range" aria-label="동작 범위 최대" type="range" min="1" max="100" step="1" value={max} onChange={event => changeRange('max', Number(event.target.value))} />
         </div>
       </fieldset>
 
       <div className="intensity-control-grid">
-        <label>
+        <label htmlFor="hardware-intensity-limit">
           <span>강도 상한</span>
-          <input type="range" min="0" max="100" step="1" value={intensity} disabled={busy} onChange={event => onProtectionChange({ intensityLimit: percentToNormalized(Number(event.target.value)) })} />
+          <input id="hardware-intensity-limit" type="range" min="0" max="100" step="1" value={intensity} disabled={busy} onChange={event => onProtectionChange({ intensityLimit: percentToNormalized(Number(event.target.value)) })} />
         </label>
-        <output>{intensity}%</output>
+        <output id="hardware-intensity-output" htmlFor="hardware-intensity-limit">{intensity}%</output>
         <button type="button" disabled={busy} onClick={onApplyProtection}>보호 옵션 적용</button>
       </div>
 

@@ -223,7 +223,7 @@ button:disabled { cursor: not-allowed; opacity: .46; }
 .stroke-rail-mark-bottom { bottom: -4px; }
 .stroke-rail-label { position: absolute; left: 66px; color: var(--accent-strong); font-size: 9px; font-weight: 800; white-space: nowrap; }
 .stroke-rail-label-max { bottom: calc(var(--stroke-max) - 6px); }
-.stroke-rail-label-min { bottom: calc(var(--stroke-min) - 6px); }
+.stroke-rail-label-min { right: 66px; bottom: calc(var(--stroke-min) - 6px); left: auto; text-align: right; }
 .vertical-stop-control { justify-items: center; align-content: center; min-height: 220px; }
 .vertical-stop-control > span { text-align: center; }
 .vertical-stop-control input { width: 34px; height: 164px; min-height: 0; padding: 0; accent-color: var(--accent); writing-mode: vertical-lr; direction: rtl; }
@@ -233,6 +233,8 @@ button:disabled { cursor: not-allowed; opacity: .46; }
 .motion-range-fieldset:disabled { opacity: .62; }
 .motion-range-fieldset legend { padding: 0 4px; color: #55585d; font-size: 12px; font-weight: 700; }
 .motion-range-heading { display: flex; justify-content: flex-end; color: var(--accent-strong); font-size: 11px; font-weight: 800; }
+.motion-range-steppers { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.motion-range-steppers input { min-height: 30px; padding: 5px 7px; }
 .dual-range-slider { position: relative; height: 24px; }
 .dual-range-slider input { position: absolute; inset: 0; width: 100%; min-height: 0; height: 24px; padding: 0; pointer-events: none; appearance: none; background: transparent; }
 .dual-range-slider input::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: var(--surface-strong); }
@@ -358,6 +360,7 @@ button:disabled { cursor: not-allowed; opacity: .46; }
   .hardware-row { grid-template-columns: 1fr 1fr; }
   .stroke-visual-grid { grid-template-columns: 1fr; gap: 16px; }
   .vertical-stop-control { min-height: 190px; }
+  .motion-range-steppers { grid-template-columns: 1fr; }
   .intensity-control-grid { grid-template-columns: 1fr auto; }
   .intensity-control-grid button { grid-column: 1 / -1; }
   .modal-form-grid { grid-template-columns: 1fr; }
