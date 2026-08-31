@@ -66,6 +66,14 @@ const activePath = path.join(diagnosticsDirectory, 'haptic-relay.jsonl');
 
 {
   const fake = createFakeOperations();
+  const store = new DiagnosticLogStore({ directory: diagnosticsDirectory, sessionId: 'defaults', operations: fake.operations });
+  assert.equal(store.metadata().schemaVersion, 2);
+  assert.equal(store.metadata().maxFileBytes, 16 * 1024 * 1024);
+  assert.equal(store.metadata().maxFiles, 16);
+}
+
+{
+  const fake = createFakeOperations();
   const errors = [];
   const store = new DiagnosticLogStore({
     directory: diagnosticsDirectory,
@@ -83,14 +91,14 @@ const activePath = path.join(diagnosticsDirectory, 'haptic-relay.jsonl');
   await store.flush();
 
   assert.deepEqual(parseJsonLines(fake.files.get(activePath)), [
-    { schemaVersion: 1, timestamp: 1000, sessionId: 'session-one', level: 'info', source: 'app', event: 'first', data: { order: 1 } },
-    { schemaVersion: 1, timestamp: 1001, sessionId: 'session-one', level: 'info', source: 'app', event: 'second', data: { order: 2 } }
+    { schemaVersion: 2, timestamp: 1000, sessionId: 'session-one', level: 'info', source: 'app', event: 'first', data: { order: 1 } },
+    { schemaVersion: 2, timestamp: 1001, sessionId: 'session-one', level: 'info', source: 'app', event: 'second', data: { order: 2 } }
   ]);
   assert.equal(fake.directories.has(diagnosticsDirectory), true, 'directory is created lazily');
   assert.deepEqual(fake.appendOrder.map(line => JSON.parse(line).event), ['first', 'second']);
   assert.deepEqual(errors, []);
   assert.deepEqual(store.metadata(), {
-    schemaVersion: 1,
+    schemaVersion: 2,
     sessionId: 'session-one',
     format: 'jsonl',
     activeFile: activePath,
@@ -136,36 +144,23 @@ const activePath = path.join(diagnosticsDirectory, 'haptic-relay.jsonl');
     operations: fake.operations
   });
 
-  store.recordMotion({ timestamp: 2100, outcome: 'completed', command: 'L05000100', position: 0.5, intensity: 0.1 });
-  store.recordMotion({ timestamp: 2200, outcome: 'completed', command: 'L06000100', position: 0.6, intensity: 0.1 });
-  store.recordMotion({ timestamp: 2300, outcome: 'dropped', reason: 'protection-paused' });
-  store.recordMotion({ timestamp: 3100, outcome: 'failed', reason: 'hardware-write-timeout' });
-  await store.flushMotion();
+  await store.recordMotion({ timestamp: 2100, outcome: 'completed', command: 'L05000100', position: 0.5, intensity: 0.1 });
+  await store.recordMotion({ timestamp: 2200, outcome: 'completed', command: 'L06000100', position: 0.6, intensity: 0.1 });
+  await store.recordMotion({ timestamp: 2300, outcome: 'dropped', position: 0.6, intensity: 0.1, reason: 'protection-paused' });
+  await store.recordMotion({ timestamp: 3100, outcome: 'failed', command: 'L07000100', position: 0.7, intensity: 0.1, reason: 'hardware-write-timeout' });
   await store.flush();
 
-  const summaries = allRecords(fake).filter(record => record.event === 'hardware-motion-summary');
-  assert.equal(summaries.length, 2);
-  assert.deepEqual(summaries[0].data, {
-    attempted: 3,
-    completed: 2,
-    dropped: 1,
-    failed: 0,
-    firstTimestamp: 2100,
-    lastTimestamp: 2300,
-    lastCommand: 'L06000100',
-    lastPosition: 0.6,
-    lastIntensity: 0.1,
-    lastFailureReason: 'protection-paused'
-  });
-  assert.deepEqual(summaries[1].data, {
-    attempted: 1,
-    completed: 0,
-    dropped: 0,
-    failed: 1,
-    firstTimestamp: 3100,
-    lastTimestamp: 3100,
-    lastFailureReason: 'hardware-write-timeout'
-  });
+  const samples = allRecords(fake);
+  assert.deepEqual(samples.map(record => record.event), [
+    'hardware-motion-sample',
+    'hardware-motion-sample',
+    'hardware-motion-sample',
+    'hardware-motion-sample'
+  ]);
+  assert.deepEqual(samples.map(record => record.data.outcome), ['completed', 'completed', 'dropped', 'failed']);
+  assert.equal(samples[1].data.command, 'L06000100');
+  assert.equal(samples[2].data.reason, 'protection-paused');
+  assert.equal(samples[3].data.timeout, undefined, 'store does not invent fields absent from the input');
 }
 
 {
@@ -207,8 +202,8 @@ const activePath = path.join(diagnosticsDirectory, 'haptic-relay.jsonl');
 
   assert.deepEqual(
     parseJsonLines(fake.files.get(activePath)).map(record => record.event),
-    ['hardware-motion-summary', 'session-ended'],
-    'lifecycle boundaries atomically persist the final motion summary first'
+    ['hardware-motion-sample', 'session-ended'],
+    'lifecycle boundaries persist the final raw motion sample first'
   );
 }
 
