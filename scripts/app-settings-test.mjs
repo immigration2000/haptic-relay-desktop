@@ -5,6 +5,22 @@ const protocolSources = await Promise.all([
   readFile(new URL('../electron/protocol.ts', import.meta.url), 'utf8'),
   readFile(new URL('../src/shared/protocol.ts', import.meta.url), 'utf8')
 ]);
+const defaultSources = await Promise.all([
+  readFile(new URL('../electron/app-settings.ts', import.meta.url), 'utf8'),
+  readFile(new URL('../src/App.tsx', import.meta.url), 'utf8'),
+  readFile(new URL('../electron/services/hardware-controller.ts', import.meta.url), 'utf8')
+]);
+for (const [name, source] of [
+  ['Electron settings', defaultSources[0]],
+  ['renderer fallback', defaultSources[1]],
+  ['controller fallback', defaultSources[2]]
+]) {
+  assert.match(
+    source,
+    /strokeMin:\s*0\.3,[\s\S]*?strokeMax:\s*0\.8,[\s\S]*?stopPosition:\s*0\.5,/,
+    `${name} must use the fresh 30-80% hardware defaults`
+  );
+}
 for (const protocolSource of protocolSources) {
   assert.match(
     protocolSource,
