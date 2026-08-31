@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-const [mainSource, preloadSource, hardwareOutputLogPreloadSource, appSource, motionDemoPanelSource, roomSessionSource, demoDataSource, stylesSource, relayClientSource, relayServerSource, hardwareOutputMonitorSource, hardwareStrokeControlSource] = await Promise.all([
+const [mainSource, preloadSource, hardwareOutputLogPreloadSource, appSource, motionDemoPanelSource, roomSessionSource, demoDataSource, stylesSource, relayClientSource, relayServerSource, hardwareOutputMonitorSource, hardwareStrokeControlSource, globalSource] = await Promise.all([
   readFile(new URL('../dist-electron/main.js', import.meta.url), 'utf8'),
   readFile(new URL('../dist-electron/preload.cjs', import.meta.url), 'utf8'),
   readFile(new URL('../dist-electron/hardware-output-log-preload.cjs', import.meta.url), 'utf8'),
@@ -13,7 +13,8 @@ const [mainSource, preloadSource, hardwareOutputLogPreloadSource, appSource, mot
   readFile(new URL('../electron/services/relay-client.ts', import.meta.url), 'utf8'),
   readFile(new URL('../server/src/relay-server.ts', import.meta.url), 'utf8'),
   readFile(new URL('../src/ui/components/HardwareOutputMonitor.tsx', import.meta.url), 'utf8'),
-  readFile(new URL('../src/ui/components/HardwareStrokeControl.tsx', import.meta.url), 'utf8')
+  readFile(new URL('../src/ui/components/HardwareStrokeControl.tsx', import.meta.url), 'utf8'),
+  readFile(new URL('../src/global.d.ts', import.meta.url), 'utf8')
 ]);
 
 function sourceSection(source, start, end) {
@@ -108,10 +109,13 @@ assert.match(mainSource, /ipcMain\.handle\(['"]server:check['"][\s\S]*?assertTru
 assert.match(mainSource, /sendToRenderer\(mainWindow, ['"]motion:received['"], snapshot\)/);
 assert.match(preloadSource, /startMotionDemo:\s*\(intensity, position\).*?ipcRenderer\.invoke\(['"]motion-demo:start['"], intensity, position\)/);
 assert.match(preloadSource, /updateMotionDemo:\s*\(intensity, position\).*?ipcRenderer\.send\(['"]motion-demo:update['"], intensity, position\)/);
+assert.match(preloadSource, /setManualMotionSafety:\s*\(manualMaxPositionSpeed\).*?ipcRenderer\.send\(['"]motion-demo:set-safety-limit['"], manualMaxPositionSpeed\)/);
+assert.match(globalSource, /setManualMotionSafety:\s*\(manualMaxPositionSpeed:\s*number\)\s*=>\s*void/);
 assert.match(preloadSource, /startMotionPattern:\s*\(config\).*?ipcRenderer\.invoke\(['"]motion-demo:start-pattern['"], config\)/);
 assert.match(preloadSource, /updateMotionPattern:\s*\(config\).*?ipcRenderer\.send\(['"]motion-demo:update-pattern['"], config\)/);
 assert.match(preloadSource, /stopMotionDemo:\s*\(\).*?ipcRenderer\.invoke\(['"]motion-demo:stop['"]\)/);
 assert.match(mainSource, /ipcMain\.on\(['"]motion-demo:update['"][\s\S]*?try \{[\s\S]*?demoMotionStream\.update[\s\S]*?catch \(error\)[\s\S]*?motion-demo-update-rejected/);
+assert.match(mainSource, /ipcMain\.on\(['"]motion-demo:set-safety-limit['"][\s\S]*?try \{[\s\S]*?assertTrustedSender\(event\)[\s\S]*?demoMotionStream\.setManualMaxPositionSpeed\(manualMaxPositionSpeed\)[\s\S]*?catch \(error\)[\s\S]*?motion-safety-limit-rejected/);
 assert.match(mainSource, /ipcMain\.handle\(['"]motion-demo:start-pattern['"][\s\S]*?assertTrustedSender\(event\)[\s\S]*?validated\s*=\s*validateMotionPatternConfig\(config\)[\s\S]*?message: ['"]motion-pattern-started['"], details: validated\.pattern[\s\S]*?demoMotionStream\.startPattern\(validated\)/);
 assert.match(mainSource, /ipcMain\.on\(['"]motion-demo:update-pattern['"][\s\S]*?try \{[\s\S]*?assertTrustedSender\(event\)[\s\S]*?validated\s*=\s*validateMotionPatternConfig\(config\)[\s\S]*?demoMotionStream\.updatePattern\(validated\)[\s\S]*?catch \(error\)[\s\S]*?level: ['"]warning['"][\s\S]*?message: ['"]motion-pattern-update-rejected['"], details: formatError\(error\)/);
 assert.match(mainSource, /publishMotion\(frame\);\s*const snapshot = \{ mode: demoMotionStream\.getMode\(\), frame \};\s*sendToRenderer\(mainWindow, ['"]motion-demo:frame['"], snapshot\)/);
@@ -323,6 +327,13 @@ assert.match(joinRoomSource, /setViewerPage\(['"]room['"]\)/);
 assert.match(motionDemoSource, /window\.hapticRelay\.startMotionDemo\(intensity, position\)/);
 assert.match(motionDemoSource, /window\.hapticRelay\.stopMotionDemo\(\)/);
 assert.match(appSource, /window\.hapticRelay\.updateMotionDemo\(intensity, position\)/);
+assert.match(loadSettingsSource, /setManualMotionSafety\(settings\.motionSafety\.manualMaxPositionSpeed\)/);
+assert.match(hardwareStrokeControlSource, /안전 모드 속도 제한/);
+assert.match(hardwareStrokeControlSource, /id="hardware-manual-speed-limit"[\s\S]*?min="50"[\s\S]*?max="400"[\s\S]*?step="25"/);
+assert.ok(
+  hardwareStrokeControlSource.indexOf('안전 모드 속도 제한') < hardwareStrokeControlSource.indexOf('강도 상한'),
+  'safety speed control appears above intensity limit'
+);
 assert.match(roomSessionSource, /className="session-tabs"/);
 assert.match(roomSessionSource, /className="session-content"/);
 assert.match(motionDemoPanelSource, /className="motion-demo-controls"/);

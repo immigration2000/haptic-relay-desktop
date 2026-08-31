@@ -33,6 +33,7 @@ contextBridge.exposeInMainWorld('hapticRelay', {
   openHardwareOutputLog: (): Promise<{ opened: true }> => ipcRenderer.invoke('hardware-output-log:open'),
   startMotionDemo: (intensity: number, position: number) => ipcRenderer.invoke('motion-demo:start', intensity, position),
   updateMotionDemo: (intensity: number, position: number) => ipcRenderer.send('motion-demo:update', intensity, position),
+  setManualMotionSafety: (manualMaxPositionSpeed: number) => ipcRenderer.send('motion-demo:set-safety-limit', manualMaxPositionSpeed),
   startMotionPattern: (config: MotionPatternConfig) => ipcRenderer.invoke('motion-demo:start-pattern', config),
   updateMotionPattern: (config: MotionPatternConfig) => ipcRenderer.send('motion-demo:update-pattern', config),
   stopMotionDemo: () => ipcRenderer.invoke('motion-demo:stop'),

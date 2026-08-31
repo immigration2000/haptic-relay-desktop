@@ -435,6 +435,14 @@ ipcMain.on('motion-demo:update', (event, intensity: unknown, position: unknown) 
     addLog({ level: 'warning', source: 'room', message: 'motion-demo-update-rejected', details: formatError(error) });
   }
 });
+ipcMain.on('motion-demo:set-safety-limit', (event, manualMaxPositionSpeed: unknown) => {
+  try {
+    assertTrustedSender(event);
+    demoMotionStream.setManualMaxPositionSpeed(manualMaxPositionSpeed);
+  } catch (error) {
+    addLog({ level: 'warning', source: 'protection', message: 'motion-safety-limit-rejected', details: formatError(error) });
+  }
+});
 ipcMain.handle('motion-demo:start-pattern', (event, config: unknown) => {
   assertTrustedSender(event);
   const validated = validateMotionPatternConfig(config);

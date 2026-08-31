@@ -55,6 +55,7 @@ declare global {
       openHardwareOutputLog: () => Promise<{ opened: true }>;
       startMotionDemo: (intensity: number, position: number) => Promise<{ streaming: boolean; intervalMs: number }>;
       updateMotionDemo: (intensity: number, position: number) => void;
+      setManualMotionSafety: (manualMaxPositionSpeed: number) => void;
       startMotionPattern: (config: MotionPatternConfig) => Promise<{ streaming: boolean; mode: 'pattern'; intervalMs: number }>;
       updateMotionPattern: (config: MotionPatternConfig) => void;
       stopMotionDemo: () => Promise<{ streaming: boolean }>;
