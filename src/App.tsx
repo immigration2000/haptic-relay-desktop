@@ -48,9 +48,9 @@ const DEFAULT_HARDWARE_PROFILE: HardwareProfile = {
   baudRate: 115200,
   linearAxis: 'L0',
   vibrationAxis: '',
-  strokeMin: 0,
-  strokeMax: 1,
-  stopPosition: 0,
+  strokeMin: 0.3,
+  strokeMax: 0.8,
+  stopPosition: 0.5,
   invertPosition: false
 };
 const DEFAULT_HARDWARE_PROTECTION: HardwareProtection = {

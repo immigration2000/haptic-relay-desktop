@@ -25,6 +25,16 @@ for (const protocolSource of protocolSources) {
 
 const settingsModule = await import('../dist-electron/app-settings.js');
 
+assert.deepEqual(settingsModule.DEFAULT_SETTINGS.hardwareProfile, {
+  baudRate: 115200,
+  linearAxis: 'L0',
+  vibrationAxis: undefined,
+  strokeMin: 0.3,
+  strokeMax: 0.8,
+  stopPosition: 0.5,
+  invertPosition: false
+});
+
 const legacyHardwareProfile = {
   baudRate: 115200,
   linearAxis: 'L0',
@@ -35,7 +45,7 @@ const legacyHardwareProfile = {
 };
 const hardwareProfile = {
   ...legacyHardwareProfile,
-  stopPosition: 0.3
+  stopPosition: 0.4
 };
 const hardwareProtection = {
   intensityLimit: 0.8,
@@ -94,7 +104,7 @@ const validated = settingsModule.validateAppSettings({
   playback: { motionDelayMs: 700 }
 });
 assert.equal(validated.playback.motionDelayMs, 700);
-assert.equal(validated.hardwareProfile.stopPosition, 0.3);
+assert.deepEqual(validated.hardwareProfile, hardwareProfile);
 
 for (const schemaVersion of [1, 2, 4, '3', undefined]) {
   assert.throws(

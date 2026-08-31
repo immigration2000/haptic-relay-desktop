@@ -8,9 +8,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
     baudRate: 115200,
     linearAxis: 'L0',
     vibrationAxis: undefined,
-    strokeMin: 0,
-    strokeMax: 1,
-    stopPosition: 0,
+    strokeMin: 0.3,
+    strokeMax: 0.8,
+    stopPosition: 0.5,
     invertPosition: false
   },
   hardwareProtection: {
