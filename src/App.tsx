@@ -4,6 +4,7 @@ import type { AppLogEntry, AppSettings, ApprovalRequest, EntryMode, HardwareConn
 import { createQrMatrix } from './qr-code';
 import { AppShell } from './ui/components/AppShell';
 import { HardwareOutputMonitor } from './ui/components/HardwareOutputMonitor';
+import { HardwareStrokeControl } from './ui/components/HardwareStrokeControl';
 import { Modal } from './ui/components/Modal';
 import { MotionDemoPanel } from './ui/components/MotionDemoPanel';
 import { RELAY_SERVERS } from './ui/demo-data';
@@ -801,54 +802,14 @@ export default function App() {
         <button disabled={isBusy || !hardwareConnected} onClick={testHardware}>테스트</button>
       </div>
       <HardwareOutputMonitor connected={hardwareConnected} />
-      <div className="profile-grid">
-        <label>
-          Baudrate
-          <select value={hardwareProfile.baudRate} disabled={hardwareConnected || isBusy} onChange={event => updateHardwareProfile({ baudRate: Number(event.target.value) })}>
-            <option value={9600}>9600</option>
-            <option value={57600}>57600</option>
-            <option value={115200}>115200</option>
-            <option value={230400}>230400</option>
-            <option value={460800}>460800</option>
-          </select>
-        </label>
-        <label>
-          Stroke 축
-          <input value={hardwareProfile.linearAxis} disabled={hardwareConnected || isBusy} onChange={event => updateHardwareProfile({ linearAxis: event.target.value.toUpperCase() })} />
-        </label>
-        <label>
-          진동 축
-          <input value={hardwareProfile.vibrationAxis ?? ''} disabled={hardwareConnected || isBusy} onChange={event => updateHardwareProfile({ vibrationAxis: event.target.value.toUpperCase() })} placeholder="선택, 예: V0" />
-        </label>
-        <label>
-          최소 위치
-          <input type="number" min="0" max="1" step="0.01" value={hardwareProfile.strokeMin} disabled={hardwareConnected || isBusy} onChange={event => updateHardwareProfile({ strokeMin: Number(event.target.value) })} />
-        </label>
-        <label>
-          최대 위치
-          <input type="number" min="0" max="1" step="0.01" value={hardwareProfile.strokeMax} disabled={hardwareConnected || isBusy} onChange={event => updateHardwareProfile({ strokeMax: Number(event.target.value) })} />
-        </label>
-        <label>
-          긴급 정지 위치
-          <input
-            type="number"
-            min={hardwareProfile.strokeMin}
-            max={hardwareProfile.strokeMax}
-            step="0.01"
-            value={hardwareProfile.stopPosition}
-            disabled={hardwareConnected || isBusy}
-            onChange={event => updateHardwareProfile({ stopPosition: Number(event.target.value) })}
-          />
-        </label>
-        <label className="checkbox-row">
-          <input type="checkbox" checked={hardwareProfile.invertPosition} disabled={hardwareConnected || isBusy} onChange={event => updateHardwareProfile({ invertPosition: event.target.checked })} />
-          방향 반전
-        </label>
-      </div>
-      <div className="button-row">
-        <button disabled={isBusy || settingsLoading || !savedSettings} onClick={saveSettings}>설정 저장</button>
-        <button disabled={isBusy || settingsLoading || !savedSettings || hardwareConnected} onClick={loadSettings}>설정 불러오기</button>
-      </div>
+      <HardwareStrokeControl
+        profile={hardwareProfile} protection={hardwareProtection}
+        profileDisabled={hardwareConnected || isBusy} busy={isBusy}
+        settingsLoading={settingsLoading} hasSavedSettings={Boolean(savedSettings)}
+        onProfileChange={updateHardwareProfile} onProtectionChange={updateHardwareProtection}
+        onApplyProtection={() => void applyHardwareProtection()}
+        onSave={() => void saveSettings()} onLoad={() => void loadSettings()}
+      />
     </section>
   );
 

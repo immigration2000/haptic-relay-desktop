@@ -1,0 +1,126 @@
+import type { CSSProperties } from 'react';
+import type { HardwareProfile, HardwareProtection } from '../../shared/protocol';
+import { normalizedToPercent, percentToNormalized, updateMotionRange } from '../hardware-settings-values';
+
+type HardwareStrokeControlProps = {
+  profile: HardwareProfile; protection: HardwareProtection; profileDisabled: boolean; busy: boolean;
+  settingsLoading: boolean; hasSavedSettings: boolean;
+  onProfileChange: (patch: Partial<HardwareProfile>) => void;
+  onProtectionChange: (patch: Partial<HardwareProtection>) => void;
+  onApplyProtection: () => void; onSave: () => void; onLoad: () => void;
+};
+
+export function HardwareStrokeControl({
+  profile,
+  protection,
+  profileDisabled,
+  busy,
+  settingsLoading,
+  hasSavedSettings,
+  onProfileChange,
+  onProtectionChange,
+  onApplyProtection,
+  onSave,
+  onLoad
+}: HardwareStrokeControlProps) {
+  const min = normalizedToPercent(profile.strokeMin);
+  const max = normalizedToPercent(profile.strokeMax);
+  const stop = Math.min(max, Math.max(min, normalizedToPercent(profile.stopPosition)));
+  const intensity = normalizedToPercent(protection.intensityLimit);
+  const railStyle = {
+    '--stroke-min': `${min}%`,
+    '--stroke-max': `${max}%`,
+    '--stroke-stop': `${stop}%`
+  } as CSSProperties;
+
+  function changeMotionRange(handle: 'min' | 'max', requested: number) {
+    const next = updateMotionRange({ min, max, stop }, handle, requested);
+    onProfileChange({
+      strokeMin: percentToNormalized(next.min),
+      strokeMax: percentToNormalized(next.max),
+      stopPosition: percentToNormalized(next.stop)
+    });
+  }
+
+  return (
+    <section className="hardware-stroke-control">
+      <h3>스트로크 제어 ({profile.linearAxis})</h3>
+      <div className="stroke-visual-grid">
+        <div className="stroke-rail-column">
+          <div className="stroke-rail" style={railStyle} aria-label={`동작 범위 ${min}%에서 ${max}%`}>
+            <span className="stroke-rail-mark stroke-rail-mark-top">100</span>
+            <span className="stroke-rail-fill" />
+            <span className="stroke-rail-stop" />
+            <span className="stroke-rail-label stroke-rail-label-max">MAX {max}%</span>
+            <span className="stroke-rail-label stroke-rail-label-min">MIN {min}%</span>
+            <span className="stroke-rail-mark stroke-rail-mark-bottom">0</span>
+          </div>
+        </div>
+        <label className="vertical-stop-control">
+          <span>긴급 정지 위치</span>
+          <input
+            type="range"
+            min={min}
+            max={max}
+            step="1"
+            value={stop}
+            disabled={profileDisabled}
+            onChange={event => onProfileChange({ stopPosition: percentToNormalized(Number(event.target.value)) })}
+          />
+          <output>{stop}%</output>
+        </label>
+      </div>
+      <p className="stroke-summary">실제 {min}~{max}% · 중심 {stop}% · 원본 대비 {((max - min) / 100).toFixed(2)}배{profile.invertPosition ? ' · 방향 반전' : ''}</p>
+
+      <fieldset className="motion-range-fieldset" disabled={profileDisabled}>
+        <legend>동작 범위</legend>
+        <div className="motion-range-heading"><output>{min}%~{max}%</output></div>
+        <div className="dual-range-slider">
+          <input aria-label="동작 범위 최소" type="range" min="0" max="99" step="1" value={min} onChange={event => changeMotionRange('min', Number(event.target.value))} />
+          <input aria-label="동작 범위 최대" type="range" min="1" max="100" step="1" value={max} onChange={event => changeMotionRange('max', Number(event.target.value))} />
+        </div>
+      </fieldset>
+
+      <div className="intensity-control-grid">
+        <label>
+          <span>강도 상한</span>
+          <input type="range" min="0" max="100" step="1" value={intensity} disabled={busy} onChange={event => onProtectionChange({ intensityLimit: percentToNormalized(Number(event.target.value)) })} />
+        </label>
+        <output>{intensity}%</output>
+        <button type="button" disabled={busy} onClick={onApplyProtection}>보호 옵션 적용</button>
+      </div>
+
+      <details className="hardware-advanced-settings">
+        <summary>고급 설정</summary>
+        <div className="profile-grid">
+          <label>
+            Baudrate
+            <select value={profile.baudRate} disabled={profileDisabled} onChange={event => onProfileChange({ baudRate: Number(event.target.value) })}>
+              <option value={9600}>9600</option>
+              <option value={57600}>57600</option>
+              <option value={115200}>115200</option>
+              <option value={230400}>230400</option>
+              <option value={460800}>460800</option>
+            </select>
+          </label>
+          <label>
+            Stroke 축
+            <input value={profile.linearAxis} disabled={profileDisabled} onChange={event => onProfileChange({ linearAxis: event.target.value.toUpperCase() })} />
+          </label>
+          <label>
+            진동 축
+            <input value={profile.vibrationAxis ?? ''} disabled={profileDisabled} onChange={event => onProfileChange({ vibrationAxis: event.target.value.toUpperCase() })} placeholder="선택, 예: V0" />
+          </label>
+          <label className="checkbox-row">
+            <input type="checkbox" checked={profile.invertPosition} disabled={profileDisabled} onChange={event => onProfileChange({ invertPosition: event.target.checked })} />
+            방향 반전
+          </label>
+        </div>
+        <div className="button-row">
+          <button type="button" disabled={busy || settingsLoading || !hasSavedSettings} onClick={onSave}>설정 저장</button>
+          <button type="button" disabled={busy || settingsLoading || !hasSavedSettings || profileDisabled} onClick={onLoad}>설정 불러오기</button>
+        </div>
+      </details>
+    </section>
+  );
+}

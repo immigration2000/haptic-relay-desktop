@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-const [mainSource, preloadSource, hardwareOutputLogPreloadSource, appSource, motionDemoPanelSource, roomSessionSource, demoDataSource, stylesSource, relayClientSource, relayServerSource, hardwareOutputMonitorSource] = await Promise.all([
+const [mainSource, preloadSource, hardwareOutputLogPreloadSource, appSource, motionDemoPanelSource, roomSessionSource, demoDataSource, stylesSource, relayClientSource, relayServerSource, hardwareOutputMonitorSource, hardwareStrokeControlSource] = await Promise.all([
   readFile(new URL('../dist-electron/main.js', import.meta.url), 'utf8'),
   readFile(new URL('../dist-electron/preload.cjs', import.meta.url), 'utf8'),
   readFile(new URL('../dist-electron/hardware-output-log-preload.cjs', import.meta.url), 'utf8'),
@@ -12,7 +12,8 @@ const [mainSource, preloadSource, hardwareOutputLogPreloadSource, appSource, mot
   readFile(new URL('../src/styles.css', import.meta.url), 'utf8'),
   readFile(new URL('../electron/services/relay-client.ts', import.meta.url), 'utf8'),
   readFile(new URL('../server/src/relay-server.ts', import.meta.url), 'utf8'),
-  readFile(new URL('../src/ui/components/HardwareOutputMonitor.tsx', import.meta.url), 'utf8')
+  readFile(new URL('../src/ui/components/HardwareOutputMonitor.tsx', import.meta.url), 'utf8'),
+  readFile(new URL('../src/ui/components/HardwareStrokeControl.tsx', import.meta.url), 'utf8')
 ]);
 
 function sourceSection(source, start, end) {
@@ -126,6 +127,8 @@ assert.match(preloadSource, /removeListener\(['"]hardware:output['"],\s*handler\
 assert.match(mainSource, /new HardwareController\(\{[\s\S]*?onOutput:[\s\S]*?outputSessionStore\.append\(snapshot\)[\s\S]*?outputLogWindowManager\.send\(['"]hardware-output-log:append['"], appended\)[\s\S]*?sendToRenderer\(mainWindow, ['"]hardware:output['"], snapshot\)/);
 assert.match(hardwareOutputMonitorSource, /output \? ['"]직렬 전송 완료['"]/);
 assert.doesNotMatch(hardwareOutputMonitorSource, /출력 성공/);
+assert.match(hardwareOutputMonitorSource, /전체 로그 보기/);
+assert.match(hardwareOutputMonitorSource, /openHardwareOutputLog/);
 assert.match(mainSource, /new HardwareController\(\{[\s\S]*?onDiagnostic:\s*routeHardwareDiagnostic/);
 assert.match(mainSource, /onConnectionStatus:\s*status\s*=>\s*\{[\s\S]*?status\.connected && status\.path[\s\S]*?outputSessionStore\.reset\(status\.path\)[\s\S]*?outputLogWindowManager\.send\(['"]hardware-output-log:reset['"], session\)[\s\S]*?sendToRenderer\(mainWindow, ['"]hardware:connection-status['"], status\)/);
 assert.match(mainSource, /ipcMain\.handle\(['"]hardware:status['"][\s\S]*?assertTrustedSender\(event\)[\s\S]*?hardware\.getConnectionStatus\(\)/);
@@ -242,17 +245,13 @@ assert.match(hardwarePanelSource, /disabled=\{isBusy \|\| hardwareConnected \|\|
 assert.match(hardwarePanelSource, /disabled=\{isBusy \|\| !hardwareConnected\}[\s\S]*?onClick=\{disconnectHardware\}>연결 해제<\/button>/);
 assert.match(hardwarePanelSource, /disabled=\{isBusy \|\| !hardwareConnected\}[\s\S]*?onClick=\{testHardware\}>테스트<\/button>/);
 assert.match(appSource, /const CURRENT_SETTINGS_SCHEMA_VERSION = 3;/);
-assert.match(hardwarePanelSource, /긴급 정지 위치/);
-assert.match(hardwarePanelSource, /min=\{hardwareProfile\.strokeMin\}/);
-assert.match(hardwarePanelSource, /max=\{hardwareProfile\.strokeMax\}/);
-assert.match(hardwarePanelSource, /value=\{hardwareProfile\.stopPosition\}/);
-assert.match(hardwarePanelSource, /disabled=\{hardwareConnected \|\| isBusy\}/);
-assert.match(hardwarePanelSource, /updateHardwareProfile\(\{ stopPosition: Number\(event\.target\.value\) \}\)/);
+assert.match(hardwarePanelSource, /<HardwareStrokeControl/);
+assert.doesNotMatch(hardwarePanelSource, /<div className="profile-grid">/);
 assert.match(appSource, /stopPosition:\s*Math\.min\(high, Math\.max\(low, next\.stopPosition\)\)/);
-assert.match(hardwarePanelSource, /Baudrate[\s\S]*?<select[^>]*disabled=\{hardwareConnected \|\| isBusy\}/);
-assert.match(hardwarePanelSource, /최소 위치[\s\S]*?<input[^>]*disabled=\{hardwareConnected \|\| isBusy\}/);
-assert.match(hardwarePanelSource, /최대 위치[\s\S]*?<input[^>]*disabled=\{hardwareConnected \|\| isBusy\}/);
-assert.match(hardwarePanelSource, /disabled=\{isBusy \|\| settingsLoading \|\| !savedSettings \|\| hardwareConnected\} onClick=\{loadSettings\}>설정 불러오기/);
+for (const label of ['스트로크 제어', '동작 범위', '강도 상한', '긴급 정지 위치', '<details', '고급 설정']) {
+  assert.ok(hardwareStrokeControlSource.includes(label), `stroke control includes ${label}`);
+}
+assert.doesNotMatch(hardwareStrokeControlSource, /스크립트 진폭 자동 확장/);
 assert.match(demoDataSource, /\[\s*\{ id: ['"]aws-main['"], name: ['"]AWS 메인 릴레이['"], url: ['"]https:\/\/aws-relay\.syncra\.uk['"]/);
 assert.match(demoDataSource, /\{ id: ['"]phone-backup['"], name: ['"]휴대폰 예비 릴레이['"], url: ['"]https:\/\/relay\.syncra\.uk['"]/);
 assert.doesNotMatch(demoDataSource, /example\.com/);
@@ -303,8 +302,6 @@ assert.match(saveSettingsSource, /playback: \{ motionDelayMs: appliedMotionDelay
 assert.match(saveSettingsSource, /setAppliedMotionDelayMs\(result\.settings\.playback\.motionDelayMs\)/);
 assert.match(saveSettingsSource, /setSavedSettings\(result\.settings\)/);
 assert.doesNotMatch(saveSettingsSource, /setMotionDelayMs\(/);
-assert.match(hardwarePanelSource, /<button disabled=\{isBusy \|\| settingsLoading \|\| !savedSettings\} onClick=\{saveSettings\}/);
-assert.match(hardwarePanelSource, /<button disabled=\{isBusy \|\| settingsLoading \|\| !savedSettings \|\| hardwareConnected\} onClick=\{loadSettings\}/);
 assert.match(motionDelayPanelSource, /<section className="panel">/);
 assert.match(motionDelayPanelSource, /<input className="range"[\s\S]*?disabled=\{isBusy \|\| settingsLoading \|\| !savedSettings\}/);
 assert.match(appSource, /const hasPendingMotionDelay = motionDelayMs !== appliedMotionDelayMs;/);
