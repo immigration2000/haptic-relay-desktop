@@ -1,4 +1,4 @@
-import type { AppLogEntry, AppSettings, ApprovalRequest, HardwareConnectionStatus, HardwareDisconnectResult, HardwareEmergencyState, HardwareLatchedStopResult, HardwareOutputSnapshot, HardwareProfile, HardwareProtection, HardwareProtectionResult, MotionDemoSnapshot, MotionMonitorSnapshot, MotionPatternConfig, PortInfo, RoomDirectoryEntry, RoomDisconnectResult, RoomSettings, ViewerSession } from './shared/protocol';
+import type { AppLogEntry, AppSettings, ApprovalRequest, HardwareConnectionStatus, HardwareDisconnectResult, HardwareEmergencyState, HardwareLatchedStopResult, HardwareOutputLogAppend, HardwareOutputLogSession, HardwareOutputSnapshot, HardwareProfile, HardwareProtection, HardwareProtectionResult, MotionDemoSnapshot, MotionMonitorSnapshot, MotionPatternConfig, PortInfo, RoomDirectoryEntry, RoomDisconnectResult, RoomSettings, ViewerSession } from './shared/protocol';
 
 type ViewerStatus = {
   roomName: string;
@@ -52,8 +52,10 @@ declare global {
       releaseHardwareStop: () => Promise<HardwareEmergencyState>;
       testHardware: () => Promise<{ tested: boolean; steps?: number; reason?: string }>;
       sendMotion: (intensity: number, position: number) => Promise<unknown>;
+      openHardwareOutputLog: () => Promise<{ opened: true }>;
       startMotionDemo: (intensity: number, position: number) => Promise<{ streaming: boolean; intervalMs: number }>;
       updateMotionDemo: (intensity: number, position: number) => void;
+      setManualMotionSafety: (manualMaxPositionSpeed: number) => void;
       startMotionPattern: (config: MotionPatternConfig) => Promise<{ streaming: boolean; mode: 'pattern'; intervalMs: number }>;
       updateMotionPattern: (config: MotionPatternConfig) => void;
       stopMotionDemo: () => Promise<{ streaming: boolean }>;
@@ -83,6 +85,11 @@ declare global {
       setMotionDelay: (delayMs: number) => Promise<{ settings: AppSettings; buffer: MotionDelayBuffer }>;
       onLog: (listener: (entry: AppLogEntry) => void) => () => void;
       disconnectRoom: () => Promise<RoomDisconnectResult>;
+    };
+    hapticOutputLog?: {
+      getSession: () => Promise<HardwareOutputLogSession>;
+      onReset: (listener: (session: HardwareOutputLogSession) => void) => () => void;
+      onAppend: (listener: (payload: HardwareOutputLogAppend) => void) => () => void;
     };
   }
 }

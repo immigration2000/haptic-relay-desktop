@@ -13,7 +13,10 @@ export function HardwareOutputMonitor({ connected }: { connected: boolean }) {
   return (
     <section className="hardware-output-monitor" aria-live="polite">
       <div className="hardware-output-heading">
-        <span><Cable size={15} /> 직렬 출력 진단</span>
+        <span className="hardware-output-title">
+          <span><Cable size={15} /> 직렬 출력 진단</span>
+          <button type="button" className="text-action" onClick={() => void window.hapticRelay.openHardwareOutputLog().catch(error => console.error('Failed to open hardware output log', error))}>전체 로그 보기</button>
+        </span>
         <strong className={output ? 'ok' : ''}>
           {output ? <CircleCheck size={14} /> : null}
           {output ? '직렬 전송 완료' : connected ? '출력 대기' : '장비 미연결'}

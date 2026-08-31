@@ -29,9 +29,9 @@ const DEFAULT_HARDWARE_PROFILE: HardwareProfile = {
   baudRate: 115200,
   linearAxis: TCODE_LINEAR_AXIS,
   vibrationAxis: TCODE_VIBRATION_AXIS,
-  strokeMin: 0,
-  strokeMax: 1,
-  stopPosition: 0,
+  strokeMin: 0.3,
+  strokeMax: 0.8,
+  stopPosition: 0.5,
   invertPosition: false
 };
 const DEFAULT_HARDWARE_PROTECTION: HardwareProtection = {
@@ -470,11 +470,6 @@ export class HardwareController {
       this.reportDroppedMotion(frame, lifecycleBlockReason);
       return { queued: false, reason: lifecycleBlockReason };
     }
-    if (this.emergencyStopped) {
-      this.reportDroppedMotion(frame, 'hardware-emergency-stopped');
-      return { queued: false, reason: 'hardware-emergency-stopped' };
-    }
-
     if (!this.port?.isOpen) {
       this.reportDroppedMotion(frame, 'hardware-not-connected');
       return { queued: false, reason: 'hardware-not-connected' };
@@ -482,6 +477,10 @@ export class HardwareController {
     if (!this.isPortReady()) {
       this.reportDroppedMotion(frame, 'hardware-not-ready');
       return { queued: false, reason: 'hardware-not-ready' };
+    }
+    if (this.emergencyStopped) {
+      this.reportDroppedMotion(frame, 'hardware-emergency-stopped');
+      return { queued: false, reason: 'hardware-emergency-stopped' };
     }
 
     const protectedFrame = applyProtection(frame, this.protection);
@@ -781,7 +780,11 @@ export class HardwareController {
 
   private async reportPortIdentity(pathName: string) {
     try {
-      const ports = await this.listPorts();
+      const ports = await settleWithin(
+        this.listPorts(),
+        this.lifecycleTimeoutMs,
+        'hardware-port-identification-timeout'
+      );
       const identity = ports.find(port => port.path.toLowerCase() === pathName.toLowerCase());
       if (!identity) return;
 
@@ -928,6 +931,7 @@ export class HardwareController {
       this.failActiveWrites(port, error);
       return;
     }
+    const unexpectedReadyLoss = this.readyPort === port && this.lifecycleTransition === undefined;
     if (this.readyPort === port) this.readyPort = undefined;
     this.port = undefined;
     this.operationGeneration += 1;
@@ -939,10 +943,18 @@ export class HardwareController {
     this.lastMotionOutputFrame = undefined;
     this.failActiveWrites(port, error);
     const expectedTransition = this.lifecycleTransition !== undefined;
+    if (unexpectedReadyLoss) {
+      this.emergencyStopped = true;
+      this.emitDiagnostic('warning', 'hardware', 'emergency-latched', {
+        emergencyStopped: true,
+        reason
+      });
+    }
     this.reportConnectionStatus({
       connected: false,
       reason: this.lifecycleTransition === 'room-exit' ? 'hardware-room-exit-stop-failed' : reason,
-      unexpected: !expectedTransition
+      unexpected: !expectedTransition,
+      ...(unexpectedReadyLoss ? { emergencyStopped: true } : {})
     });
 
     const errorHandler = this.portErrorHandlers.get(port);
@@ -1320,6 +1332,32 @@ function normalizeLifecycleTimeoutMs(value: number | undefined) {
   if (value === undefined) return HARDWARE_LIFECYCLE_TIMEOUT_MS;
   if (!Number.isFinite(value) || value <= 0) throw new Error('invalid-hardware-lifecycle-timeout');
   return value;
+}
+
+function settleWithin<T>(operation: PromiseLike<T>, timeoutMs: number, timeoutReason: string) {
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    const timeout = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      reject(new Error(timeoutReason));
+    }, timeoutMs);
+
+    Promise.resolve(operation).then(
+      value => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        resolve(value);
+      },
+      error => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        reject(error);
+      }
+    );
+  });
 }
 
 function resolveMotionIntervalMs(frame: MotionFrame, previousFrame: MotionFrame | undefined) {

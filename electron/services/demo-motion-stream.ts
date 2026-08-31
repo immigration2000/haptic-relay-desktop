@@ -1,6 +1,7 @@
 import { performance } from 'node:perf_hooks';
 import type { MotionDemoMode, MotionFrame, MotionPatternConfig } from '../protocol.js';
 import { calculatePatternPosition } from './demo-motion-pattern.js';
+import { DEFAULT_MANUAL_MAX_POSITION_SPEED, validateManualMaxPositionSpeed } from './manual-motion-safety.js';
 
 export const DEMO_MOTION_INTERVAL_MS = 1000 / 30;
 export const PATTERN_ENTRY_RAMP_MS = 300;
@@ -14,10 +15,12 @@ export class DemoMotionStream {
   private timer: unknown;
   private timerGeneration = 0;
   private latest: DemoMotion = { intensity: 0, position: 0.5 };
+  private manualTarget: DemoMotion = { ...this.latest };
   private mode: MotionDemoMode = 'manual';
   private pattern: MotionPatternConfig | undefined;
   private patternStartedAt = 0;
   private patternRampFrom = 0.5;
+  private manualMaxPositionSpeed = DEFAULT_MANUAL_MAX_POSITION_SPEED;
 
   constructor(
     private readonly publish: PublishMotion,
@@ -30,9 +33,9 @@ export class DemoMotionStream {
   start(next: DemoMotion) {
     const transitioned = this.safeTransition('manual');
     this.pattern = undefined;
-    this.latest = next;
+    this.manualTarget = next;
     this.ensureTimer();
-    if (!transitioned) this.publishLatest();
+    if (!transitioned) this.publishManual();
     return { streaming: true, mode: 'manual' as const, intervalMs: DEMO_MOTION_INTERVAL_MS };
   }
 
@@ -41,7 +44,7 @@ export class DemoMotionStream {
       return { streaming: false, accepted: false };
     }
 
-    this.latest = next;
+    this.manualTarget = next;
     return { streaming: true, accepted: true };
   }
 
@@ -80,6 +83,11 @@ export class DemoMotionStream {
     return this.mode;
   }
 
+  setManualMaxPositionSpeed(value: unknown): number {
+    this.manualMaxPositionSpeed = validateManualMaxPositionSpeed(value);
+    return this.manualMaxPositionSpeed;
+  }
+
   private safeTransition(nextMode: MotionDemoMode) {
     const transitioned = this.timer !== undefined && this.mode !== nextMode;
     if (transitioned) {
@@ -97,7 +105,7 @@ export class DemoMotionStream {
     this.timer = this.createInterval(() => {
       if (this.timer === undefined || this.timerGeneration !== generation) return;
       if (this.mode === 'pattern') this.publishPattern();
-      else this.publishLatest();
+      else this.publishManual();
     }, DEMO_MOTION_INTERVAL_MS);
   }
 
@@ -120,6 +128,16 @@ export class DemoMotionStream {
     const rampProgress = Math.min(1, Math.max(0, elapsed / PATTERN_ENTRY_RAMP_MS));
     const position = this.patternRampFrom + (target - this.patternRampFrom) * rampProgress;
     this.latest = { intensity: this.pattern.intensity, position };
+    this.publishLatest();
+  }
+
+  private publishManual() {
+    const maximumStep = this.manualMaxPositionSpeed * DEMO_MOTION_INTERVAL_MS / 1000;
+    const delta = this.manualTarget.position - this.latest.position;
+    const position = Math.abs(delta) <= maximumStep
+      ? this.manualTarget.position
+      : this.latest.position + Math.sign(delta) * maximumStep;
+    this.latest = { intensity: this.manualTarget.intensity, position };
     this.publishLatest();
   }
 

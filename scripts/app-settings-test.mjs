@@ -5,6 +5,22 @@ const protocolSources = await Promise.all([
   readFile(new URL('../electron/protocol.ts', import.meta.url), 'utf8'),
   readFile(new URL('../src/shared/protocol.ts', import.meta.url), 'utf8')
 ]);
+const defaultSources = await Promise.all([
+  readFile(new URL('../electron/app-settings.ts', import.meta.url), 'utf8'),
+  readFile(new URL('../src/App.tsx', import.meta.url), 'utf8'),
+  readFile(new URL('../electron/services/hardware-controller.ts', import.meta.url), 'utf8')
+]);
+for (const [name, source] of [
+  ['Electron settings', defaultSources[0]],
+  ['renderer fallback', defaultSources[1]],
+  ['controller fallback', defaultSources[2]]
+]) {
+  assert.match(
+    source,
+    /strokeMin:\s*0\.3,[\s\S]*?strokeMax:\s*0\.8,[\s\S]*?stopPosition:\s*0\.5,/,
+    `${name} must use the fresh 30-80% hardware defaults`
+  );
+}
 for (const protocolSource of protocolSources) {
   assert.match(
     protocolSource,
@@ -18,12 +34,29 @@ for (const protocolSource of protocolSources) {
   );
   assert.match(
     protocolSource,
-    /export type AppSettings = \{[\s\S]*?schemaVersion:\s*3;[\s\S]*?playback:\s*PlaybackSettings;[\s\S]*?\};/,
-    'AppSettings must use schema version 3 and require playback settings'
+    /export type MotionSafetySettings = \{[\s\S]*?manualMaxPositionSpeed:\s*number;[\s\S]*?\};/,
+    'MotionSafetySettings must require manualMaxPositionSpeed'
+  );
+  assert.match(
+    protocolSource,
+    /export type AppSettings = \{[\s\S]*?schemaVersion:\s*4;[\s\S]*?playback:\s*PlaybackSettings;[\s\S]*?motionSafety:\s*MotionSafetySettings;[\s\S]*?\};/,
+    'AppSettings must use schema version 4 and require motion safety settings'
   );
 }
 
 const settingsModule = await import('../dist-electron/app-settings.js');
+const motionSafetyModule = await import('../dist-electron/services/manual-motion-safety.js');
+
+assert.deepEqual(settingsModule.DEFAULT_SETTINGS.hardwareProfile, {
+  baudRate: 115200,
+  linearAxis: 'L0',
+  vibrationAxis: undefined,
+  strokeMin: 0.3,
+  strokeMax: 0.8,
+  stopPosition: 0.5,
+  invertPosition: false
+});
+assert.deepEqual(settingsModule.DEFAULT_SETTINGS.motionSafety, { manualMaxPositionSpeed: 2 });
 
 const legacyHardwareProfile = {
   baudRate: 115200,
@@ -35,7 +68,7 @@ const legacyHardwareProfile = {
 };
 const hardwareProfile = {
   ...legacyHardwareProfile,
-  stopPosition: 0.3
+  stopPosition: 0.4
 };
 const hardwareProtection = {
   intensityLimit: 0.8,
@@ -50,8 +83,9 @@ const migratedV2 = settingsModule.migrateAppSettings({
   hardwareProtection,
   playback: { motionDelayMs: 700 }
 });
-assert.equal(migratedV2.schemaVersion, 3);
+assert.equal(migratedV2.schemaVersion, 4);
 assert.equal(migratedV2.playback.motionDelayMs, 700);
+assert.deepEqual(migratedV2.motionSafety, { manualMaxPositionSpeed: 2 });
 assert.deepEqual(migratedV2.hardwareProfile, {
   ...legacyHardwareProfile,
   stopPosition: legacyHardwareProfile.strokeMin
@@ -62,8 +96,9 @@ const migratedV1 = settingsModule.migrateAppSettings({
   hardwareProfile: legacyHardwareProfile,
   hardwareProtection
 });
-assert.equal(migratedV1.schemaVersion, 3);
+assert.equal(migratedV1.schemaVersion, 4);
 assert.equal(migratedV1.playback.motionDelayMs, 0);
+assert.deepEqual(migratedV1.motionSafety, { manualMaxPositionSpeed: 2 });
 assert.deepEqual(migratedV1.hardwareProfile, {
   ...legacyHardwareProfile,
   stopPosition: legacyHardwareProfile.strokeMin
@@ -74,8 +109,9 @@ const migratedLegacy = settingsModule.migrateAppSettings({
   hardwareProfile: legacyHardwareProfile,
   hardwareProtection
 });
-assert.equal(migratedLegacy.schemaVersion, 3);
+assert.equal(migratedLegacy.schemaVersion, 4);
 assert.equal(migratedLegacy.playback.motionDelayMs, 0);
+assert.deepEqual(migratedLegacy.motionSafety, { manualMaxPositionSpeed: 2 });
 assert.deepEqual(migratedLegacy.hardwareProfile, {
   ...legacyHardwareProfile,
   stopPosition: legacyHardwareProfile.strokeMin
@@ -88,27 +124,42 @@ assert.throws(
 );
 
 const validated = settingsModule.validateAppSettings({
+  schemaVersion: 4,
+  hardwareProfile,
+  hardwareProtection,
+  playback: { motionDelayMs: 700 },
+  motionSafety: { manualMaxPositionSpeed: 2 }
+});
+assert.equal(validated.playback.motionDelayMs, 700);
+assert.deepEqual(validated.hardwareProfile, hardwareProfile);
+assert.deepEqual(validated.motionSafety, { manualMaxPositionSpeed: 2 });
+
+const migratedV3 = settingsModule.migrateAppSettings({
   schemaVersion: 3,
   hardwareProfile,
   hardwareProtection,
   playback: { motionDelayMs: 700 }
 });
-assert.equal(validated.playback.motionDelayMs, 700);
-assert.equal(validated.hardwareProfile.stopPosition, 0.3);
+assert.equal(migratedV3.schemaVersion, 4);
+assert.deepEqual(migratedV3.hardwareProfile, hardwareProfile);
+assert.deepEqual(migratedV3.hardwareProtection, hardwareProtection);
+assert.deepEqual(migratedV3.playback, { motionDelayMs: 700 });
+assert.deepEqual(migratedV3.motionSafety, { manualMaxPositionSpeed: 2 });
 
-for (const schemaVersion of [1, 2, 4, '3', undefined]) {
+for (const schemaVersion of [1, 2, 3, '4', undefined]) {
   assert.throws(
     () => settingsModule.validateAppSettings({
       schemaVersion,
       hardwareProfile,
       hardwareProtection,
-      playback: { motionDelayMs: 0 }
+      playback: { motionDelayMs: 0 },
+      motionSafety: { manualMaxPositionSpeed: 2 }
     }),
     /unsupported-settings-version/
   );
 }
 
-for (const schemaVersion of [0, 4, '3']) {
+for (const schemaVersion of [0, 5, '4']) {
   assert.throws(
     () => settingsModule.migrateAppSettings({
       schemaVersion,
@@ -122,12 +173,47 @@ for (const schemaVersion of [0, 4, '3']) {
 for (const motionDelayMs of [-100, 50, 10_100]) {
   assert.throws(
     () => settingsModule.validateAppSettings({
-      schemaVersion: 3,
+      schemaVersion: 4,
       hardwareProfile,
       hardwareProtection,
-      playback: { motionDelayMs }
+      playback: { motionDelayMs },
+      motionSafety: { manualMaxPositionSpeed: 2 }
     }),
     /invalid-motion-delay/
+  );
+}
+
+for (const manualMaxPositionSpeed of [0.5, 0.75, 2, 4]) {
+  assert.equal(motionSafetyModule.validateManualMaxPositionSpeed(manualMaxPositionSpeed), manualMaxPositionSpeed);
+}
+
+for (const manualMaxPositionSpeed of [
+  0.49,
+  4.01,
+  0.6,
+  0.5000000000000001,
+  1.9999999999999998,
+  2.0000000000000004,
+  Number.NaN,
+  Infinity,
+  '2'
+]) {
+  assert.throws(
+    () => motionSafetyModule.validateManualMaxPositionSpeed(manualMaxPositionSpeed),
+    /invalid-manual-motion-speed/
+  );
+}
+
+for (const motionSafety of [undefined, null, {}, { manualMaxPositionSpeed: 0.6 }]) {
+  assert.throws(
+    () => settingsModule.migrateAppSettings({
+      schemaVersion: 4,
+      hardwareProfile,
+      hardwareProtection,
+      playback: { motionDelayMs: 0 },
+      motionSafety
+    }),
+    /invalid-(motion-safety-settings|manual-motion-speed)/
   );
 }
 
@@ -145,4 +231,4 @@ for (const stopPosition of [0.05, 0.95]) {
   );
 }
 
-console.log('app settings v3 tests passed');
+console.log('app settings v4 tests passed');

@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { OctagonX } from 'lucide-react';
-import type { AppLogEntry, AppSettings, ApprovalRequest, EntryMode, HardwareConnectionStatus, HardwareEmergencyState, HardwareProfile, HardwareProtection, MotionDemoMode, MotionMonitorSnapshot, MotionPatternConfig, PortInfo, RoomDirectoryEntry, ViewerSession } from './shared/protocol';
+import type { AppLogEntry, AppSettings, ApprovalRequest, EntryMode, HardwareConnectionStatus, HardwareEmergencyState, HardwareProfile, HardwareProtection, MotionDemoMode, MotionMonitorSnapshot, MotionPatternConfig, MotionSafetySettings, PortInfo, RoomDirectoryEntry, ViewerSession } from './shared/protocol';
 import { createQrMatrix } from './qr-code';
 import { AppShell } from './ui/components/AppShell';
 import { HardwareOutputMonitor } from './ui/components/HardwareOutputMonitor';
+import { HardwareStrokeControl } from './ui/components/HardwareStrokeControl';
 import { Modal } from './ui/components/Modal';
 import { MotionDemoPanel } from './ui/components/MotionDemoPanel';
 import { RELAY_SERVERS } from './ui/demo-data';
@@ -47,9 +48,9 @@ const DEFAULT_HARDWARE_PROFILE: HardwareProfile = {
   baudRate: 115200,
   linearAxis: 'L0',
   vibrationAxis: '',
-  strokeMin: 0,
-  strokeMax: 1,
-  stopPosition: 0,
+  strokeMin: 0.3,
+  strokeMax: 0.8,
+  stopPosition: 0.5,
   invertPosition: false
 };
 const DEFAULT_HARDWARE_PROTECTION: HardwareProtection = {
@@ -58,7 +59,8 @@ const DEFAULT_HARDWARE_PROTECTION: HardwareProtection = {
   positionMax: 1,
   paused: false
 };
-const CURRENT_SETTINGS_SCHEMA_VERSION = 3;
+const DEFAULT_MOTION_SAFETY: MotionSafetySettings = { manualMaxPositionSpeed: 2 };
+const CURRENT_SETTINGS_SCHEMA_VERSION = 4;
 
 export default function App() {
   const [savedSession] = useState(readDemoSession);
@@ -95,6 +97,7 @@ export default function App() {
   const [selectedPort, setSelectedPort] = useState('');
   const [hardwareProfile, setHardwareProfile] = useState<HardwareProfile>(DEFAULT_HARDWARE_PROFILE);
   const [hardwareProtection, setHardwareProtection] = useState<HardwareProtection>(DEFAULT_HARDWARE_PROTECTION);
+  const [motionSafety, setMotionSafety] = useState<MotionSafetySettings>(DEFAULT_MOTION_SAFETY);
   const [emergencyStopped, setEmergencyStopped] = useState(false);
   const [status, setStatus] = useState<AppStatus>({ tone: 'idle', message: '대기 중' });
   const [busyAction, setBusyAction] = useState<BusyAction>();
@@ -248,10 +251,13 @@ export default function App() {
     let hardwareStatusEventSeen = false;
     const applyHardwareStatus = (nextStatus: HardwareConnectionStatus) => {
       setHardwareConnected(nextStatus.connected);
+      if (nextStatus.emergencyStopped !== undefined) {
+        applyEmergencyState({ emergencyStopped: nextStatus.emergencyStopped });
+      }
       if (!nextStatus.connected && nextStatus.unexpected) {
         setStatusMessage(
           'error',
-          `하드웨어 연결이 끊겼습니다: ${formatReason(nextStatus.reason ?? 'hardware-not-connected')}. 다시 연결하세요.`
+          `하드웨어 연결이 끊겨 안전 잠금이 활성화됐습니다: ${formatReason(nextStatus.reason ?? 'hardware-not-connected')}. 장비를 확인하고 다시 연결한 뒤 긴급정지 해제를 누르세요.`
         );
       }
     };
@@ -435,6 +441,11 @@ export default function App() {
     setHardwareProtection(current => updateProtectionValue(current, patch));
   }
 
+  function updateMotionSafety(manualMaxPositionSpeed: number) {
+    setMotionSafety({ manualMaxPositionSpeed });
+    window.hapticRelay.setManualMotionSafety(manualMaxPositionSpeed);
+  }
+
   async function loadSettings() {
     const requestId = ++settingsLoadRequestId.current;
     setSettingsLoading(true);
@@ -445,6 +456,8 @@ export default function App() {
       if (requestId !== settingsLoadRequestId.current) return;
       setHardwareProfile(settings.hardwareProfile);
       setHardwareProtection(protectionResult.protection);
+      setMotionSafety(settings.motionSafety);
+      window.hapticRelay.setManualMotionSafety(settings.motionSafety.manualMaxPositionSpeed);
       setMotionDelayMs(settings.playback.motionDelayMs);
       setAppliedMotionDelayMs(settings.playback.motionDelayMs);
       setSavedSettings(settings);
@@ -467,10 +480,12 @@ export default function App() {
         schemaVersion: CURRENT_SETTINGS_SCHEMA_VERSION,
         hardwareProfile,
         hardwareProtection,
-        playback: { motionDelayMs: appliedMotionDelayMs }
+        playback: { motionDelayMs: appliedMotionDelayMs },
+        motionSafety
       });
       setHardwareProfile(result.settings.hardwareProfile);
       setHardwareProtection(result.settings.hardwareProtection);
+      setMotionSafety(result.settings.motionSafety);
       setAppliedMotionDelayMs(result.settings.playback.motionDelayMs);
       setSavedSettings(result.settings);
       setActionStatus('ok', '하드웨어/보호 설정 저장됨');
@@ -798,54 +813,15 @@ export default function App() {
         <button disabled={isBusy || !hardwareConnected} onClick={testHardware}>테스트</button>
       </div>
       <HardwareOutputMonitor connected={hardwareConnected} />
-      <div className="profile-grid">
-        <label>
-          Baudrate
-          <select value={hardwareProfile.baudRate} disabled={hardwareConnected || isBusy} onChange={event => updateHardwareProfile({ baudRate: Number(event.target.value) })}>
-            <option value={9600}>9600</option>
-            <option value={57600}>57600</option>
-            <option value={115200}>115200</option>
-            <option value={230400}>230400</option>
-            <option value={460800}>460800</option>
-          </select>
-        </label>
-        <label>
-          Stroke 축
-          <input value={hardwareProfile.linearAxis} disabled={hardwareConnected || isBusy} onChange={event => updateHardwareProfile({ linearAxis: event.target.value.toUpperCase() })} />
-        </label>
-        <label>
-          진동 축
-          <input value={hardwareProfile.vibrationAxis ?? ''} disabled={hardwareConnected || isBusy} onChange={event => updateHardwareProfile({ vibrationAxis: event.target.value.toUpperCase() })} placeholder="선택, 예: V0" />
-        </label>
-        <label>
-          최소 위치
-          <input type="number" min="0" max="1" step="0.01" value={hardwareProfile.strokeMin} disabled={hardwareConnected || isBusy} onChange={event => updateHardwareProfile({ strokeMin: Number(event.target.value) })} />
-        </label>
-        <label>
-          최대 위치
-          <input type="number" min="0" max="1" step="0.01" value={hardwareProfile.strokeMax} disabled={hardwareConnected || isBusy} onChange={event => updateHardwareProfile({ strokeMax: Number(event.target.value) })} />
-        </label>
-        <label>
-          긴급 정지 위치
-          <input
-            type="number"
-            min={hardwareProfile.strokeMin}
-            max={hardwareProfile.strokeMax}
-            step="0.01"
-            value={hardwareProfile.stopPosition}
-            disabled={hardwareConnected || isBusy}
-            onChange={event => updateHardwareProfile({ stopPosition: Number(event.target.value) })}
-          />
-        </label>
-        <label className="checkbox-row">
-          <input type="checkbox" checked={hardwareProfile.invertPosition} disabled={hardwareConnected || isBusy} onChange={event => updateHardwareProfile({ invertPosition: event.target.checked })} />
-          방향 반전
-        </label>
-      </div>
-      <div className="button-row">
-        <button disabled={isBusy || settingsLoading || !savedSettings} onClick={saveSettings}>설정 저장</button>
-        <button disabled={isBusy || settingsLoading || !savedSettings || hardwareConnected} onClick={loadSettings}>설정 불러오기</button>
-      </div>
+      <HardwareStrokeControl
+        profile={hardwareProfile} protection={hardwareProtection}
+        profileDisabled={hardwareConnected || isBusy} busy={isBusy}
+        settingsLoading={settingsLoading} hasSavedSettings={Boolean(savedSettings)}
+        motionSafety={motionSafety} onMotionSafetyChange={updateMotionSafety}
+        onProfileChange={updateHardwareProfile} onProtectionChange={updateHardwareProtection}
+        onApplyProtection={() => void applyHardwareProtection()}
+        onSave={() => void saveSettings()} onLoad={() => void loadSettings()}
+      />
     </section>
   );
 

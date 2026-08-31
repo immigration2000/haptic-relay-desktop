@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-const [mainSource, preloadSource, appSource, motionDemoPanelSource, roomSessionSource, demoDataSource, stylesSource, relayClientSource, relayServerSource, hardwareOutputMonitorSource] = await Promise.all([
+const [mainSource, preloadSource, hardwareOutputLogPreloadSource, appSource, motionDemoPanelSource, roomSessionSource, demoDataSource, stylesSource, relayClientSource, relayServerSource, hardwareOutputMonitorSource, hardwareStrokeControlSource, globalSource] = await Promise.all([
   readFile(new URL('../dist-electron/main.js', import.meta.url), 'utf8'),
   readFile(new URL('../dist-electron/preload.cjs', import.meta.url), 'utf8'),
+  readFile(new URL('../dist-electron/hardware-output-log-preload.cjs', import.meta.url), 'utf8'),
   readFile(new URL('../src/App.tsx', import.meta.url), 'utf8'),
   readFile(new URL('../src/ui/components/MotionDemoPanel.tsx', import.meta.url), 'utf8'),
   readFile(new URL('../src/ui/views/RoomSessionView.tsx', import.meta.url), 'utf8'),
@@ -11,7 +12,9 @@ const [mainSource, preloadSource, appSource, motionDemoPanelSource, roomSessionS
   readFile(new URL('../src/styles.css', import.meta.url), 'utf8'),
   readFile(new URL('../electron/services/relay-client.ts', import.meta.url), 'utf8'),
   readFile(new URL('../server/src/relay-server.ts', import.meta.url), 'utf8'),
-  readFile(new URL('../src/ui/components/HardwareOutputMonitor.tsx', import.meta.url), 'utf8')
+  readFile(new URL('../src/ui/components/HardwareOutputMonitor.tsx', import.meta.url), 'utf8'),
+  readFile(new URL('../src/ui/components/HardwareStrokeControl.tsx', import.meta.url), 'utf8'),
+  readFile(new URL('../src/global.d.ts', import.meta.url), 'utf8')
 ]);
 
 function sourceSection(source, start, end) {
@@ -70,6 +73,33 @@ const shouldApplyReceivedEmergencyState = evaluateSourceFunction(appSource, 'fun
 assert.match(mainSource, /preload:\s*path\.join\(__dirname, ['"]preload\.cjs['"]\)/);
 assert.match(preloadSource, /require\(['"]electron['"]\)/);
 assert.doesNotMatch(preloadSource, /^\s*import\s/m);
+assert.match(hardwareOutputLogPreloadSource, /require\(['"]electron['"]\)/);
+assert.doesNotMatch(hardwareOutputLogPreloadSource, /^\s*import\s/m);
+assert.match(hardwareOutputLogPreloadSource, /exposeInMainWorld\(['"]hapticOutputLog['"]/);
+assert.match(hardwareOutputLogPreloadSource, /ipcRenderer\.invoke\(['"]hardware-output-log:get['"]\)/);
+assert.match(hardwareOutputLogPreloadSource, /ipcRenderer\.on\(['"]hardware-output-log:reset['"],\s*handler\)/);
+assert.match(hardwareOutputLogPreloadSource, /ipcRenderer\.on\(['"]hardware-output-log:append['"],\s*handler\)/);
+const outputLogCapabilities = [...hardwareOutputLogPreloadSource.matchAll(/^    (\w+):/gm)].map(([, name]) => name);
+assert.deepEqual(outputLogCapabilities, ['getSession', 'onReset', 'onAppend']);
+assert.deepEqual(
+  [...hardwareOutputLogPreloadSource.matchAll(/ipcRenderer\.invoke\(['"]([^'"]+)['"]/g)].map(([, channel]) => channel),
+  ['hardware-output-log:get']
+);
+assert.deepEqual(
+  [...hardwareOutputLogPreloadSource.matchAll(/ipcRenderer\.on\(['"]([^'"]+)['"]/g)].map(([, channel]) => channel),
+  ['hardware-output-log:reset', 'hardware-output-log:append']
+);
+assert.match(preloadSource, /openHardwareOutputLog:\s*\(\)\s*=>\s*(?:electron_1\.)?ipcRenderer\.invoke\(['"]hardware-output-log:open['"]\)/);
+assert.match(mainSource, /ipcMain\.handle\(['"]hardware-output-log:open['"][\s\S]*?assertTrustedSender\(event\)[\s\S]*?outputLogWindowManager\.open\(\)/);
+assert.match(mainSource, /ipcMain\.handle\(['"]hardware-output-log:get['"][\s\S]*?assertTrustedHardwareOutputLogSender\(event\)[\s\S]*?outputSessionStore\.snapshot\(\)/);
+assert.match(mainSource, /function assertTrustedSender\(event[\s\S]*?event\.sender !== mainWindow\?\.webContents/);
+assert.doesNotMatch(mainSource, /function assertTrustedSender\(event[\s\S]*?hardwareOutputLogWindow\?\.webContents/);
+assert.match(mainSource, /function assertTrustedHardwareOutputLogSender\(event[\s\S]*?outputLogWindowManager\.isCurrentWebContents\(event\.sender\)/);
+assert.match(mainSource, /function createHardwareOutputLogWindow\(\)[\s\S]*?width:\s*900,[\s\S]*?height:\s*640,[\s\S]*?minWidth:\s*720,[\s\S]*?minHeight:\s*480,[\s\S]*?title:\s*['"]Haptic Relay · 전체 출력 로그['"][\s\S]*?preload:\s*path\.join\(__dirname, ['"]hardware-output-log-preload\.cjs['"]\)[\s\S]*?contextIsolation:\s*true,[\s\S]*?nodeIntegration:\s*false,[\s\S]*?sandbox:\s*true,[\s\S]*?webSecurity:\s*true,[\s\S]*?allowRunningInsecureContent:\s*false,[\s\S]*?webviewTag:\s*false/);
+assert.match(mainSource, /url\.searchParams\.set\(['"]view['"], ['"]hardware-output-log['"]\)/);
+assert.match(mainSource, /loadFile\(path\.join\(__dirname, ['"]\.\.\/dist\/index\.html['"]\), \{ query: \{ view: ['"]hardware-output-log['"] \} \}\)/);
+assert.match(mainSource, /window\.on\(['"]closed['"], \(\) => \{\s*if \(mainWindow === window\) \{\s*mainWindow = undefined;\s*outputLogWindowManager\.close\(\);\s*\}\s*\}\)/);
+assert.match(mainSource, /app\.on\(['"]activate['"], \(\) => \{[\s\S]*?if \(!mainWindow \|\| mainWindow\.isDestroyed\(\)\)\s*createWindow\(\);/);
 assert.match(preloadSource, /setMotionDelay:\s*\(delayMs/);
 assert.match(preloadSource, /ipcRenderer\.invoke\(['"]viewer:set-motion-delay['"],\s*delayMs\)/);
 assert.match(preloadSource, /listRooms:\s*\(relayUrl\).*?ipcRenderer\.invoke\(['"]room:list['"],\s*relayUrl\)/);
@@ -79,10 +109,13 @@ assert.match(mainSource, /ipcMain\.handle\(['"]server:check['"][\s\S]*?assertTru
 assert.match(mainSource, /sendToRenderer\(mainWindow, ['"]motion:received['"], snapshot\)/);
 assert.match(preloadSource, /startMotionDemo:\s*\(intensity, position\).*?ipcRenderer\.invoke\(['"]motion-demo:start['"], intensity, position\)/);
 assert.match(preloadSource, /updateMotionDemo:\s*\(intensity, position\).*?ipcRenderer\.send\(['"]motion-demo:update['"], intensity, position\)/);
+assert.match(preloadSource, /setManualMotionSafety:\s*\(manualMaxPositionSpeed\).*?ipcRenderer\.send\(['"]motion-demo:set-safety-limit['"], manualMaxPositionSpeed\)/);
+assert.match(globalSource, /setManualMotionSafety:\s*\(manualMaxPositionSpeed:\s*number\)\s*=>\s*void/);
 assert.match(preloadSource, /startMotionPattern:\s*\(config\).*?ipcRenderer\.invoke\(['"]motion-demo:start-pattern['"], config\)/);
 assert.match(preloadSource, /updateMotionPattern:\s*\(config\).*?ipcRenderer\.send\(['"]motion-demo:update-pattern['"], config\)/);
 assert.match(preloadSource, /stopMotionDemo:\s*\(\).*?ipcRenderer\.invoke\(['"]motion-demo:stop['"]\)/);
 assert.match(mainSource, /ipcMain\.on\(['"]motion-demo:update['"][\s\S]*?try \{[\s\S]*?demoMotionStream\.update[\s\S]*?catch \(error\)[\s\S]*?motion-demo-update-rejected/);
+assert.match(mainSource, /ipcMain\.on\(['"]motion-demo:set-safety-limit['"][\s\S]*?try \{[\s\S]*?assertTrustedSender\(event\)[\s\S]*?demoMotionStream\.setManualMaxPositionSpeed\(manualMaxPositionSpeed\)[\s\S]*?catch \(error\)[\s\S]*?motion-safety-limit-rejected/);
 assert.match(mainSource, /ipcMain\.handle\(['"]motion-demo:start-pattern['"][\s\S]*?assertTrustedSender\(event\)[\s\S]*?validated\s*=\s*validateMotionPatternConfig\(config\)[\s\S]*?message: ['"]motion-pattern-started['"], details: validated\.pattern[\s\S]*?demoMotionStream\.startPattern\(validated\)/);
 assert.match(mainSource, /ipcMain\.on\(['"]motion-demo:update-pattern['"][\s\S]*?try \{[\s\S]*?assertTrustedSender\(event\)[\s\S]*?validated\s*=\s*validateMotionPatternConfig\(config\)[\s\S]*?demoMotionStream\.updatePattern\(validated\)[\s\S]*?catch \(error\)[\s\S]*?level: ['"]warning['"][\s\S]*?message: ['"]motion-pattern-update-rejected['"], details: formatError\(error\)/);
 assert.match(mainSource, /publishMotion\(frame\);\s*const snapshot = \{ mode: demoMotionStream\.getMode\(\), frame \};\s*sendToRenderer\(mainWindow, ['"]motion-demo:frame['"], snapshot\)/);
@@ -95,11 +128,13 @@ assert.match(preloadSource, /removeListener\(['"]motion:received['"],\s*handler\
 assert.match(preloadSource, /onHardwareOutput:\s*\(listener/);
 assert.match(preloadSource, /ipcRenderer\.on\(['"]hardware:output['"],\s*handler\)/);
 assert.match(preloadSource, /removeListener\(['"]hardware:output['"],\s*handler\)/);
-assert.match(mainSource, /new HardwareController\(\{[\s\S]*?onOutput:[\s\S]*?hardware:output/);
+assert.match(mainSource, /new HardwareController\(\{[\s\S]*?onOutput:[\s\S]*?outputSessionStore\.append\(snapshot\)[\s\S]*?outputLogWindowManager\.send\(['"]hardware-output-log:append['"], appended\)[\s\S]*?sendToRenderer\(mainWindow, ['"]hardware:output['"], snapshot\)/);
 assert.match(hardwareOutputMonitorSource, /output \? ['"]직렬 전송 완료['"]/);
 assert.doesNotMatch(hardwareOutputMonitorSource, /출력 성공/);
+assert.match(hardwareOutputMonitorSource, /전체 로그 보기/);
+assert.match(hardwareOutputMonitorSource, /openHardwareOutputLog/);
 assert.match(mainSource, /new HardwareController\(\{[\s\S]*?onDiagnostic:\s*routeHardwareDiagnostic/);
-assert.match(mainSource, /onConnectionStatus:\s*status\s*=>\s*sendToRenderer\(mainWindow, ['"]hardware:connection-status['"], status\)/);
+assert.match(mainSource, /onConnectionStatus:\s*status\s*=>\s*\{[\s\S]*?status\.connected && status\.path[\s\S]*?outputSessionStore\.reset\(status\.path\)[\s\S]*?outputLogWindowManager\.send\(['"]hardware-output-log:reset['"], session\)[\s\S]*?sendToRenderer\(mainWindow, ['"]hardware:connection-status['"], status\)/);
 assert.match(mainSource, /ipcMain\.handle\(['"]hardware:status['"][\s\S]*?assertTrustedSender\(event\)[\s\S]*?hardware\.getConnectionStatus\(\)/);
 assert.match(mainSource, /ipcMain\.handle\(['"]hardware:disconnect['"][\s\S]*?assertTrustedSender\(event\)[\s\S]*?hardware\.disconnect\(\)/);
 assert.match(preloadSource, /getHardwareStatus:\s*\(\)\s*=>[^\n]*?ipcRenderer\.invoke\(['"]hardware:status['"]\)/);
@@ -113,6 +148,11 @@ assert.match(disconnectHardwareSource, /하드웨어 연결 해제 중[\s\S]*?wi
 assert.doesNotMatch(disconnectHardwareSource, /정지 명령|stop\./);
 assert.match(appSource, /window\.hapticRelay\.getHardwareStatus\(\)/);
 assert.match(appSource, /window\.hapticRelay\.onHardwareConnectionStatus\(nextStatus\s*=>/);
+assert.match(
+  appSource,
+  /applyHardwareStatus[\s\S]*?nextStatus\.emergencyStopped !== undefined[\s\S]*?applyEmergencyState\(\{ emergencyStopped: nextStatus\.emergencyStopped \}\)/,
+  'unexpected hardware disconnect state synchronizes the local emergency latch in the UI'
+);
 assert.match(appSource, /removeHardwareConnectionStatus\(\)/);
 assert.match(appSource, /const actionGenerationRef = useRef\(0\)/);
 assert.match(runActionSource, /const actionGeneration = \+\+actionGenerationRef\.current/);
@@ -195,7 +235,10 @@ assert.match(mainSource, /app\.on\(['"]before-quit['"][\s\S]*?event\.preventDefa
 assert.match(mainSource, /function shutdownApplication\(\)[\s\S]*?relay\.hasActiveRoom\(\)[\s\S]*?hardware\.stopForRoomExit\(\)[\s\S]*?relay\.disconnect\(\)[\s\S]*?hardware\.disconnect\(\)/);
 assert.match(mainSource, /app\.whenReady\(\)\.then\([\s\S]*?path\.join\(app\.getPath\(['"]userData['"]\), ['"]logs['"]\)[\s\S]*?session-started/);
 assert.match(mainSource, /function routeHardwareDiagnostic\([\s\S]*?hardware-motion-sample[\s\S]*?recordMotion\([\s\S]*?diagnosticLogStore\.record\(/);
-assert.match(mainSource, /DIAGNOSTIC_DATA_FIELDS\s*=\s*\[[\s\S]*?['"]dtr['"][\s\S]*?['"]rts['"]/);
+assert.match(mainSource, /DIAGNOSTIC_DATA_FIELDS\s*=\s*\[[\s\S]*?['"]details['"][\s\S]*?['"]dtr['"][\s\S]*?['"]rts['"]/);
+assert.match(mainSource, /function addLog\([\s\S]*?diagnosticLogStore\?\.record\([\s\S]*?event:\s*['"]app-log['"][\s\S]*?message:\s*boundedText\(entry\.message\)[\s\S]*?details:/);
+assert.match(mainSource, /function addLog\([\s\S]*?diagnosticLogStore\?\.record\([\s\S]*?lastLogByKey\.get\(key\)/, 'persistent application logging happens before UI deduplication');
+assert.match(mainSource, /function routeHardwareDiagnostic\([\s\S]*?recordMotion\([\s\S]*?durationMs:\s*primitiveNumber\(diagnostic\.data\.durationMs\)[\s\S]*?timeout:\s*primitiveBoolean\(diagnostic\.data\.timeout\)/);
 assert.match(mainSource, /function routeHardwareDiagnostic\([\s\S]*?recordBoundary\(/);
 assert.match(mainSource, /function reportPersistentLogFailure\([\s\S]*?persistent-log-disabled/);
 const persistentFailureSource = sourceSection(mainSource, 'function reportPersistentLogFailure(', 'function routeHardwareDiagnostic(');
@@ -208,18 +251,14 @@ assert.doesNotMatch(windowAllClosedSource, /hardware\.disconnect\(\)/);
 assert.match(hardwarePanelSource, /disabled=\{isBusy \|\| hardwareConnected \|\| !selectedPort\}[\s\S]*?>연결<\/button>/);
 assert.match(hardwarePanelSource, /disabled=\{isBusy \|\| !hardwareConnected\}[\s\S]*?onClick=\{disconnectHardware\}>연결 해제<\/button>/);
 assert.match(hardwarePanelSource, /disabled=\{isBusy \|\| !hardwareConnected\}[\s\S]*?onClick=\{testHardware\}>테스트<\/button>/);
-assert.match(appSource, /const CURRENT_SETTINGS_SCHEMA_VERSION = 3;/);
-assert.match(hardwarePanelSource, /긴급 정지 위치/);
-assert.match(hardwarePanelSource, /min=\{hardwareProfile\.strokeMin\}/);
-assert.match(hardwarePanelSource, /max=\{hardwareProfile\.strokeMax\}/);
-assert.match(hardwarePanelSource, /value=\{hardwareProfile\.stopPosition\}/);
-assert.match(hardwarePanelSource, /disabled=\{hardwareConnected \|\| isBusy\}/);
-assert.match(hardwarePanelSource, /updateHardwareProfile\(\{ stopPosition: Number\(event\.target\.value\) \}\)/);
+assert.match(appSource, /const CURRENT_SETTINGS_SCHEMA_VERSION = 4;/);
+assert.match(hardwarePanelSource, /<HardwareStrokeControl/);
+assert.doesNotMatch(hardwarePanelSource, /<div className="profile-grid">/);
 assert.match(appSource, /stopPosition:\s*Math\.min\(high, Math\.max\(low, next\.stopPosition\)\)/);
-assert.match(hardwarePanelSource, /Baudrate[\s\S]*?<select[^>]*disabled=\{hardwareConnected \|\| isBusy\}/);
-assert.match(hardwarePanelSource, /최소 위치[\s\S]*?<input[^>]*disabled=\{hardwareConnected \|\| isBusy\}/);
-assert.match(hardwarePanelSource, /최대 위치[\s\S]*?<input[^>]*disabled=\{hardwareConnected \|\| isBusy\}/);
-assert.match(hardwarePanelSource, /disabled=\{isBusy \|\| settingsLoading \|\| !savedSettings \|\| hardwareConnected\} onClick=\{loadSettings\}>설정 불러오기/);
+for (const label of ['스트로크 제어', '동작 범위', '강도 상한', '긴급 정지 위치', '<details', '고급 설정']) {
+  assert.ok(hardwareStrokeControlSource.includes(label), `stroke control includes ${label}`);
+}
+assert.doesNotMatch(hardwareStrokeControlSource, /스크립트 진폭 자동 확장/);
 assert.match(demoDataSource, /\[\s*\{ id: ['"]aws-main['"], name: ['"]AWS 메인 릴레이['"], url: ['"]https:\/\/aws-relay\.syncra\.uk['"]/);
 assert.match(demoDataSource, /\{ id: ['"]phone-backup['"], name: ['"]휴대폰 예비 릴레이['"], url: ['"]https:\/\/relay\.syncra\.uk['"]/);
 assert.doesNotMatch(demoDataSource, /example\.com/);
@@ -264,14 +303,15 @@ assert.match(loadSettingsSource, /const requestId = \+\+settingsLoadRequestId\.c
 assert.match(loadSettingsSource, /setSettingsLoading\(true\)/);
 assert.match(loadSettingsSource, /const settings = await window\.hapticRelay\.getSettings\(\);\s*if \(requestId !== settingsLoadRequestId\.current\) return;/);
 assert.match(loadSettingsSource, /const protectionResult = await window\.hapticRelay\.setHardwareProtection\(settings\.hardwareProtection\);\s*if \(requestId !== settingsLoadRequestId\.current\) return;/);
+assert.match(loadSettingsSource, /setMotionSafety\(settings\.motionSafety\)/);
 assert.match(loadSettingsSource, /catch \(error\) \{\s*if \(requestId === settingsLoadRequestId\.current\) \{\s*setStatusMessage/);
 assert.match(loadSettingsSource, /finally \{\s*if \(requestId === settingsLoadRequestId\.current\) \{\s*setSettingsLoading\(false\)/);
 assert.match(saveSettingsSource, /playback: \{ motionDelayMs: appliedMotionDelayMs \}/);
+assert.match(saveSettingsSource, /motionSafety\s*\n/);
 assert.match(saveSettingsSource, /setAppliedMotionDelayMs\(result\.settings\.playback\.motionDelayMs\)/);
+assert.match(saveSettingsSource, /setMotionSafety\(result\.settings\.motionSafety\)/);
 assert.match(saveSettingsSource, /setSavedSettings\(result\.settings\)/);
 assert.doesNotMatch(saveSettingsSource, /setMotionDelayMs\(/);
-assert.match(hardwarePanelSource, /<button disabled=\{isBusy \|\| settingsLoading \|\| !savedSettings\} onClick=\{saveSettings\}/);
-assert.match(hardwarePanelSource, /<button disabled=\{isBusy \|\| settingsLoading \|\| !savedSettings \|\| hardwareConnected\} onClick=\{loadSettings\}/);
 assert.match(motionDelayPanelSource, /<section className="panel">/);
 assert.match(motionDelayPanelSource, /<input className="range"[\s\S]*?disabled=\{isBusy \|\| settingsLoading \|\| !savedSettings\}/);
 assert.match(appSource, /const hasPendingMotionDelay = motionDelayMs !== appliedMotionDelayMs;/);
@@ -287,6 +327,13 @@ assert.match(joinRoomSource, /setViewerPage\(['"]room['"]\)/);
 assert.match(motionDemoSource, /window\.hapticRelay\.startMotionDemo\(intensity, position\)/);
 assert.match(motionDemoSource, /window\.hapticRelay\.stopMotionDemo\(\)/);
 assert.match(appSource, /window\.hapticRelay\.updateMotionDemo\(intensity, position\)/);
+assert.match(loadSettingsSource, /setManualMotionSafety\(settings\.motionSafety\.manualMaxPositionSpeed\)/);
+assert.match(hardwareStrokeControlSource, /안전 모드 속도 제한/);
+assert.match(hardwareStrokeControlSource, /id="hardware-manual-speed-limit"[\s\S]*?min="50"[\s\S]*?max="400"[\s\S]*?step="25"/);
+assert.ok(
+  hardwareStrokeControlSource.indexOf('안전 모드 속도 제한') < hardwareStrokeControlSource.indexOf('강도 상한'),
+  'safety speed control appears above intensity limit'
+);
 assert.match(roomSessionSource, /className="session-tabs"/);
 assert.match(roomSessionSource, /className="session-content"/);
 assert.match(motionDemoPanelSource, /className="motion-demo-controls"/);

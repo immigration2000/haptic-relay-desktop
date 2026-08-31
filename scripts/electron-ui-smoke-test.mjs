@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
@@ -59,6 +59,16 @@ const directoryRoomName = `directory-${Date.now().toString(36)}`;
 const outputDirectory = path.join(os.tmpdir(), 'haptic-relay-ui-smoke');
 const electronExecutable = path.join(root, 'node_modules', 'electron', 'dist', process.platform === 'win32' ? 'electron.exe' : 'electron');
 const logs = { server: '', electron: '' };
+
+const [appSource, strokeControlSource] = await Promise.all([
+  readFile(path.join(root, 'src', 'App.tsx'), 'utf8'),
+  readFile(path.join(root, 'src', 'ui', 'components', 'HardwareStrokeControl.tsx'), 'utf8')
+]);
+assert.match(appSource, /profileDisabled=\{hardwareConnected \|\| isBusy\} busy=\{isBusy\}/, 'connected or busy hardware state locks profile controls');
+assert.match(strokeControlSource, /id="hardware-stop-position"[\s\S]*?disabled=\{profileDisabled\}/, 'connected profile lock disables the stop control');
+assert.match(strokeControlSource, /<fieldset className="motion-range-fieldset" disabled=\{profileDisabled\}/, 'connected profile lock disables both motion range controls');
+assert.match(strokeControlSource, /id="hardware-manual-speed-limit"[\s\S]*?min="50"[\s\S]*?max="400"[\s\S]*?step="25"/, 'manual safety speed uses the bounded percent slider');
+assert.match(strokeControlSource, /id="hardware-intensity-limit"[\s\S]*?disabled=\{busy\}/, 'intensity remains available while connected unless an action is busy');
 
 await mkdir(outputDirectory, { recursive: true });
 
@@ -201,18 +211,73 @@ try {
   await waitForExpression(cdp, `document.body.innerText.includes('출력 성공') === false`);
   await waitForExpression(cdp, `document.body.innerText.includes('DEVICE CONFIGURATION')`);
   await waitForExpression(cdp, `document.querySelector('[data-hardware-output]')?.textContent.includes('T-Code 출력이 완료되면 표시됩니다.')`);
-  await replaceInputByLabelTyping(cdp, '긴급 정지 위치', '0.35');
-  await cdp.evaluate(`document.activeElement?.blur()`);
+  await waitForExpression(cdp, `document.querySelector('#hardware-manual-speed-limit')?.value === '200'`);
   assert.equal(
-    (await getInputStateByLabel(cdp, '긴급 정지 위치'))?.value,
-    '0.35',
-    'emergency stop position accepts a decimal typed one character at a time'
+    await cdp.evaluate(`document.querySelector('#hardware-manual-speed-limit')?.getAttribute('aria-label') ?? document.querySelector('label[for="hardware-manual-speed-limit"]')?.textContent.includes('안전 모드 속도 제한')`),
+    true,
+    'manual safety speed control is visible and labeled'
+  );
+  await changeInputById(cdp, 'hardware-intensity-limit', '35');
+  await waitForExpression(cdp, `document.querySelector('#hardware-intensity-limit')?.value === '35' && document.querySelector('#hardware-intensity-output')?.textContent === '35%'`);
+  await clickButton(cdp, '보호 옵션 적용');
+  await waitForExpression(cdp, `document.body.innerText.includes('보호 옵션 적용됨')`);
+  assert.equal(
+    await cdp.evaluate(`document.querySelector('#hardware-intensity-limit')?.value`),
+    '35',
+    '35% intensity remains a percent control after the protection application flow'
+  );
+  await changeInputById(cdp, 'hardware-stroke-min', '50');
+  await waitForExpression(cdp, `document.querySelector('#hardware-stroke-min')?.value === '50' && document.querySelector('#hardware-stop-position')?.value === '50'`);
+  await clickAndTypeNumberById(cdp, 'hardware-stroke-max', '51');
+  await waitForExpression(cdp, `(() => {
+    const min = document.querySelector('#hardware-stroke-min');
+    const max = document.querySelector('#hardware-stroke-max');
+    const stop = document.querySelector('#hardware-stop-position');
+    return min?.value === '50' && max?.value === '51' && stop?.value === '50';
+  })()`);
+  assert.equal(
+    await cdp.evaluate(`document.querySelector('#hardware-stroke-max')?.matches(':focus')`),
+    true,
+    'the mouse-accessible maximum position stepper can edit an adjacent 50/51 range'
+  );
+  assert.equal(
+    await cdp.evaluate(`(() => {
+      const rail = document.querySelector('.stroke-rail')?.getBoundingClientRect();
+      const min = document.querySelector('.stroke-rail-label-min')?.getBoundingClientRect();
+      const max = document.querySelector('.stroke-rail-label-max')?.getBoundingClientRect();
+      return Boolean(rail && min && max && min.right <= rail.left && max.left >= rail.right);
+    })()`),
+    true,
+    'adjacent rail labels remain on opposite sides of the visual rail'
+  );
+  await changeInputById(cdp, 'hardware-stroke-min', '0');
+  await changeInputById(cdp, 'hardware-stroke-max', '100');
+  await waitForExpression(cdp, `(() => {
+    const min = document.querySelector('#hardware-stroke-min');
+    const max = document.querySelector('#hardware-stroke-max');
+    return min?.value === '0' && max?.value === '100';
+  })()`);
+  await assertRailEndpointLabelsSeparate(cdp, '1180x780 hardware endpoints');
+  assert.equal(
+    await cdp.evaluate(`(() => {
+      const ids = ['hardware-stop-position', 'hardware-stroke-min', 'hardware-stroke-max', 'hardware-stroke-min-range', 'hardware-stroke-max-range', 'hardware-manual-speed-limit', 'hardware-intensity-limit'];
+      return ids.every(id => document.querySelector('#' + id))
+        && document.querySelector('#hardware-stop-position-output')?.htmlFor.value.includes('hardware-stop-position')
+        && document.querySelector('#hardware-motion-range-output')?.htmlFor.value.includes('hardware-stroke-min-range')
+        && document.querySelector('#hardware-intensity-output')?.htmlFor.value.includes('hardware-intensity-limit');
+    })()`),
+    true,
+    'stroke controls use stable IDs and associate their outputs with inputs'
   );
   await assertNoDocumentOverflow(cdp, '1180x780 hardware output monitor');
   await captureScreenshot(cdp, path.join(outputDirectory, '07-hardware.png'));
   await cdp.call('Emulation.setDeviceMetricsOverride', { width: 960, height: 640, deviceScaleFactor: 1, mobile: false });
   await assertNoDocumentOverflow(cdp, '960x640 hardware output monitor');
   await captureScreenshot(cdp, path.join(outputDirectory, '08-hardware-output-960x640.png'));
+  await cdp.call('Emulation.setDeviceMetricsOverride', { width: 720, height: 640, deviceScaleFactor: 1, mobile: false });
+  await assertRailEndpointLabelsSeparate(cdp, '720x640 hardware endpoints');
+  await assertNoDocumentOverflow(cdp, '720x640 hardware output monitor');
+  await captureScreenshot(cdp, path.join(outputDirectory, '09-hardware-output-720x640.png'));
   await cdp.call('Emulation.setDeviceMetricsOverride', { width: 1180, height: 780, deviceScaleFactor: 1, mobile: false });
   await clickButton(cdp, '현재 세션');
   await waitForExpression(cdp, `document.body.innerText.includes('HOST SESSION')`);
@@ -284,6 +349,7 @@ try {
       path.join(outputDirectory, '06-automatic-pattern-960x640.png'),
       path.join(outputDirectory, '07-hardware.png'),
       path.join(outputDirectory, '08-hardware-output-960x640.png'),
+      path.join(outputDirectory, '09-hardware-output-720x640.png'),
       path.join(outputDirectory, '09-safety.png'),
       path.join(outputDirectory, '10-logs.png'),
       path.join(outputDirectory, '11-logs-960x640.png')
@@ -317,6 +383,40 @@ async function setInputByLabel(client, labelText, value) {
     return true;
   })()`);
   assert.equal(changed, true, `${labelText} input is available`);
+}
+
+async function changeInputById(client, id, value) {
+  const changed = await client.evaluate(`(() => {
+    const input = document.querySelector(${JSON.stringify(`#${id}`)});
+    if (!(input instanceof HTMLInputElement)) return false;
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+    setter.call(input, ${JSON.stringify(value)});
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+    return input.value === ${JSON.stringify(value)};
+  })()`);
+  assert.equal(changed, true, `${id} accepts ${value}`);
+}
+
+async function clickAndTypeNumberById(client, id, value) {
+  const bounds = await client.evaluate(`(() => {
+    const input = document.querySelector(${JSON.stringify(`#${id}`)});
+    if (!(input instanceof HTMLInputElement)) return null;
+    input.scrollIntoView({ block: 'center' });
+    const rect = input.getBoundingClientRect();
+    return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+  })()`);
+  assert.ok(bounds, `${id} is available for a mouse click`);
+  await client.call('Input.dispatchMouseEvent', { type: 'mousePressed', ...bounds, button: 'left', buttons: 1, clickCount: 1 });
+  await client.call('Input.dispatchMouseEvent', { type: 'mouseReleased', ...bounds, button: 'left', buttons: 0, clickCount: 1 });
+  const selected = await client.evaluate(`(() => {
+    const input = document.querySelector(${JSON.stringify(`#${id}`)});
+    if (!(input instanceof HTMLInputElement) || document.activeElement !== input) return false;
+    input.select();
+    return true;
+  })()`);
+  assert.equal(selected, true, `${id} receives mouse focus`);
+  await client.call('Input.insertText', { text: value });
 }
 
 async function selectOptionByLabel(client, labelText, value) {
@@ -419,6 +519,21 @@ async function assertNoDocumentOverflow(client, label) {
   })`);
   assert.equal(overflow.horizontal, false, `${label} has no horizontal document overflow`);
   assert.equal(overflow.vertical, false, `${label} has no vertical document overflow`);
+}
+
+async function assertRailEndpointLabelsSeparate(client, label) {
+  const separated = await client.evaluate(`(() => {
+    const rect = selector => document.querySelector(selector)?.getBoundingClientRect();
+    const intersects = (first, second) => first && second
+      && first.left < second.right && first.right > second.left
+      && first.top < second.bottom && first.bottom > second.top;
+    const topTick = rect('.stroke-rail-mark-top');
+    const maxLabel = rect('.stroke-rail-label-max');
+    const bottomTick = rect('.stroke-rail-mark-bottom');
+    const minLabel = rect('.stroke-rail-label-min');
+    return !intersects(topTick, maxLabel) && !intersects(bottomTick, minLabel);
+  })()`);
+  assert.equal(separated, true, `${label} keeps fixed tick labels separate from endpoint labels`);
 }
 
 async function waitForExpression(client, expression, timeoutMs = 8_000) {

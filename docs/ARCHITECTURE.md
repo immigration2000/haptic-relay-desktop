@@ -245,7 +245,7 @@ The relay protocol and hardware protocol are intentionally different.
 
 ## Local Diagnostic Storage
 
-The main process automatically writes sanitized JSONL diagnostics beneath Electron `userData/logs`. The active `haptic-relay.jsonl` file and four rotations are limited to 2 MiB each, retaining approximately 10 MiB total. Production 30 Hz motion is aggregated into at most one summary per second; profile, probe, test, stop, disconnect, and serial-error boundaries remain individual records.
+Release 11 always writes sanitized JSONL diagnostics locally beneath Electron `userData/logs`. Every hardware motion sample is recorded at the 30 Hz output cadence; the active `haptic-relay.jsonl` file plus `.1` through `.15` are capped at 16 MiB each (maximum 256 MiB). The compact UI export still contains in-memory entries and metadata; attach rotated files for complete incident reconstruction. Profile, probe, test, stop, disconnect, serial-error, relay, protection, and application events remain individual records.
 
 The renderer's `직렬 전송 완료` state means only that the operating system completed the serial write callback. It is not device acknowledgement and does not prove controller parsing or physical hardware motion. Diagnosis starts with the profile, probe response/no-response, write duration, and port error records, then compares them with the separately observed device position, power, cable, and firmware.
 
@@ -267,5 +267,6 @@ The existing **저장** action exports the bounded in-memory `entries` plus curr
 - Keep receive pause independent from the emergency latch.
 - Clamp all incoming motion values to valid ranges.
 - Rate-limit motion frames to protect devices and relay infrastructure.
+- Limit manual demo position slew with the persisted 50–400%/s safety setting; automatic patterns and received motion keep their existing paths.
 - Keep `.env` and relay secrets out of git.
 - Treat all hardware protocol input as untrusted.

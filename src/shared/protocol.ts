@@ -99,11 +99,30 @@ export type HardwareOutputSnapshot = {
   baudRate: number;
 };
 
+export type HardwareOutputLogRow = HardwareOutputSnapshot & {
+  id: number;
+};
+
+export type HardwareOutputLogAppend = {
+  sessionId: number;
+  row: HardwareOutputLogRow;
+  omittedRows: number;
+};
+
+export type HardwareOutputLogSession = {
+  sessionId: number;
+  startedAt?: number;
+  portPath?: string;
+  rows: HardwareOutputLogRow[];
+  omittedRows: number;
+};
+
 export type HardwareConnectionStatus = {
   connected: boolean;
   path?: string;
   reason?: string;
   unexpected?: boolean;
+  emergencyStopped?: boolean;
 };
 
 export type HardwareDisconnectResult = {
@@ -118,6 +137,10 @@ export type PlaybackSettings = {
   motionDelayMs: number;
 };
 
+export type MotionSafetySettings = {
+  manualMaxPositionSpeed: number;
+};
+
 export type AppLogEntry = {
   id: number;
   timestamp: number;
@@ -128,10 +151,11 @@ export type AppLogEntry = {
 };
 
 export type AppSettings = {
-  schemaVersion: 3;
+  schemaVersion: 4;
   hardwareProfile: HardwareProfile;
   hardwareProtection: HardwareProtection;
   playback: PlaybackSettings;
+  motionSafety: MotionSafetySettings;
 };
 
 export type PortInfo = {

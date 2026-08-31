@@ -1,9 +1,9 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-const DIAGNOSTIC_SCHEMA_VERSION = 1 as const;
-const DEFAULT_MAX_FILE_BYTES = 2 * 1024 * 1024;
-const DEFAULT_MAX_FILES = 5;
+const DIAGNOSTIC_SCHEMA_VERSION = 2 as const;
+const DEFAULT_MAX_FILE_BYTES = 16 * 1024 * 1024;
+const DEFAULT_MAX_FILES = 16;
 const ACTIVE_FILE_NAME = 'haptic-relay.jsonl';
 const MAX_TEXT_LENGTH = 4096;
 
@@ -12,7 +12,7 @@ export type DiagnosticLevel = 'info' | 'warning' | 'error';
 export type DiagnosticEventInput = {
   timestamp: number;
   level: DiagnosticLevel;
-  source: 'app' | 'hardware' | 'protection';
+  source: 'app' | 'hardware' | 'relay' | 'room' | 'protection';
   event: string;
   data: Record<string, unknown>;
 };
@@ -24,6 +24,8 @@ export type MotionDiagnosticSample = {
   position?: number;
   intensity?: number;
   reason?: string;
+  durationMs?: number;
+  timeout?: boolean;
 };
 
 export interface DiagnosticFileOperations {
@@ -43,20 +45,6 @@ export type DiagnosticLogStoreOptions = {
   onError?: (error: Error) => void;
 };
 
-type MotionBucket = {
-  second: number;
-  attempted: number;
-  completed: number;
-  dropped: number;
-  failed: number;
-  firstTimestamp: number;
-  lastTimestamp: number;
-  lastCommand?: string;
-  lastPosition?: number;
-  lastIntensity?: number;
-  lastFailureReason?: string;
-};
-
 export class DiagnosticLogStore {
   private readonly directory: string;
   private readonly sessionId: string;
@@ -69,7 +57,6 @@ export class DiagnosticLogStore {
   private initialized = false;
   private disabled = false;
   private errorReported = false;
-  private motionBucket: MotionBucket | undefined;
 
   constructor(options: DiagnosticLogStoreOptions) {
     this.directory = options.directory;
@@ -97,43 +84,24 @@ export class DiagnosticLogStore {
   }
 
   recordMotion(sample: MotionDiagnosticSample) {
-    const second = Math.floor(sample.timestamp / 1000);
-    if (this.motionBucket && this.motionBucket.second !== second) {
-      const completedBucket = this.motionBucket;
-      this.motionBucket = undefined;
-      void this.recordMotionBucket(completedBucket);
-    }
-
-    const bucket = this.motionBucket ??= {
-      second,
-      attempted: 0,
-      completed: 0,
-      dropped: 0,
-      failed: 0,
-      firstTimestamp: sample.timestamp,
-      lastTimestamp: sample.timestamp
-    };
-
-    bucket.attempted += 1;
-    bucket[sample.outcome] += 1;
-    bucket.lastTimestamp = sample.timestamp;
-    if (sample.command !== undefined) bucket.lastCommand = boundedText(sample.command);
-    if (sample.position !== undefined) bucket.lastPosition = sample.position;
-    if (sample.intensity !== undefined) bucket.lastIntensity = sample.intensity;
-    if (sample.reason !== undefined) bucket.lastFailureReason = boundedText(sample.reason);
+    const data: Record<string, unknown> = { outcome: sample.outcome };
+    if (sample.command !== undefined) data.command = boundedText(sample.command);
+    if (sample.position !== undefined) data.position = sample.position;
+    if (sample.intensity !== undefined) data.intensity = sample.intensity;
+    if (sample.reason !== undefined) data.reason = boundedText(sample.reason);
+    if (sample.durationMs !== undefined) data.durationMs = sample.durationMs;
+    if (sample.timeout !== undefined) data.timeout = sample.timeout;
+    return this.record({
+      timestamp: sample.timestamp,
+      level: sample.outcome === 'failed' ? 'error' : sample.outcome === 'dropped' ? 'warning' : 'info',
+      source: 'hardware',
+      event: 'hardware-motion-sample',
+      data
+    });
   }
 
   recordBoundary(input: DiagnosticEventInput) {
-    const bucket = this.motionBucket;
-    this.motionBucket = undefined;
-    if (bucket) void this.recordMotionBucket(bucket);
     return this.record(input);
-  }
-
-  async flushMotion() {
-    const bucket = this.motionBucket;
-    this.motionBucket = undefined;
-    if (bucket) await this.recordMotionBucket(bucket);
   }
 
   flush() {
@@ -149,29 +117,6 @@ export class DiagnosticLogStore {
       maxFileBytes: this.maxFileBytes,
       maxFiles: this.maxFiles
     };
-  }
-
-  private recordMotionBucket(bucket: MotionBucket) {
-    const data: Record<string, unknown> = {
-      attempted: bucket.attempted,
-      completed: bucket.completed,
-      dropped: bucket.dropped,
-      failed: bucket.failed,
-      firstTimestamp: bucket.firstTimestamp,
-      lastTimestamp: bucket.lastTimestamp
-    };
-    if (bucket.lastCommand !== undefined) data.lastCommand = bucket.lastCommand;
-    if (bucket.lastPosition !== undefined) data.lastPosition = bucket.lastPosition;
-    if (bucket.lastIntensity !== undefined) data.lastIntensity = bucket.lastIntensity;
-    if (bucket.lastFailureReason !== undefined) data.lastFailureReason = bucket.lastFailureReason;
-
-    return this.record({
-      timestamp: bucket.lastTimestamp,
-      level: bucket.failed > 0 ? 'error' : bucket.dropped > 0 ? 'warning' : 'info',
-      source: 'hardware',
-      event: 'hardware-motion-summary',
-      data
-    });
   }
 
   private async appendRecord(input: DiagnosticEventInput) {

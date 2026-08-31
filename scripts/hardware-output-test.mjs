@@ -438,6 +438,8 @@ await controller.connect('COM9', {
   strokeMax: 1,
   invertPosition: false
 });
+assert.deepEqual(controller.getEmergencyStopState(), { emergencyStopped: true });
+controller.releaseEmergencyStop();
 
 const outputsBeforeStall = outputs.length;
 port.stallNextWrite = true;
@@ -461,9 +463,11 @@ await controller.connect('COM9', {
   strokeMax: 1,
   invertPosition: false
 });
+assert.deepEqual(controller.getEmergencyStopState(), { emergencyStopped: true });
+controller.releaseEmergencyStop();
 controller.queueMotion({ position: 0.8, intensity: 0.25, timestamp: Date.now() });
 await waitFor(() => outputs.length === outputsBeforeStall + 1);
-assert.equal(outputs.length, outputsBeforeStall + 1, 'motion output recovers after reconnecting the failed port');
+assert.equal(outputs.length, outputsBeforeStall + 1, 'motion output recovers after reconnecting and explicitly releasing the failed port');
 assert.equal(outputs.at(-1).command, 'L08000I17');
 
 port.stallNextWrite = true;
@@ -625,9 +629,13 @@ releasedDuringFailedStopPort.completeWrite(new Error('stop-write-failed-after-re
 assert.deepEqual(await releasedFailedStop, {
   stopped: false,
   reason: 'hardware-stop-write-failed',
-  emergencyStopped: false
+  emergencyStopped: true
 });
-assert.deepEqual(releasedDuringFailedStopController.getEmergencyStopState(), { emergencyStopped: false });
+assert.deepEqual(
+  releasedDuringFailedStopController.getEmergencyStopState(),
+  { emergencyStopped: true },
+  'a port failure that settles after release re-latches motion safety'
+);
 
 assert.deepEqual(
   await latchController.latchEmergencyStop(),
@@ -1457,6 +1465,36 @@ if (runRegression('open-timeout-late-success')) {
   await openTimeoutController.disconnect();
 }
 
+if (runRegression('port-identification-timeout')) {
+  const diagnostics = [];
+  const controller = new HardwareController({
+    createPort: options => new FakePort(options.path),
+    listPorts: () => new Promise(() => undefined),
+    onDiagnostic: event => diagnostics.push(event),
+    probeTimeoutMs: 0,
+    writeTimeoutMs: 100,
+    lifecycleTimeoutMs: 30
+  });
+
+  const connectResult = await Promise.race([
+    controller.connect('COM62', {
+      baudRate: 115200,
+      linearAxis: 'L0',
+      strokeMin: 0,
+      strokeMax: 1,
+      invertPosition: false
+    }),
+    delay(150).then(() => assert.fail('diagnostic port enumeration blocked hardware connect'))
+  ]);
+
+  assert.equal(connectResult.path, 'COM62');
+  assert.equal(
+    diagnostics.find(event => event.event === 'hardware-port-identification-failed')?.data.message,
+    'hardware-port-identification-timeout'
+  );
+  await controller.disconnect();
+}
+
 if (runRegression('close-timeout-late-completion')) {
   const closeTimeoutPorts = [];
   const closeTimeoutController = new HardwareController({
@@ -1994,13 +2032,20 @@ unexpectedPort.emit('error', new Error('serial-port-fault'));
 assert.deepEqual(unexpectedStatuses.at(-1), {
   connected: false,
   reason: 'hardware-port-error',
-  unexpected: true
+  unexpected: true,
+  emergencyStopped: true
 });
 
 const closeOnlyStatuses = [];
 const closeOnlyPort = new FakePort('COM17');
+const closeOnlyReplacementPort = new FakePort('COM17');
+const closeOnlyPorts = [closeOnlyPort, closeOnlyReplacementPort];
 const closeOnlyController = new HardwareController({
-  createPort: () => closeOnlyPort,
+  createPort: () => {
+    const port = closeOnlyPorts.shift();
+    assert.ok(port, 'unexpected extra COM17 port creation');
+    return port;
+  },
   onConnectionStatus: status => closeOnlyStatuses.push(status),
   probeTimeoutMs: 0,
   writeTimeoutMs: 20
@@ -2017,13 +2062,34 @@ closeOnlyPort.emit('close');
 assert.deepEqual(closeOnlyStatuses.at(-1), {
   connected: false,
   reason: 'hardware-port-closed',
-  unexpected: true
+  unexpected: true,
+  emergencyStopped: true
 });
+assert.deepEqual(closeOnlyController.getEmergencyStopState(), { emergencyStopped: true });
 assert.deepEqual(
   closeOnlyController.queueMotion({ position: 0.4, intensity: 0.25, timestamp: Date.now() }),
   { queued: false, reason: 'hardware-not-connected' },
   'a close-only port loss invalidates the connected controller'
 );
+await closeOnlyController.connect('COM17', {
+  baudRate: 115200,
+  linearAxis: 'L0',
+  strokeMin: 0,
+  strokeMax: 1,
+  invertPosition: false
+});
+assert.deepEqual(
+  closeOnlyController.queueMotion({ position: 0.4, intensity: 0.25, timestamp: Date.now() }),
+  { queued: false, reason: 'hardware-emergency-stopped' },
+  'unexpected port loss blocks automatic motion after reconnect'
+);
+closeOnlyController.releaseEmergencyStop();
+assert.deepEqual(
+  closeOnlyController.queueMotion({ position: 0.4, intensity: 0.25, timestamp: Date.now() }),
+  { queued: true },
+  'explicit local release re-enables motion after reconnect'
+);
+await closeOnlyController.disconnect();
 
 const safeCloseFailureStatuses = [];
 const safeCloseFailurePort = new FakePort('COM16');

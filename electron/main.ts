@@ -22,6 +22,8 @@ import { HardwareController } from './services/hardware-controller.js';
 import type { HardwareDiagnosticEvent } from './services/hardware-controller.js';
 import { validateMotionPatternConfig } from './services/demo-motion-pattern.js';
 import { DemoMotionStream } from './services/demo-motion-stream.js';
+import { HardwareOutputSessionStore } from './services/hardware-output-session-store.js';
+import { HardwareOutputWindowManager } from './services/hardware-output-window-manager.js';
 import { validateMotionDelayMs } from './services/motion-delay-buffer.js';
 import { RelayClient } from './services/relay-client.js';
 import { sendToRenderer } from './window-messenger.js';
@@ -53,7 +55,7 @@ const DIAGNOSTIC_DATA_FIELDS = [
   'stopPosition', 'invertPosition', 'path', 'vendorId', 'productId', 'serialNumber',
   'manufacturer', 'pnpId', 'locationId', 'command', 'raw', 'responseReceived',
   'detected', 'version', 'axes', 'durationMs', 'deviceAcknowledged', 'operation',
-  'name', 'message', 'timeout', 'outcome', 'position', 'intensity', 'reason',
+  'name', 'message', 'details', 'timeout', 'outcome', 'position', 'intensity', 'reason',
   'stopped', 'emergencyStopped', 'unexpected', 'dtr', 'rts'
 ] as const;
 
@@ -72,6 +74,16 @@ let quitAfterShutdown = false;
 
 function addLog(entry: Omit<AppLogEntry, 'id' | 'timestamp'>) {
   const now = Date.now();
+  void diagnosticLogStore?.record({
+    timestamp: now,
+    level: entry.level,
+    source: entry.source,
+    event: 'app-log',
+    data: sanitizeDiagnosticData({
+      message: boundedText(entry.message),
+      details: entry.details === undefined ? undefined : boundedText(entry.details)
+    })
+  });
   const key = `${entry.level}:${entry.source}:${entry.message}:${entry.details ?? ''}`;
   const lastTimestamp = lastLogByKey.get(key) ?? 0;
   if (now - lastTimestamp < 1000) return;
@@ -111,7 +123,9 @@ function routeHardwareDiagnostic(diagnostic: HardwareDiagnosticEvent) {
       command: primitiveString(diagnostic.data.command),
       position: primitiveNumber(diagnostic.data.position),
       intensity: primitiveNumber(diagnostic.data.intensity),
-      reason: primitiveString(diagnostic.data.reason)
+      reason: primitiveString(diagnostic.data.reason),
+      durationMs: primitiveNumber(diagnostic.data.durationMs),
+      timeout: primitiveBoolean(diagnostic.data.timeout)
     });
     return;
   }
@@ -136,11 +150,23 @@ function routeHardwareDiagnostic(diagnostic: HardwareDiagnosticEvent) {
     : diagnosticLogStore.record(record));
 }
 
+const outputSessionStore = new HardwareOutputSessionStore();
+const outputLogWindowManager = new HardwareOutputWindowManager(createHardwareOutputLogWindow);
 const hardware = new HardwareController({
   onLog: entry => addLog(entry),
   onDiagnostic: routeHardwareDiagnostic,
-  onOutput: snapshot => sendToRenderer(mainWindow, 'hardware:output', snapshot),
-  onConnectionStatus: status => sendToRenderer(mainWindow, 'hardware:connection-status', status)
+  onOutput: snapshot => {
+    const appended = outputSessionStore.append(snapshot);
+    outputLogWindowManager.send('hardware-output-log:append', appended);
+    sendToRenderer(mainWindow, 'hardware:output', snapshot);
+  },
+  onConnectionStatus: status => {
+    if (status.connected && status.path) {
+      const session = outputSessionStore.reset(status.path);
+      outputLogWindowManager.send('hardware-output-log:reset', session);
+    }
+    sendToRenderer(mainWindow, 'hardware:connection-status', status);
+  }
 });
 const relay = new RelayClient(frame => {
   const result = hardware.queueMotion(frame);
@@ -244,7 +270,10 @@ function createWindow() {
   });
   mainWindow = window;
   window.on('closed', () => {
-    if (mainWindow === window) mainWindow = undefined;
+    if (mainWindow === window) {
+      mainWindow = undefined;
+      outputLogWindowManager.close();
+    }
   });
 
   const devServerUrl = getDevServerUrl();
@@ -253,6 +282,34 @@ function createWindow() {
   } else {
     void mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
   }
+}
+
+function createHardwareOutputLogWindow() {
+  const window = new BrowserWindow({
+    width: 900,
+    height: 640,
+    minWidth: 720,
+    minHeight: 480,
+    title: 'Haptic Relay · 전체 출력 로그',
+    webPreferences: {
+      preload: path.join(__dirname, 'hardware-output-log-preload.cjs'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      webSecurity: true,
+      allowRunningInsecureContent: false,
+      webviewTag: false
+    }
+  });
+  const devServerUrl = getDevServerUrl();
+  if (devServerUrl) {
+    const url = new URL(devServerUrl);
+    url.searchParams.set('view', 'hardware-output-log');
+    void window.loadURL(url.toString());
+  } else {
+    void window.loadFile(path.join(__dirname, '../dist/index.html'), { query: { view: 'hardware-output-log' } });
+  }
+  return window;
 }
 
 app.whenReady().then(() => {
@@ -299,7 +356,7 @@ app.on('before-quit', event => {
 });
 
 app.on('activate', () => {
-  if (BrowserWindow.getAllWindows().length === 0) createWindow();
+  if (!mainWindow || mainWindow.isDestroyed()) createWindow();
 });
 
 ipcMain.handle('hardware:list', event => {
@@ -322,6 +379,15 @@ ipcMain.handle('hardware:connect', async (event, pathName: unknown, profile: unk
 ipcMain.handle('hardware:disconnect', event => {
   assertTrustedSender(event);
   return hardware.disconnect();
+});
+ipcMain.handle('hardware-output-log:open', event => {
+  assertTrustedSender(event);
+  outputLogWindowManager.open();
+  return { opened: true };
+});
+ipcMain.handle('hardware-output-log:get', event => {
+  assertTrustedHardwareOutputLogSender(event);
+  return outputSessionStore.snapshot();
 });
 ipcMain.handle('hardware:emergency-state', event => {
   assertTrustedSender(event);
@@ -367,6 +433,14 @@ ipcMain.on('motion-demo:update', (event, intensity: unknown, position: unknown) 
     });
   } catch (error) {
     addLog({ level: 'warning', source: 'room', message: 'motion-demo-update-rejected', details: formatError(error) });
+  }
+});
+ipcMain.on('motion-demo:set-safety-limit', (event, manualMaxPositionSpeed: unknown) => {
+  try {
+    assertTrustedSender(event);
+    demoMotionStream.setManualMaxPositionSpeed(manualMaxPositionSpeed);
+  } catch (error) {
+    addLog({ level: 'warning', source: 'protection', message: 'motion-safety-limit-rejected', details: formatError(error) });
   }
 });
 ipcMain.handle('motion-demo:start-pattern', (event, config: unknown) => {
@@ -508,7 +582,8 @@ ipcMain.handle('viewer:set-motion-delay', async (event, delayMs: unknown) => {
       schemaVersion: CURRENT_SETTINGS_SCHEMA_VERSION,
       hardwareProfile: currentSettings.hardwareProfile,
       hardwareProtection: currentSettings.hardwareProtection,
-      playback: { motionDelayMs }
+      playback: { motionDelayMs },
+      motionSafety: currentSettings.motionSafety
     };
     await writeAtomically(settings);
     const buffer = relay.setMotionDelay(motionDelayMs);
@@ -530,6 +605,12 @@ function getDevServerUrl() {
 
 function assertTrustedSender(event: IpcMainInvokeEvent | IpcMainEvent) {
   if (event.sender !== mainWindow?.webContents) {
+    throw new Error('untrusted-ipc-sender');
+  }
+}
+
+function assertTrustedHardwareOutputLogSender(event: IpcMainInvokeEvent | IpcMainEvent) {
+  if (!outputLogWindowManager.isCurrentWebContents(event.sender)) {
     throw new Error('untrusted-ipc-sender');
   }
 }
@@ -618,6 +699,10 @@ function formatError(error: unknown) {
   return 'unknown-error';
 }
 
+function boundedText(value: string) {
+  return value.slice(0, 4096);
+}
+
 function shutdownApplication() {
   if (shutdownPromise) return shutdownPromise;
   shutdownPromise = (async () => {
@@ -689,6 +774,10 @@ function primitiveString(value: unknown) {
 
 function primitiveNumber(value: unknown) {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+function primitiveBoolean(value: unknown) {
+  return typeof value === 'boolean' ? value : undefined;
 }
 
 function formatFileTimestamp(date: Date) {

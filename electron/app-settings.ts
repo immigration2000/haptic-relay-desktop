@@ -1,16 +1,17 @@
-import type { AppSettings, HardwareProfile, HardwareProtection } from './protocol.js';
+import type { AppSettings, HardwareProfile, HardwareProtection, MotionSafetySettings } from './protocol.js';
 import { validateMotionDelayMs } from './services/motion-delay-buffer.js';
+import { DEFAULT_MANUAL_MAX_POSITION_SPEED, validateManualMaxPositionSpeed } from './services/manual-motion-safety.js';
 
-export const CURRENT_SETTINGS_SCHEMA_VERSION = 3;
+export const CURRENT_SETTINGS_SCHEMA_VERSION = 4;
 export const DEFAULT_SETTINGS: AppSettings = {
   schemaVersion: CURRENT_SETTINGS_SCHEMA_VERSION,
   hardwareProfile: {
     baudRate: 115200,
     linearAxis: 'L0',
     vibrationAxis: undefined,
-    strokeMin: 0,
-    strokeMax: 1,
-    stopPosition: 0,
+    strokeMin: 0.3,
+    strokeMax: 0.8,
+    stopPosition: 0.5,
     invertPosition: false
   },
   hardwareProtection: {
@@ -19,7 +20,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
     positionMax: 1,
     paused: false
   },
-  playback: { motionDelayMs: 0 }
+  playback: { motionDelayMs: 0 },
+  motionSafety: { manualMaxPositionSpeed: DEFAULT_MANUAL_MAX_POSITION_SPEED }
 };
 
 export function validateAppSettings(value: unknown): AppSettings {
@@ -30,7 +32,8 @@ export function validateAppSettings(value: unknown): AppSettings {
     schemaVersion: CURRENT_SETTINGS_SCHEMA_VERSION,
     hardwareProfile: validateHardwareProfile(value.hardwareProfile),
     hardwareProtection: validateHardwareProtection(value.hardwareProtection),
-    playback: { motionDelayMs: validateMotionDelayMs(value.playback.motionDelayMs as number) }
+    playback: { motionDelayMs: validateMotionDelayMs(value.playback.motionDelayMs as number) },
+    motionSafety: validateMotionSafetySettings(value.motionSafety)
   };
 }
 
@@ -45,12 +48,22 @@ function migrateLegacyHardwareProfile(value: unknown) {
 export function migrateAppSettings(value: unknown): AppSettings {
   if (!isRecord(value)) throw new Error('invalid-app-settings');
   if (value.schemaVersion === CURRENT_SETTINGS_SCHEMA_VERSION) return validateAppSettings(value);
+  if (value.schemaVersion === 3) {
+    return validateAppSettings({
+      schemaVersion: CURRENT_SETTINGS_SCHEMA_VERSION,
+      hardwareProfile: value.hardwareProfile,
+      hardwareProtection: value.hardwareProtection,
+      playback: value.playback,
+      motionSafety: { manualMaxPositionSpeed: DEFAULT_MANUAL_MAX_POSITION_SPEED }
+    });
+  }
   if (value.schemaVersion === 2) {
     return validateAppSettings({
       schemaVersion: CURRENT_SETTINGS_SCHEMA_VERSION,
       hardwareProfile: migrateLegacyHardwareProfile(value.hardwareProfile),
       hardwareProtection: value.hardwareProtection,
-      playback: value.playback
+      playback: value.playback,
+      motionSafety: { manualMaxPositionSpeed: DEFAULT_MANUAL_MAX_POSITION_SPEED }
     });
   }
   if (value.schemaVersion === 1 || value.schemaVersion === undefined) {
@@ -58,7 +71,8 @@ export function migrateAppSettings(value: unknown): AppSettings {
       schemaVersion: CURRENT_SETTINGS_SCHEMA_VERSION,
       hardwareProfile: migrateLegacyHardwareProfile(value.hardwareProfile),
       hardwareProtection: value.hardwareProtection,
-      playback: { motionDelayMs: 0 }
+      playback: { motionDelayMs: 0 },
+      motionSafety: { manualMaxPositionSpeed: DEFAULT_MANUAL_MAX_POSITION_SPEED }
     });
   }
   throw new Error('unsupported-settings-version');
@@ -103,6 +117,11 @@ export function validateHardwareProtection(value: unknown): HardwareProtection {
     positionMax,
     paused: validateBoolean(value.paused, 'protectionPaused')
   };
+}
+
+export function validateMotionSafetySettings(value: unknown): MotionSafetySettings {
+  if (!isRecord(value)) throw new Error('invalid-motion-safety-settings');
+  return { manualMaxPositionSpeed: validateManualMaxPositionSpeed(value.manualMaxPositionSpeed) };
 }
 
 function validateBaudRate(value: unknown) {
