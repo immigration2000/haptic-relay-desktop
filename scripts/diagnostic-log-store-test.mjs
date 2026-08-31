@@ -147,7 +147,7 @@ const activePath = path.join(diagnosticsDirectory, 'haptic-relay.jsonl');
   await store.recordMotion({ timestamp: 2100, outcome: 'completed', command: 'L05000100', position: 0.5, intensity: 0.1 });
   await store.recordMotion({ timestamp: 2200, outcome: 'completed', command: 'L06000100', position: 0.6, intensity: 0.1 });
   await store.recordMotion({ timestamp: 2300, outcome: 'dropped', position: 0.6, intensity: 0.1, reason: 'protection-paused' });
-  await store.recordMotion({ timestamp: 3100, outcome: 'failed', command: 'L07000100', position: 0.7, intensity: 0.1, reason: 'hardware-write-timeout' });
+  await store.recordMotion({ timestamp: 3100, outcome: 'failed', command: 'L07000100', position: 0.7, intensity: 0.1, reason: 'hardware-write-timeout', durationMs: 500, timeout: true });
   await store.flush();
 
   const samples = allRecords(fake);
@@ -160,7 +160,8 @@ const activePath = path.join(diagnosticsDirectory, 'haptic-relay.jsonl');
   assert.deepEqual(samples.map(record => record.data.outcome), ['completed', 'completed', 'dropped', 'failed']);
   assert.equal(samples[1].data.command, 'L06000100');
   assert.equal(samples[2].data.reason, 'protection-paused');
-  assert.equal(samples[3].data.timeout, undefined, 'store does not invent fields absent from the input');
+  assert.equal(samples[3].data.durationMs, 500);
+  assert.equal(samples[3].data.timeout, true);
 }
 
 {

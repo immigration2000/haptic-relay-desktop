@@ -231,7 +231,10 @@ assert.match(mainSource, /app\.on\(['"]before-quit['"][\s\S]*?event\.preventDefa
 assert.match(mainSource, /function shutdownApplication\(\)[\s\S]*?relay\.hasActiveRoom\(\)[\s\S]*?hardware\.stopForRoomExit\(\)[\s\S]*?relay\.disconnect\(\)[\s\S]*?hardware\.disconnect\(\)/);
 assert.match(mainSource, /app\.whenReady\(\)\.then\([\s\S]*?path\.join\(app\.getPath\(['"]userData['"]\), ['"]logs['"]\)[\s\S]*?session-started/);
 assert.match(mainSource, /function routeHardwareDiagnostic\([\s\S]*?hardware-motion-sample[\s\S]*?recordMotion\([\s\S]*?diagnosticLogStore\.record\(/);
-assert.match(mainSource, /DIAGNOSTIC_DATA_FIELDS\s*=\s*\[[\s\S]*?['"]dtr['"][\s\S]*?['"]rts['"]/);
+assert.match(mainSource, /DIAGNOSTIC_DATA_FIELDS\s*=\s*\[[\s\S]*?['"]details['"][\s\S]*?['"]dtr['"][\s\S]*?['"]rts['"]/);
+assert.match(mainSource, /function addLog\([\s\S]*?diagnosticLogStore\?\.record\([\s\S]*?event:\s*['"]app-log['"][\s\S]*?message:\s*boundedText\(entry\.message\)[\s\S]*?details:/);
+assert.match(mainSource, /function addLog\([\s\S]*?diagnosticLogStore\?\.record\([\s\S]*?lastLogByKey\.get\(key\)/, 'persistent application logging happens before UI deduplication');
+assert.match(mainSource, /function routeHardwareDiagnostic\([\s\S]*?recordMotion\([\s\S]*?durationMs:\s*primitiveNumber\(diagnostic\.data\.durationMs\)[\s\S]*?timeout:\s*primitiveBoolean\(diagnostic\.data\.timeout\)/);
 assert.match(mainSource, /function routeHardwareDiagnostic\([\s\S]*?recordBoundary\(/);
 assert.match(mainSource, /function reportPersistentLogFailure\([\s\S]*?persistent-log-disabled/);
 const persistentFailureSource = sourceSection(mainSource, 'function reportPersistentLogFailure(', 'function routeHardwareDiagnostic(');

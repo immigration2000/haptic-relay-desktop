@@ -55,7 +55,7 @@ const DIAGNOSTIC_DATA_FIELDS = [
   'stopPosition', 'invertPosition', 'path', 'vendorId', 'productId', 'serialNumber',
   'manufacturer', 'pnpId', 'locationId', 'command', 'raw', 'responseReceived',
   'detected', 'version', 'axes', 'durationMs', 'deviceAcknowledged', 'operation',
-  'name', 'message', 'timeout', 'outcome', 'position', 'intensity', 'reason',
+  'name', 'message', 'details', 'timeout', 'outcome', 'position', 'intensity', 'reason',
   'stopped', 'emergencyStopped', 'unexpected', 'dtr', 'rts'
 ] as const;
 
@@ -74,6 +74,16 @@ let quitAfterShutdown = false;
 
 function addLog(entry: Omit<AppLogEntry, 'id' | 'timestamp'>) {
   const now = Date.now();
+  void diagnosticLogStore?.record({
+    timestamp: now,
+    level: entry.level,
+    source: entry.source,
+    event: 'app-log',
+    data: sanitizeDiagnosticData({
+      message: boundedText(entry.message),
+      details: entry.details === undefined ? undefined : boundedText(entry.details)
+    })
+  });
   const key = `${entry.level}:${entry.source}:${entry.message}:${entry.details ?? ''}`;
   const lastTimestamp = lastLogByKey.get(key) ?? 0;
   if (now - lastTimestamp < 1000) return;
@@ -113,7 +123,9 @@ function routeHardwareDiagnostic(diagnostic: HardwareDiagnosticEvent) {
       command: primitiveString(diagnostic.data.command),
       position: primitiveNumber(diagnostic.data.position),
       intensity: primitiveNumber(diagnostic.data.intensity),
-      reason: primitiveString(diagnostic.data.reason)
+      reason: primitiveString(diagnostic.data.reason),
+      durationMs: primitiveNumber(diagnostic.data.durationMs),
+      timeout: primitiveBoolean(diagnostic.data.timeout)
     });
     return;
   }
@@ -679,6 +691,10 @@ function formatError(error: unknown) {
   return 'unknown-error';
 }
 
+function boundedText(value: string) {
+  return value.slice(0, 4096);
+}
+
 function shutdownApplication() {
   if (shutdownPromise) return shutdownPromise;
   shutdownPromise = (async () => {
@@ -750,6 +766,10 @@ function primitiveString(value: unknown) {
 
 function primitiveNumber(value: unknown) {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+function primitiveBoolean(value: unknown) {
+  return typeof value === 'boolean' ? value : undefined;
 }
 
 function formatFileTimestamp(date: Date) {
