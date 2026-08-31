@@ -1,12 +1,14 @@
 import type { CSSProperties } from 'react';
-import type { HardwareProfile, HardwareProtection } from '../../shared/protocol';
-import { normalizedToPercent, percentToNormalized, updateMotionRange } from '../hardware-settings-values';
+import type { HardwareProfile, HardwareProtection, MotionSafetySettings } from '../../shared/protocol';
+import { formatTraversalSeconds, normalizedSpeedToPercent, normalizedToPercent, percentSpeedToNormalized, percentToNormalized, updateMotionRange } from '../hardware-settings-values';
 
 type HardwareStrokeControlProps = {
   profile: HardwareProfile; protection: HardwareProtection; profileDisabled: boolean; busy: boolean;
   settingsLoading: boolean; hasSavedSettings: boolean;
+  motionSafety: MotionSafetySettings;
   onProfileChange: (patch: Partial<HardwareProfile>) => void;
   onProtectionChange: (patch: Partial<HardwareProtection>) => void;
+  onMotionSafetyChange: (manualMaxPositionSpeed: number) => void;
   onApplyProtection: () => void; onSave: () => void; onLoad: () => void;
 };
 
@@ -17,8 +19,10 @@ export function HardwareStrokeControl({
   busy,
   settingsLoading,
   hasSavedSettings,
+  motionSafety,
   onProfileChange,
   onProtectionChange,
+  onMotionSafetyChange,
   onApplyProtection,
   onSave,
   onLoad
@@ -27,6 +31,8 @@ export function HardwareStrokeControl({
   const max = normalizedToPercent(profile.strokeMax);
   const stop = Math.min(max, Math.max(min, normalizedToPercent(profile.stopPosition)));
   const intensity = normalizedToPercent(protection.intensityLimit);
+  const manualSpeedPercent = normalizedSpeedToPercent(motionSafety.manualMaxPositionSpeed);
+  const traversalSeconds = formatTraversalSeconds(motionSafety.manualMaxPositionSpeed);
   const railStyle = {
     '--stroke-min': `${min}%`,
     '--stroke-max': `${max}%`,
@@ -91,6 +97,23 @@ export function HardwareStrokeControl({
           <input id="hardware-stroke-max-range" aria-label="동작 범위 최대" type="range" min="1" max="100" step="1" value={max} onChange={event => changeRange('max', Number(event.target.value))} />
         </div>
       </fieldset>
+
+      <div className="safety-speed-control-grid">
+        <label htmlFor="hardware-manual-speed-limit">
+          <span>안전 모드 속도 제한</span>
+          <input
+            id="hardware-manual-speed-limit"
+            type="range"
+            min="50"
+            max="400"
+            step="25"
+            value={manualSpeedPercent}
+            disabled={busy}
+            onChange={event => onMotionSafetyChange(percentSpeedToNormalized(Number(event.target.value)))}
+          />
+        </label>
+        <output htmlFor="hardware-manual-speed-limit">{manualSpeedPercent}%/초 · 끝→끝 약 {traversalSeconds}초</output>
+      </div>
 
       <div className="intensity-control-grid">
         <label htmlFor="hardware-intensity-limit">

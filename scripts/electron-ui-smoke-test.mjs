@@ -67,6 +67,7 @@ const [appSource, strokeControlSource] = await Promise.all([
 assert.match(appSource, /profileDisabled=\{hardwareConnected \|\| isBusy\} busy=\{isBusy\}/, 'connected or busy hardware state locks profile controls');
 assert.match(strokeControlSource, /id="hardware-stop-position"[\s\S]*?disabled=\{profileDisabled\}/, 'connected profile lock disables the stop control');
 assert.match(strokeControlSource, /<fieldset className="motion-range-fieldset" disabled=\{profileDisabled\}/, 'connected profile lock disables both motion range controls');
+assert.match(strokeControlSource, /id="hardware-manual-speed-limit"[\s\S]*?min="50"[\s\S]*?max="400"[\s\S]*?step="25"/, 'manual safety speed uses the bounded percent slider');
 assert.match(strokeControlSource, /id="hardware-intensity-limit"[\s\S]*?disabled=\{busy\}/, 'intensity remains available while connected unless an action is busy');
 
 await mkdir(outputDirectory, { recursive: true });
@@ -210,6 +211,12 @@ try {
   await waitForExpression(cdp, `document.body.innerText.includes('출력 성공') === false`);
   await waitForExpression(cdp, `document.body.innerText.includes('DEVICE CONFIGURATION')`);
   await waitForExpression(cdp, `document.querySelector('[data-hardware-output]')?.textContent.includes('T-Code 출력이 완료되면 표시됩니다.')`);
+  await waitForExpression(cdp, `document.querySelector('#hardware-manual-speed-limit')?.value === '200'`);
+  assert.equal(
+    await cdp.evaluate(`document.querySelector('#hardware-manual-speed-limit')?.getAttribute('aria-label') ?? document.querySelector('label[for="hardware-manual-speed-limit"]')?.textContent.includes('안전 모드 속도 제한')`),
+    true,
+    'manual safety speed control is visible and labeled'
+  );
   await changeInputById(cdp, 'hardware-intensity-limit', '35');
   await waitForExpression(cdp, `document.querySelector('#hardware-intensity-limit')?.value === '35' && document.querySelector('#hardware-intensity-output')?.textContent === '35%'`);
   await clickButton(cdp, '보호 옵션 적용');
@@ -253,7 +260,7 @@ try {
   await assertRailEndpointLabelsSeparate(cdp, '1180x780 hardware endpoints');
   assert.equal(
     await cdp.evaluate(`(() => {
-      const ids = ['hardware-stop-position', 'hardware-stroke-min', 'hardware-stroke-max', 'hardware-stroke-min-range', 'hardware-stroke-max-range', 'hardware-intensity-limit'];
+      const ids = ['hardware-stop-position', 'hardware-stroke-min', 'hardware-stroke-max', 'hardware-stroke-min-range', 'hardware-stroke-max-range', 'hardware-manual-speed-limit', 'hardware-intensity-limit'];
       return ids.every(id => document.querySelector('#' + id))
         && document.querySelector('#hardware-stop-position-output')?.htmlFor.value.includes('hardware-stop-position')
         && document.querySelector('#hardware-motion-range-output')?.htmlFor.value.includes('hardware-stroke-min-range')

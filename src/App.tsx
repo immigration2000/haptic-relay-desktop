@@ -441,6 +441,11 @@ export default function App() {
     setHardwareProtection(current => updateProtectionValue(current, patch));
   }
 
+  function updateMotionSafety(manualMaxPositionSpeed: number) {
+    setMotionSafety({ manualMaxPositionSpeed });
+    window.hapticRelay.setManualMotionSafety(manualMaxPositionSpeed);
+  }
+
   async function loadSettings() {
     const requestId = ++settingsLoadRequestId.current;
     setSettingsLoading(true);
@@ -452,6 +457,7 @@ export default function App() {
       setHardwareProfile(settings.hardwareProfile);
       setHardwareProtection(protectionResult.protection);
       setMotionSafety(settings.motionSafety);
+      window.hapticRelay.setManualMotionSafety(settings.motionSafety.manualMaxPositionSpeed);
       setMotionDelayMs(settings.playback.motionDelayMs);
       setAppliedMotionDelayMs(settings.playback.motionDelayMs);
       setSavedSettings(settings);
@@ -811,6 +817,7 @@ export default function App() {
         profile={hardwareProfile} protection={hardwareProtection}
         profileDisabled={hardwareConnected || isBusy} busy={isBusy}
         settingsLoading={settingsLoading} hasSavedSettings={Boolean(savedSettings)}
+        motionSafety={motionSafety} onMotionSafetyChange={updateMotionSafety}
         onProfileChange={updateHardwareProfile} onProtectionChange={updateHardwareProtection}
         onApplyProtection={() => void applyHardwareProtection()}
         onSave={() => void saveSettings()} onLoad={() => void loadSettings()}

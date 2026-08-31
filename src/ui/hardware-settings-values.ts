@@ -13,6 +13,18 @@ export function percentToNormalized(value: number) {
   return clampPercent(value) / 100;
 }
 
+export function normalizedSpeedToPercent(value: number) {
+  return Math.round(value * 100);
+}
+
+export function percentSpeedToNormalized(value: number) {
+  return value / 100;
+}
+
+export function formatTraversalSeconds(manualMaxPositionSpeed: number) {
+  return (1 / manualMaxPositionSpeed).toFixed(2);
+}
+
 export function updateMotionRange(
   current: MotionRangePercent,
   handle: 'min' | 'max',
