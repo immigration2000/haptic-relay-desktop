@@ -25,6 +25,7 @@ const appendedWithCallerId = generatedIdStore.append({
 });
 assert.equal(appendedWithCallerId.row.id, 1, 'returned row uses the generated ID');
 assert.equal(generatedIdStore.snapshot().rows[0].id, 1, 'stored row uses the generated ID');
+assert.equal(appendedWithCallerId.sessionId, 1, 'append payload identifies its current session');
 
 for (let index = 0; index < 5; index += 1) {
   store.append({

@@ -103,6 +103,12 @@ export type HardwareOutputLogRow = HardwareOutputSnapshot & {
   id: number;
 };
 
+export type HardwareOutputLogAppend = {
+  sessionId: number;
+  row: HardwareOutputLogRow;
+  omittedRows: number;
+};
+
 export type HardwareOutputLogSession = {
   sessionId: number;
   startedAt?: number;

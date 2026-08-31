@@ -1,7 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { HardwareOutputLogRow, HardwareOutputLogSession } from './protocol.js';
-
-type AppendPayload = { row: HardwareOutputLogRow; omittedRows: number };
+import type { HardwareOutputLogAppend, HardwareOutputLogSession } from './protocol.js';
 
 contextBridge.exposeInMainWorld('hapticOutputLog', {
   getSession: (): Promise<HardwareOutputLogSession> => ipcRenderer.invoke('hardware-output-log:get'),
@@ -10,8 +8,8 @@ contextBridge.exposeInMainWorld('hapticOutputLog', {
     ipcRenderer.on('hardware-output-log:reset', handler);
     return () => ipcRenderer.removeListener('hardware-output-log:reset', handler);
   },
-  onAppend: (listener: (payload: AppendPayload) => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, payload: AppendPayload) => listener(payload);
+  onAppend: (listener: (payload: HardwareOutputLogAppend) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, payload: HardwareOutputLogAppend) => listener(payload);
     ipcRenderer.on('hardware-output-log:append', handler);
     return () => ipcRenderer.removeListener('hardware-output-log:append', handler);
   }

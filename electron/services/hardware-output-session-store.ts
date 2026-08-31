@@ -1,4 +1,5 @@
 import type {
+  HardwareOutputLogAppend,
   HardwareOutputLogRow,
   HardwareOutputLogSession,
   HardwareOutputSnapshot
@@ -31,7 +32,7 @@ export class HardwareOutputSessionStore {
     return this.snapshot();
   }
 
-  append(snapshot: HardwareOutputSnapshot) {
+  append(snapshot: HardwareOutputSnapshot): HardwareOutputLogAppend {
     const row: HardwareOutputLogRow = { ...snapshot, id: this.nextRowId++ };
     this.rows.push(row);
     if (this.rows.length > this.maxRows) {
@@ -39,7 +40,7 @@ export class HardwareOutputSessionStore {
       this.rows.splice(0, excess);
       this.omittedRows += excess;
     }
-    return { row: { ...row }, omittedRows: this.omittedRows };
+    return { sessionId: this.sessionId, row: { ...row }, omittedRows: this.omittedRows };
   }
 
   snapshot(): HardwareOutputLogSession {

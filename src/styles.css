@@ -198,7 +198,14 @@ button:disabled { cursor: not-allowed; opacity: .46; }
 .hardware-output-log-table td { padding: 7px 8px; border-top: 1px solid var(--divider); vertical-align: top; }
 .hardware-output-log-table code { color: #274a64; font-size: 11px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .hardware-output-log-omitted { margin: 0; color: var(--warning); font-size: 10px; }
+.hardware-output-log-notice { min-height: 12px; }
 .hardware-output-log-state { color: var(--muted); text-align: center; }
+.hardware-output-log-caption { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+.hardware-output-log-table tbody tr:not(.hardware-output-log-spacer) { height: 32px; }
+.hardware-output-log-table td { max-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hardware-output-log-table td:nth-child(3) { width: 48%; }
+.hardware-output-log-table code { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hardware-output-log-spacer td { height: 0; padding: 0; border: 0; }
 .hardware-output-log-follow { position: fixed; right: 24px; bottom: 24px; box-shadow: var(--shadow); }
 .button-row { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 11px; }
 .log-actions { margin: 0; }

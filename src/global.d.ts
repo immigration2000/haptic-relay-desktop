@@ -1,4 +1,4 @@
-import type { AppLogEntry, AppSettings, ApprovalRequest, HardwareConnectionStatus, HardwareDisconnectResult, HardwareEmergencyState, HardwareLatchedStopResult, HardwareOutputLogRow, HardwareOutputLogSession, HardwareOutputSnapshot, HardwareProfile, HardwareProtection, HardwareProtectionResult, MotionDemoSnapshot, MotionMonitorSnapshot, MotionPatternConfig, PortInfo, RoomDirectoryEntry, RoomDisconnectResult, RoomSettings, ViewerSession } from './shared/protocol';
+import type { AppLogEntry, AppSettings, ApprovalRequest, HardwareConnectionStatus, HardwareDisconnectResult, HardwareEmergencyState, HardwareLatchedStopResult, HardwareOutputLogAppend, HardwareOutputLogSession, HardwareOutputSnapshot, HardwareProfile, HardwareProtection, HardwareProtectionResult, MotionDemoSnapshot, MotionMonitorSnapshot, MotionPatternConfig, PortInfo, RoomDirectoryEntry, RoomDisconnectResult, RoomSettings, ViewerSession } from './shared/protocol';
 
 type ViewerStatus = {
   roomName: string;
@@ -88,7 +88,7 @@ declare global {
     hapticOutputLog?: {
       getSession: () => Promise<HardwareOutputLogSession>;
       onReset: (listener: (session: HardwareOutputLogSession) => void) => () => void;
-      onAppend: (listener: (payload: { row: HardwareOutputLogRow; omittedRows: number }) => void) => () => void;
+      onAppend: (listener: (payload: HardwareOutputLogAppend) => void) => () => void;
     };
   }
 }
