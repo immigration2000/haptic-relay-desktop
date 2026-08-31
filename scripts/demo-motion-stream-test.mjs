@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 
 const { DemoMotionStream, DEMO_MOTION_INTERVAL_MS } = await import('../dist-electron/services/demo-motion-stream.js');
-const MANUAL_MAX_POSITION_STEP = 2 * DEMO_MOTION_INTERVAL_MS / 1000;
+const { DEFAULT_MANUAL_MAX_POSITION_SPEED } = await import('../dist-electron/services/manual-motion-safety.js');
+const MANUAL_MAX_POSITION_STEP = DEFAULT_MANUAL_MAX_POSITION_SPEED * DEMO_MOTION_INTERVAL_MS / 1000;
 
 function createHarness(onPublish) {
   const published = [];
@@ -94,6 +95,33 @@ for (let index = 1; index < rapidManual.published.length; index += 1) {
     delta <= MANUAL_MAX_POSITION_STEP + Number.EPSILON,
     `rapid manual reversal limits adjacent position delta, got ${delta}`
   );
+}
+
+const configurable = createHarness();
+configurable.stream.start({ intensity: 0.5, position: 1 });
+const publishedBeforeLimitChange = configurable.published.length;
+const intervalsBeforeLimitChange = configurable.intervals.length;
+assert.equal(configurable.stream.setManualMaxPositionSpeed(4), 4);
+assert.equal(configurable.published.length, publishedBeforeLimitChange, 'changing speed publishes no frame');
+assert.equal(configurable.intervals.length, intervalsBeforeLimitChange, 'changing speed does not restart the timer');
+configurable.setTime(1_033, DEMO_MOTION_INTERVAL_MS);
+configurable.intervals[0].callback();
+assert.equal(
+  configurable.published.at(-1).position,
+  0.5 + DEFAULT_MANUAL_MAX_POSITION_SPEED * DEMO_MOTION_INTERVAL_MS / 1000 + 4 * DEMO_MOTION_INTERVAL_MS / 1000,
+  'the next tick uses the new 400%/s limit'
+);
+assert.equal(configurable.stream.setManualMaxPositionSpeed(0.5), 0.5);
+configurable.stream.update({ intensity: 0.5, position: 0 });
+configurable.setTime(1_066, DEMO_MOTION_INTERVAL_MS * 2);
+configurable.intervals[0].callback();
+assert.equal(
+  configurable.published.at(-1).position,
+  0.5 + DEFAULT_MANUAL_MAX_POSITION_SPEED * DEMO_MOTION_INTERVAL_MS / 1000 + 4 * DEMO_MOTION_INTERVAL_MS / 1000 - 0.5 * DEMO_MOTION_INTERVAL_MS / 1000,
+  'the next tick uses the new 50%/s limit'
+);
+for (const invalid of [0, 0.6, 4.25, Number.NaN]) {
+  assert.throws(() => configurable.stream.setManualMaxPositionSpeed(invalid), /invalid-manual-motion-speed/);
 }
 
 manual.stream.start({ intensity: 0.6, position: 0.5 });

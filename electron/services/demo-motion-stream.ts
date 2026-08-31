@@ -1,11 +1,10 @@
 import { performance } from 'node:perf_hooks';
 import type { MotionDemoMode, MotionFrame, MotionPatternConfig } from '../protocol.js';
 import { calculatePatternPosition } from './demo-motion-pattern.js';
+import { DEFAULT_MANUAL_MAX_POSITION_SPEED, validateManualMaxPositionSpeed } from './manual-motion-safety.js';
 
 export const DEMO_MOTION_INTERVAL_MS = 1000 / 30;
 export const PATTERN_ENTRY_RAMP_MS = 300;
-export const MANUAL_MAX_POSITION_SPEED_PER_SECOND = 2;
-const MANUAL_MAX_POSITION_STEP = MANUAL_MAX_POSITION_SPEED_PER_SECOND * DEMO_MOTION_INTERVAL_MS / 1000;
 
 type DemoMotion = Pick<MotionFrame, 'intensity' | 'position'>;
 type PublishMotion = (frame: MotionFrame) => void;
@@ -21,6 +20,7 @@ export class DemoMotionStream {
   private pattern: MotionPatternConfig | undefined;
   private patternStartedAt = 0;
   private patternRampFrom = 0.5;
+  private manualMaxPositionSpeed = DEFAULT_MANUAL_MAX_POSITION_SPEED;
 
   constructor(
     private readonly publish: PublishMotion,
@@ -83,6 +83,11 @@ export class DemoMotionStream {
     return this.mode;
   }
 
+  setManualMaxPositionSpeed(value: unknown): number {
+    this.manualMaxPositionSpeed = validateManualMaxPositionSpeed(value);
+    return this.manualMaxPositionSpeed;
+  }
+
   private safeTransition(nextMode: MotionDemoMode) {
     const transitioned = this.timer !== undefined && this.mode !== nextMode;
     if (transitioned) {
@@ -127,10 +132,11 @@ export class DemoMotionStream {
   }
 
   private publishManual() {
+    const maximumStep = this.manualMaxPositionSpeed * DEMO_MOTION_INTERVAL_MS / 1000;
     const delta = this.manualTarget.position - this.latest.position;
-    const position = Math.abs(delta) <= MANUAL_MAX_POSITION_STEP
+    const position = Math.abs(delta) <= maximumStep
       ? this.manualTarget.position
-      : this.latest.position + Math.sign(delta) * MANUAL_MAX_POSITION_STEP;
+      : this.latest.position + Math.sign(delta) * maximumStep;
     this.latest = { intensity: this.manualTarget.intensity, position };
     this.publishLatest();
   }
